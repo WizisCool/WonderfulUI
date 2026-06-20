@@ -138,18 +138,32 @@ Run Rust tests too when Rust or IPC-facing shapes changed.
 1. Work on a topic branch, usually `codex/<description>` for agent work.
 2. Push the branch.
 3. Open a Pull Request into `main`.
-4. Wait for `.github/workflows/ci.yml` to pass.
+4. Wait for `.github/workflows/ci.yml` to pass on the PR.
 5. Merge only after CI is green.
 
-The CI workflow runs on `windows-latest`:
+The PR CI workflow runs on `windows-latest` for pull requests targeting
+`main`. It first detects changed areas and skips irrelevant heavy checks:
 
 ```bash
+# Frontend / TypeScript / parser changes
 bun install --frozen-lockfile
 bun run typecheck
 bun run test
-cargo test --release --manifest-path src-tauri/Cargo.toml --lib
-bun run build
+
+# Rust / Tauri changes
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
+
+Workflow changes run both frontend and Rust checks so CI edits validate their
+own behavior. Docs-only PRs may pass after checkout and path detection without
+running either toolchain.
+
+CI does not run again automatically on the post-merge `main` push. This keeps
+normal PR merges from paying for the same full Windows/Tauri build twice. If a
+manual confirmation of `main` is needed, start the CI workflow from GitHub
+Actions. The manual CI trigger has a `full-build` option for running
+`bun run build`; release tags still run the full release workflow
+independently.
 
 If CI fails, inspect the failing step logs before changing code. Fix the root
 cause on the branch, push again, and let CI re-run.
@@ -231,7 +245,7 @@ opening or merging release-impacting PRs.
 | Docs only | `git diff --check`, review links in diff |
 | GUI TypeScript/CSS | `bun run typecheck`, `bun run test` |
 | Parser TypeScript | `bun test packages/parser`, `bun run typecheck` |
-| Rust parser/library/Tauri commands | `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` |
+| Rust parser/library/Tauri commands | `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
 | IPC shape shared by Rust and GUI | `bun run typecheck`, `bun run test`, Rust lib tests |
 | Tauri config, packaging, release workflow | full CI command set plus `bun run build` |
 

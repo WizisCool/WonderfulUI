@@ -23,7 +23,9 @@ main              ← 永远可发布
 └─ docs/xxx       ← 文档
 ```
 
-所有改动通过 Pull Request 合入 `main`，合并前 CI 必须通过。
+所有改动通过 Pull Request 合入 `main`，合并前 PR CI 必须通过。合并后的
+`main` push 不会自动重复跑同一套完整 CI；需要主线复验时可在 GitHub Actions
+手动触发 CI。正式发布仍由 `v*` tag 触发 Release workflow。
 
 ## 提交规范
 
@@ -57,8 +59,13 @@ test(parser): add fixture for empty snapshot
 ```bash
 bun run typecheck    # TypeScript 类型检查
 bun test             # 前端 + 解析器测试
-cargo test --release --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
+cargo test --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
 ```
+
+PR CI 会按改动范围跳过无关的重检查：前端/解析器改动跑 Bun 检查，Rust/Tauri
+改动跑 Rust 测试，文档改动不会强制启动两套工具链。PR CI 不默认执行完整 Tauri
+打包；需要打包验证时可手动触发 CI 的 `full-build` 选项，正式发布则由 Release
+workflow 从 `v*` tag 执行完整验证和 `bun run build`。
 
 ## 发布流程
 
