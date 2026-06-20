@@ -1,10 +1,19 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full-build:
+        description: 'Run the full Tauri build after tests'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,16 +22,66 @@ jobs:
   check:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas
+        id: changes
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FULL_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs['full-build'] }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            $files = git ls-files
+          } else {
+            $files = git diff --name-only $env:BASE_SHA $env:HEAD_SHA
+          }
+
+          $fullBuild = $env:FULL_BUILD -eq "true"
+          $workflowChanged = $files | Where-Object { $_ -like ".github/workflows/*" }
+          $frontendChanged = $files | Where-Object {
+            $_ -match "^(package\.json|bun\.lock|tsconfig\.json|packages/|tools/|scripts/)"
+          }
+          $rustChanged = $files | Where-Object {
+            $_ -match "^(Cargo\.toml|Cargo\.lock|src-tauri/)"
+          }
+
+          $runFrontend = $fullBuild -or $workflowChanged -or $frontendChanged
+          $runRust = $fullBuild -or $workflowChanged -or $rustChanged
+
+          "frontend=$($runFrontend.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "rust=$($runRust.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "full_build=$($fullBuild.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+          "Changed files:"
+          $files
+          "Run frontend checks: $runFrontend"
+          "Run Rust checks: $runRust"
+          "Run full build: $fullBuild"
+
+      - if: ${{ steps.changes.outputs.rust == 'true' }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - if: ${{ steps.changes.outputs.frontend == 'true' }}
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
+      - if: ${{ steps.changes.outputs.frontend == 'true' }}
+        run: bun install --frozen-lockfile
+      - if: ${{ steps.changes.outputs.frontend == 'true' }}
+        run: bun run typecheck
+      - if: ${{ steps.changes.outputs.frontend == 'true' }}
+        run: bun run test
 
-      - run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+      - if: ${{ steps.changes.outputs.rust == 'true' }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      - run: bun run build
+      - if: ${{ steps.changes.outputs.full_build == 'true' }}
+        run: bun run build
+
+      - if: ${{ steps.changes.outputs.frontend != 'true' && steps.changes.outputs.rust != 'true' }}
+        run: echo "Docs-only change; no frontend or Rust checks required."
