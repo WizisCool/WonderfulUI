@@ -152,6 +152,13 @@ Account list uses a custom tooltip, not native `title=`.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `本地资料库` and calls `scrape_library` with `mode: "full"`.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
+- Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库` and `日志`.
+- The `日志` tab reads from Tauri `get_log_status` and opens the WonderfulUI log directory through `reveal_logs_dir`; frontend code must not read arbitrary local files directly.
+- The `日志` tab shows one app-owned log file only. Do not expose automatic maintenance as a user setting; it is backend behavior.
+- Do not show the full absolute log path as primary UI. Show the log filename/status and rely on `打开目录` for filesystem location.
+- The log preview should present timestamps in a human-readable local format and stay pinned to the latest lines after refresh.
+- Settings tab changes replace only the internal nav/content regions. Do not remount the backdrop or modal on tab switch; open/close animation belongs only to the modal lifecycle.
+- Keep the modal at a fixed desktop size so page changes do not resize the window. Small viewports may clamp via max-width/max-height.
 - Escape and backdrop click close the modal; Tab focus must stay inside it while open.
 - Settings modal z-index is 1300, above event modals (1100) and the player (1200). Toasts sit above it so scan feedback remains visible.
 - Settings modal motion should stay quiet: short backdrop fade plus subtle translate/scale on the modal. Keep open/close around 120-170 ms and respect `prefers-reduced-motion`.

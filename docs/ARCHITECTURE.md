@@ -11,6 +11,7 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - Frontend: Vite + native TypeScript / DOM APIs, no framework.
 - Parser: Rust in-process inside the Tauri shell.
 - Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db`.
+- App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
 - TS parser: retained for CLI and Bun unit tests.
 - Build: `cargo tauri build` / `bunx tauri build`, no sidecar parser executable.
 - Git: single repository, main branch, no pre-commit hook.
@@ -75,6 +76,10 @@ Defined in `src-tauri/src/lib.rs`:
   - `explorer.exe` exit code after `/select` is unreliable (it forks a new
     process and returns immediately with code 0 or 1). Success is judged by
     spawn success + file existence, not exit code. See `lib.rs` for details.
+- `get_log_status() -> LogStatus`
+  - Returns the WonderfulUI log directory, current log file metadata, and a bounded tail preview from `wonderful-ui.log` for the settings `日志` tab.
+- `reveal_logs_dir()`
+  - Opens `%LOCALAPPDATA%\wonderful-ui\logs` in Explorer so users can attach logs to future bug reports.
 - `cache_hero_image(url)` (legacy thin wrapper around `cache_asset`)
 - `cache_asset(kind, url)` — unified asset cache supporting `hero_image`, `map_image`, `game_mode_icon`
 - `cache_assets(entries)` — batch variant, returns `url → local_path` map for bulk pre-warm
@@ -139,6 +144,23 @@ metadata are unchanged and the previous parse completed without an account
 error. Accounts with `parse_error` are retried even if the file metadata is
 unchanged, because ACLOS can produce torn reads while writing. Full mode
 ignores freshness metadata and reparses every account file.
+
+## Diagnostics Logs
+
+WonderfulUI keeps app-owned diagnostic logs under
+`%LOCALAPPDATA%\wonderful-ui\logs\`. Logs are for post-release support and
+bug triage, not for analytics or gameplay telemetry.
+
+- Current file: `wonderful-ui.log`.
+- Retention: one file only. When the log grows past its size limit, the app automatically keeps the newest tail and drops older content.
+- Logged scope: app startup, library load/scan requests, on-demand round loads,
+  cache failures, and log-directory access.
+- Do not log raw WonderfulDb payloads, raw match JSON, clip/event trees, or
+  broad video path inventories.
+- Do not read from or write to Riot, VALORANT, Vanguard, WeGame, or ACLOS game
+  install directories as part of logging.
+- Future bug-report export should bundle these app logs plus version/build
+  metadata and a user-reviewed summary; it should not silently upload data.
 
 ## Why Plan B
 

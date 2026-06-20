@@ -29,7 +29,7 @@ import { createFilterRail, buildAppliedChips } from './filter-bar.ts';
 import { positionFloating, createArrow, referenceAtX } from './floating.ts';
 import { mountScanProgress, type ScanProgressHandle } from './scan-progress.ts';
 import { el } from './dom.ts';
-import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, type ScrapeMode } from './settings-modal.ts';
+import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
 
 export const BRAND_NAME = 'WonderfulUI';
 export const BRAND_NAME_BASE = 'Wonderful';
@@ -894,6 +894,8 @@ export async function renderApp(root: HTMLElement) {
   let settingsOpen = false;
   let settingsClosing = false;
   let settingsCloseTimer: number | null = null;
+  let settingsTab: SettingsTab = 'library';
+  let logPanel: LogPanelState = { loading: false, status: null, error: null };
   let refreshScanMode: ScrapeMode = loadRefreshScanMode();
   let editingAccount: string | null = null;
   let suppressAccountClick = false;
@@ -1355,10 +1357,24 @@ export async function renderApp(root: HTMLElement) {
     const current = settingsSlot.firstElementChild as HTMLElement | null;
     const currentClosing = current?.classList.contains('is-closing') ?? false;
     if (current && currentClosing === settingsClosing) {
+      const next = settingsModal(scraping, refreshScanMode, settingsTab, logPanel, settingsClosing);
+      const currentModal = current.querySelector<HTMLElement>('.settings-modal');
+      const nextModal = next.querySelector<HTMLElement>('.settings-modal');
+      const currentNav = current.querySelector<HTMLElement>('.settings-nav');
+      const nextNav = next.querySelector<HTMLElement>('.settings-nav');
+      const currentContent = current.querySelector<HTMLElement>('.settings-content');
+      const nextContent = next.querySelector<HTMLElement>('.settings-content');
+      if (currentModal && nextModal && currentNav && nextNav && currentContent && nextContent) {
+        currentModal.dataset.settingsTab = settingsTab;
+        currentNav.replaceChildren(...Array.from(nextNav.childNodes));
+        currentContent.replaceChildren(...Array.from(nextContent.childNodes));
+      }
       refreshSettingsModalChrome();
+      pinLogPreviewToLatest();
       return;
     }
-    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsClosing));
+    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsTab, logPanel, settingsClosing));
+    pinLogPreviewToLatest();
   }
 
   function refreshSettingsModalChrome() {
@@ -1373,6 +1389,11 @@ export async function renderApp(root: HTMLElement) {
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-checked', String(active));
     }
+    for (const btn of settingsSlot.querySelectorAll<HTMLButtonElement>('[data-action="set-settings-tab"]')) {
+      const active = btn.dataset.tab === settingsTab;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-current', active ? 'page' : 'false');
+    }
   }
 
   function setRefreshScanMode(mode: ScrapeMode) {
@@ -1381,6 +1402,44 @@ export async function renderApp(root: HTMLElement) {
     refreshTopbarChrome();
     refreshSettingsModalChrome();
     hideTooltip();
+  }
+
+  function pinLogPreviewToLatest() {
+    if (settingsTab !== 'logs') return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const preview = settingsSlot.querySelector<HTMLElement>('.settings-log-preview');
+        if (preview) preview.scrollTop = Math.max(0, preview.scrollHeight - preview.clientHeight);
+      });
+    });
+  }
+
+  async function refreshLogs() {
+    const hasExistingLog = !!logPanel.status || !!logPanel.error;
+    logPanel = { ...logPanel, loading: true, error: null };
+    if (!hasExistingLog) {
+      refreshSettingsModal();
+    }
+    try {
+      const status = await invoke<LogStatus>('get_log_status');
+      logPanel = { loading: false, status, error: null };
+    } catch (e) {
+      logPanel = {
+        ...logPanel,
+        loading: false,
+        error: `日志读取失败: ${(e as Error).message ?? String(e)}`,
+      };
+    }
+    refreshSettingsModal();
+  }
+
+  function setSettingsTab(tab: SettingsTab) {
+    settingsTab = tab;
+    refreshSettingsModal();
+    hideTooltip();
+    if (tab === 'logs' && !logPanel.status && !logPanel.loading) {
+      void refreshLogs();
+    }
   }
 
   function setSettingsOpen(open: boolean) {
@@ -1409,6 +1468,9 @@ export async function renderApp(root: HTMLElement) {
       window.setTimeout(() => {
         settingsSlot.querySelector<HTMLButtonElement>('[data-action="close-settings"]')?.focus();
       }, 0);
+      if (settingsTab === 'logs' && !logPanel.status && !logPanel.loading) {
+        void refreshLogs();
+      }
     }
   }
 
@@ -1690,6 +1752,22 @@ export async function renderApp(root: HTMLElement) {
       if (modeButton) {
         const nextMode = modeButton.dataset.mode === 'full' ? 'full' : 'incremental';
         setRefreshScanMode(nextMode);
+        return;
+      }
+      const tabButton = target.closest<HTMLElement>('[data-action="set-settings-tab"]');
+      if (tabButton) {
+        const nextTab: SettingsTab = tabButton.dataset.tab === 'logs' ? 'logs' : 'library';
+        setSettingsTab(nextTab);
+        return;
+      }
+      if (target.closest<HTMLElement>('[data-action="refresh-logs"]')) {
+        if (!logPanel.loading) void refreshLogs();
+        return;
+      }
+      if (target.closest<HTMLElement>('[data-action="reveal-logs-dir"]')) {
+        void invoke('reveal_logs_dir').catch(e => {
+          showToast(`打开日志目录失败: ${(e as Error).message ?? String(e)}`, 'error');
+        });
         return;
       }
       if (target.closest<HTMLElement>('.settings-modal')) return;
