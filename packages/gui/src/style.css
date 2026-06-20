@@ -1212,7 +1212,7 @@ button {
 }
 .settings-modal {
   width: 720px;
-  height: 560px;
+  height: min(620px, calc(100vh - 40px));
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 40px);
   background: var(--surface);
@@ -1279,6 +1279,8 @@ button {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 14px;
   display: flex; flex-direction: column;
   gap: 12px;
@@ -1287,6 +1289,7 @@ button {
   overflow: hidden;
 }
 .settings-section {
+  flex: 0 0 auto;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: transparent;
@@ -1563,6 +1566,88 @@ button {
   to   { opacity: 0; transform: translateY(4px) scale(0.99); }
 }
 
+/* ─── library overview (资料库概览) ──────────── */
+.stats-video-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.stats-video-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.stats-video-metric {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface-2), transparent 48%);
+}
+.stats-video-value {
+  display: block;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: var(--w-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stats-video-label {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.stats-video-chart {
+  width: 100%;
+  height: 224px;
+  min-height: 224px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--bg), transparent 38%);
+}
+.stats-video-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 0 12px 12px;
+}
+.stats-video-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: var(--warn);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-video-warn svg {
+  color: var(--warn);
+  width: 12px;
+  height: 12px;
+}
+
+/* Errors in settings */
+.settings-row-sub.is-error {
+  color: var(--warn);
+}
+
+/* Responsive */
+@media (max-width: 760px) {
+  .stats-video-summary {
+    grid-template-columns: 1fr;
+  }
+  .stats-video-chart {
+    height: 280px;
+  }
+}
+
 /* ─── boot panel (inline loading state, in .pane.list.full) ── */
 .boot-panel {
   max-width: 540px;
@@ -1688,6 +1773,10 @@ button {
   }
   .scrape-btn.is-loading svg {
     animation-duration: 1600ms;
+  }
+  .settings-action.is-loading svg {
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
   }
   .settings-nav-item,
   .settings-row,

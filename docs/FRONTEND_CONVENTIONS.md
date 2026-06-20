@@ -150,7 +150,10 @@ Account list uses a custom tooltip, not native `title=`.
 - The top-right refresh icon is the fast path: it calls `scrape_library` with the user's saved refresh-button mode.
 - The top-right settings icon opens a centered settings modal, not a side drawer.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
-- The direct full scan action lives in the settings modal under `本地资料库` and calls `scrape_library` with `mode: "full"`.
+- The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
+- The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus an ECharts donut chart showing per-account video-count share. It is a library composition view, not a storage/disk-usage view.
+- The `资料库概览` chart is mounted by `packages/gui/src/library-stats.ts` into `ACCOUNT_VIDEO_CHART_HOST_ID`. Dispose the chart when the settings tab leaves `资料库` or the modal closes; do not leave hidden canvas instances around.
+- Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the top-right refresh button/settings full-scan action are the scan controls.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
 - Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库` and `日志`.
 - The `日志` tab reads from Tauri `get_log_status` and opens the WonderfulUI log directory through `reveal_logs_dir`; frontend code must not read arbitrary local files directly.

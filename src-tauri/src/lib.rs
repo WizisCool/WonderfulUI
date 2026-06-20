@@ -5,6 +5,7 @@ mod parser;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use library::stats::LibraryStats;
 use parser::model::{LoadResult, MatchRecord};
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
@@ -31,7 +32,8 @@ pub fn run() {
         cache_assets,
         reveal_in_explorer,
         get_log_status,
-        reveal_logs_dir
+        reveal_logs_dir,
+        get_library_stats
     ]);
 
     #[cfg(feature = "updater")]
@@ -313,6 +315,13 @@ fn reveal_logs_dir() -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("open logs dir {}: {}", dir.display(), e))?;
     Ok(())
+}
+
+#[tauri::command]
+fn get_library_stats() -> Result<LibraryStats, String> {
+    app_log::write(app_log::LogLevel::Info, "stats", "library stats requested");
+    let conn = library::db::open_library()?;
+    library::stats::compute(&conn)
 }
 
 fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {

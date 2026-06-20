@@ -198,6 +198,12 @@ pub fn migrate(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    if !column_exists(conn, "scrape_jobs", "errors_seen")? {
+        conn.execute(
+            "ALTER TABLE scrape_jobs ADD COLUMN errors_seen INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     conn.execute(
         "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",

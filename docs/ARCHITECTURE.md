@@ -80,6 +80,9 @@ Defined in `src-tauri/src/lib.rs`:
   - Returns the WonderfulUI log directory, current log file metadata, and a bounded tail preview from `wonderful-ui.log` for the settings `日志` tab.
 - `reveal_logs_dir()`
   - Opens `%LOCALAPPDATA%\wonderful-ui\logs` in Explorer so users can attach logs to future bug reports.
+- `get_library_stats() -> LibraryStats`
+  - Reads the local SQLite library and app-owned cache/log metadata to feed the settings `资料库概览`.
+  - The GUI currently visualizes per-account video counts from this payload; storage byte fields remain backend diagnostics, not primary UI.
 - `cache_hero_image(url)` (legacy thin wrapper around `cache_asset`)
 - `cache_asset(kind, url)` — unified asset cache supporting `hero_image`, `map_image`, `game_mode_icon`
 - `cache_assets(entries)` — batch variant, returns `url → local_path` map for bulk pre-warm

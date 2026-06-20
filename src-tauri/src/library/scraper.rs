@@ -656,8 +656,8 @@ pub fn scrape_wonderful_dir_with_mode(
     conn.execute(
         "UPDATE scrape_jobs
          SET finished_at = ?1, status = ?2, matches_seen = ?3, videos_seen = ?4,
-             events_seen = ?5, skipped_accounts = ?6
-         WHERE id = ?7",
+             events_seen = ?5, skipped_accounts = ?6, errors_seen = ?7
+         WHERE id = ?8",
         params![
             now_ms(),
             status,
@@ -665,6 +665,7 @@ pub fn scrape_wonderful_dir_with_mode(
             summary.videos_seen as i64,
             summary.events_seen as i64,
             summary.skipped_accounts as i64,
+            summary.errors_seen as i64,
             job_id,
         ],
     )

@@ -29,7 +29,9 @@ import { createFilterRail, buildAppliedChips } from './filter-bar.ts';
 import { positionFloating, createArrow, referenceAtX } from './floating.ts';
 import { mountScanProgress, type ScanProgressHandle } from './scan-progress.ts';
 import { el } from './dom.ts';
-import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
+import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, ACCOUNT_VIDEO_CHART_HOST_ID, type LibraryStatsState, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
+import type { LibraryStats } from './library-stats.ts';
+import { disposeAccountVideoChart, mountAccountVideoChart } from './library-stats.ts';
 
 export const BRAND_NAME = 'WonderfulUI';
 export const BRAND_NAME_BASE = 'Wonderful';
@@ -896,6 +898,7 @@ export async function renderApp(root: HTMLElement) {
   let settingsCloseTimer: number | null = null;
   let settingsTab: SettingsTab = 'library';
   let logPanel: LogPanelState = { loading: false, status: null, error: null };
+  let libraryStats: LibraryStatsState = { loading: false, data: null, error: null };
   let refreshScanMode: ScrapeMode = loadRefreshScanMode();
   let editingAccount: string | null = null;
   let suppressAccountClick = false;
@@ -963,15 +966,20 @@ export async function renderApp(root: HTMLElement) {
   }
 
   top.addEventListener('click', e => {
-    const target = e.target as HTMLElement;
-    const scrapeBtn = target.closest<HTMLElement>('[data-action="scrape-library"]');
-    if (scrapeBtn) {
-      if (!scraping) void scrapeLibraryNow(refreshScanMode);
-      return;
-    }
-    const settingsBtn = target.closest<HTMLElement>('[data-action="open-settings"]');
-    if (settingsBtn) {
-      setSettingsOpen(true);
+    try {
+      const target = e.target as HTMLElement;
+      const scrapeBtn = target.closest<HTMLElement>('[data-action="scrape-library"]');
+      if (scrapeBtn) {
+        if (!scraping) void scrapeLibraryNow(refreshScanMode);
+        return;
+      }
+      const settingsBtn = target.closest<HTMLElement>('[data-action="open-settings"]');
+      if (settingsBtn) {
+        setSettingsOpen(true);
+      }
+    } catch (err) {
+      console.error('topbar click handler failed', err);
+      showToast(`操作失败: ${(err as Error).message ?? String(err)}`, 'error');
     }
   });
 
@@ -1357,24 +1365,38 @@ export async function renderApp(root: HTMLElement) {
     const current = settingsSlot.firstElementChild as HTMLElement | null;
     const currentClosing = current?.classList.contains('is-closing') ?? false;
     if (current && currentClosing === settingsClosing) {
-      const next = settingsModal(scraping, refreshScanMode, settingsTab, logPanel, settingsClosing);
+      const next = settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, settingsClosing);
       const currentModal = current.querySelector<HTMLElement>('.settings-modal');
       const nextModal = next.querySelector<HTMLElement>('.settings-modal');
       const currentNav = current.querySelector<HTMLElement>('.settings-nav');
       const nextNav = next.querySelector<HTMLElement>('.settings-nav');
       const currentContent = current.querySelector<HTMLElement>('.settings-content');
       const nextContent = next.querySelector<HTMLElement>('.settings-content');
+      const preserveContentScroll = currentModal?.dataset.settingsTab === settingsTab && settingsTab === 'library';
+      const previousContentScroll = preserveContentScroll ? (currentContent?.scrollTop ?? 0) : 0;
       if (currentModal && nextModal && currentNav && nextNav && currentContent && nextContent) {
         currentModal.dataset.settingsTab = settingsTab;
         currentNav.replaceChildren(...Array.from(nextNav.childNodes));
+        currentContent.className = nextContent.className;
         currentContent.replaceChildren(...Array.from(nextContent.childNodes));
+        if (preserveContentScroll) restoreSettingsContentScroll(previousContentScroll);
       }
       refreshSettingsModalChrome();
       pinLogPreviewToLatest();
+      mountAccountVideoChartIfReady();
       return;
     }
-    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsTab, logPanel, settingsClosing));
+    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, settingsClosing));
+    mountAccountVideoChartIfReady();
     pinLogPreviewToLatest();
+  }
+
+  function restoreSettingsContentScroll(scrollTop: number) {
+    if (scrollTop <= 0) return;
+    window.requestAnimationFrame(() => {
+      const content = settingsSlot.querySelector<HTMLElement>('.settings-content');
+      if (content) content.scrollTop = scrollTop;
+    });
   }
 
   function refreshSettingsModalChrome() {
@@ -1433,6 +1455,37 @@ export async function renderApp(root: HTMLElement) {
     refreshSettingsModal();
   }
 
+  async function fetchLibraryStats() {
+    if (libraryStats.loading) return;
+    const previousData = libraryStats.data;
+    libraryStats = { ...libraryStats, loading: true, error: null };
+    refreshSettingsModal();
+    try {
+      const data = await invoke<LibraryStats>('get_library_stats');
+      libraryStats = { loading: false, data, error: null };
+    } catch (e) {
+      libraryStats = {
+        loading: false,
+        data: previousData,
+        error: `资料库统计失败: ${(e as Error).message ?? String(e)}`,
+      };
+    }
+    refreshSettingsModal();
+  }
+
+  function mountAccountVideoChartIfReady() {
+    if (settingsTab !== 'library' || !libraryStats.data) {
+      disposeAccountVideoChart();
+      return;
+    }
+    const host = document.getElementById(ACCOUNT_VIDEO_CHART_HOST_ID);
+    if (host) {
+      mountAccountVideoChart(host, libraryStats.data);
+    } else {
+      disposeAccountVideoChart();
+    }
+  }
+
   function setSettingsTab(tab: SettingsTab) {
     settingsTab = tab;
     refreshSettingsModal();
@@ -1454,6 +1507,7 @@ export async function renderApp(root: HTMLElement) {
       if (!settingsOpen && !settingsClosing) return;
       settingsOpen = false;
       settingsClosing = true;
+      disposeAccountVideoChart();
       settingsCloseTimer = window.setTimeout(() => {
         settingsClosing = false;
         settingsCloseTimer = null;
@@ -1468,6 +1522,9 @@ export async function renderApp(root: HTMLElement) {
       window.setTimeout(() => {
         settingsSlot.querySelector<HTMLButtonElement>('[data-action="close-settings"]')?.focus();
       }, 0);
+      if (!libraryStats.data && !libraryStats.loading && !libraryStats.error) {
+        void fetchLibraryStats();
+      }
       if (settingsTab === 'logs' && !logPanel.status && !logPanel.loading) {
         void refreshLogs();
       }
@@ -1544,6 +1601,7 @@ export async function renderApp(root: HTMLElement) {
       }
       refreshAll();
       ensureSelectedMatchRoundsLoaded();
+      void fetchLibraryStats();
     } catch (e) {
       const msg = `${scanModeLabel(mode)}失败: ${(e as Error).message ?? String(e)}`;
       if (progress) {
@@ -1734,8 +1792,9 @@ export async function renderApp(root: HTMLElement) {
   }
 
   root.addEventListener('click', e => {
-    const target = e.target as HTMLElement;
-    if (settingsOpen || settingsClosing) {
+    try {
+      const target = e.target as HTMLElement;
+      if (settingsOpen || settingsClosing) {
       if (target.classList.contains('settings-modal-backdrop')) {
         setSettingsOpen(false);
         return;
@@ -1746,6 +1805,10 @@ export async function renderApp(root: HTMLElement) {
       }
       if (target.closest<HTMLElement>('[data-action="scrape-library-full"]')) {
         if (!scraping) void scrapeLibraryNow('full');
+        return;
+      }
+      if (target.closest<HTMLElement>('[data-action="refresh-library-stats"]')) {
+        void fetchLibraryStats();
         return;
       }
       const modeButton = target.closest<HTMLElement>('[data-action="set-refresh-scan-mode"]');
@@ -1814,6 +1877,10 @@ export async function renderApp(root: HTMLElement) {
     if (row && root.contains(row)) {
       const m = findMatch(row.dataset.matchId);
       if (m) selectMatch(m);
+    }
+    } catch (err) {
+      console.error('root click handler failed', err);
+      showToast(`操作失败: ${(err as Error).message ?? String(err)}`, 'error');
     }
   });
 

@@ -12,6 +12,7 @@
     "@floating-ui/dom": "^1.6.0",
     "@tanstack/table-core": "8.21.3",
     "@wonderful-ui/parser": "workspace:*",
+    "echarts": "6.1.0",
     "fuse.js": "7.4.2",
     "sortablejs": "1.15.7"
   },

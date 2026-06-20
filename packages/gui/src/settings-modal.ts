@@ -1,5 +1,7 @@
 import { createElement, Bug, Database, FileText, FolderOpen, RefreshCw, X } from 'lucide';
 import { el } from './dom.ts';
+import type { LibraryStats } from './library-stats.ts';
+import { fmtBytes } from './library-stats.ts';
 
 export type ScrapeMode = 'incremental' | 'full';
 export type SettingsTab = 'library' | 'logs';
@@ -19,7 +21,14 @@ export interface LogPanelState {
   error: string | null;
 }
 
+export interface LibraryStatsState {
+  loading: boolean;
+  data: LibraryStats | null;
+  error: string | null;
+}
+
 const REFRESH_SCAN_MODE_KEY = 'wui:library.refreshScanMode';
+export const ACCOUNT_VIDEO_CHART_HOST_ID = 'stats-account-video-chart';
 
 export function scanModeLabel(mode: ScrapeMode): string {
   return mode === 'full' ? '全量扫描' : '增量扫描';
@@ -31,12 +40,6 @@ export function loadRefreshScanMode(): ScrapeMode {
 
 export function saveRefreshScanMode(mode: ScrapeMode) {
   localStorage.setItem(REFRESH_SCAN_MODE_KEY, mode);
-}
-
-function fmtBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
 }
 
 function fmtLogTime(ms: number): string {
@@ -72,7 +75,105 @@ function navButton(tab: SettingsTab, activeTab: SettingsTab, icon: SVGElement, l
   ]);
 }
 
-function librarySettingsContent(scraping: boolean, scanMode: ScrapeMode): HTMLElement[] {
+/* ─── Video Overview ───────────────────────────── */
+
+function videoOverviewContent(stats: LibraryStatsState): HTMLElement[] {
+  if (stats.error && !stats.data) {
+    return [el('section', { class: 'settings-section' }, [
+      el('div', { class: 'settings-section-head' }, [
+        el('h3', {}, ['资料库概览']),
+      ]),
+      el('div', { class: 'settings-row' }, [
+        el('span', { class: 'settings-row-sub is-error' }, [stats.error]),
+      ]),
+      el('div', { class: 'settings-row' }, [
+        el('button', {
+          class: 'btn settings-action',
+          type: 'button',
+          'data-action': 'refresh-library-stats',
+        }, ['重试']),
+      ]),
+    ])];
+  }
+  if (stats.loading && !stats.data) {
+    return [el('section', { class: 'settings-section' }, [
+      el('div', { class: 'settings-section-head' }, [
+        el('h3', {}, ['资料库概览']),
+      ]),
+      el('div', { class: 'settings-row' }, [
+        el('span', { class: 'settings-row-sub' }, ['正在加载...']),
+      ]),
+    ])];
+  }
+  if (!stats.data) {
+    return [el('section', { class: 'settings-section' }, [
+      el('div', { class: 'settings-section-head' }, [
+        el('h3', {}, ['资料库概览']),
+      ]),
+      el('div', { class: 'settings-row' }, [
+        el('span', { class: 'settings-row-sub' }, ['暂无视频数据']),
+      ]),
+    ])];
+  }
+
+  const d = stats.data;
+  const accounts = d.accounts;
+  const totalMatches = accounts.reduce((sum, account) => sum + account.matchCount, 0);
+
+  const noticeChildren: (Node | string)[] = [];
+  if (stats.error) {
+    noticeChildren.push(el('span', { class: 'stats-video-warn' }, [
+      createElement(X, { width: 12, height: 12 }),
+      ' ',
+      '刷新失败，正在显示上次统计',
+    ]));
+  }
+  if (d.missingVideos > 0) {
+    noticeChildren.push(el('span', { class: 'stats-video-warn' }, [
+      createElement(X, { width: 12, height: 12 }),
+      ' ',
+      `缺失 ${d.missingVideos} 个视频`,
+    ]));
+  }
+
+  const summary = el('div', { class: 'stats-video-summary' }, [
+    el('div', { class: 'stats-video-metric' }, [
+      el('span', { class: 'stats-video-value' }, [String(d.totalVideos)]),
+      el('span', { class: 'stats-video-label' }, ['视频']),
+    ]),
+    el('div', { class: 'stats-video-metric' }, [
+      el('span', { class: 'stats-video-value' }, [String(totalMatches)]),
+      el('span', { class: 'stats-video-label' }, ['对局']),
+    ]),
+    el('div', { class: 'stats-video-metric' }, [
+      el('span', { class: 'stats-video-value' }, [String(d.totalAccounts)]),
+      el('span', { class: 'stats-video-label' }, ['账户']),
+    ]),
+  ]);
+
+  return [el('section', { class: 'settings-section' }, [
+    el('div', { class: 'settings-section-head' }, [
+      el('h3', {}, ['资料库概览']),
+      el('span', { class: 'settings-section-sub' }, [stats.loading ? '刷新中' : `${accounts.length} 个账户`]),
+    ]),
+    el('div', { class: 'stats-video-body' }, [
+      summary,
+      el('div', {
+        class: 'stats-video-chart',
+        id: ACCOUNT_VIDEO_CHART_HOST_ID,
+        role: 'img',
+        'aria-label': '按账号展示视频数量占比的饼图',
+      }),
+    ]),
+    ...(noticeChildren.length > 0
+      ? [el('div', { class: 'stats-video-notice' }, noticeChildren)]
+      : []),
+  ])];
+}
+
+/* ─── Scan Settings (existing) ─────────────────── */
+
+function scanSettingsContent(scraping: boolean, scanMode: ScrapeMode): HTMLElement[] {
   const fullButton = el('button', {
     class: 'btn settings-action',
     type: 'button',
@@ -105,31 +206,42 @@ function librarySettingsContent(scraping: boolean, scanMode: ScrapeMode): HTMLEl
     }, ['全量扫描']),
   ]);
 
-  return [
-    el('section', { class: 'settings-section' }, [
-      el('div', { class: 'settings-section-head' }, [
-        el('h3', {}, ['本地资料库']),
-        el('span', { class: 'settings-section-sub' }, ['扫描设置']),
-      ]),
-      el('div', { class: 'settings-row' }, [
-        el('div', { class: 'settings-row-main' }, [
-          el('div', { class: 'settings-row-title' }, ['刷新模式']),
-          el('div', { class: 'settings-row-sub settings-sub-line' }, [
-            '决定右上角',
-            createElement(RefreshCw, { width: 12, height: 12 }),
-            '刷新按钮的工作方式',
-          ]),
-        ]),
-        modeButtons,
-      ]),
-      el('div', { class: 'settings-row' }, [
-        el('div', { class: 'settings-row-main' }, [
-          el('div', { class: 'settings-row-title' }, ['全量扫描']),
-          el('div', { class: 'settings-row-sub' }, ['全部重新解析，适合重建本地库']),
-        ]),
-        fullButton,
-      ]),
+  return [el('section', { class: 'settings-section' }, [
+    el('div', { class: 'settings-section-head' }, [
+      el('h3', {}, ['扫描设置']),
+      el('span', { class: 'settings-section-sub' }, ['扫描与重建']),
     ]),
+    el('div', { class: 'settings-row' }, [
+      el('div', { class: 'settings-row-main' }, [
+        el('div', { class: 'settings-row-title' }, ['刷新模式']),
+        el('div', { class: 'settings-row-sub settings-sub-line' }, [
+          '决定右上角',
+          createElement(RefreshCw, { width: 12, height: 12 }),
+          '刷新按钮的工作方式',
+        ]),
+      ]),
+      modeButtons,
+    ]),
+    el('div', { class: 'settings-row' }, [
+      el('div', { class: 'settings-row-main' }, [
+        el('div', { class: 'settings-row-title' }, ['全量扫描']),
+        el('div', { class: 'settings-row-sub' }, ['全部重新解析，适合重建本地库']),
+      ]),
+      fullButton,
+    ]),
+  ])];
+}
+
+/* ─── Main content builder ─────────────────────── */
+
+function librarySettingsContent(
+  scraping: boolean,
+  scanMode: ScrapeMode,
+  stats: LibraryStatsState,
+): HTMLElement[] {
+  return [
+    ...videoOverviewContent(stats),
+    ...scanSettingsContent(scraping, scanMode),
   ];
 }
 
@@ -194,11 +306,12 @@ export function settingsModal(
   scanMode: ScrapeMode,
   activeTab: SettingsTab,
   logs: LogPanelState,
+  libraryStats: LibraryStatsState,
   closing = false,
 ): HTMLElement {
   const content = activeTab === 'logs'
     ? logSettingsContent(logs)
-    : librarySettingsContent(scraping, scanMode);
+    : librarySettingsContent(scraping, scanMode, libraryStats);
 
   return el('div', { class: `settings-modal-backdrop ${closing ? 'is-closing' : ''}` }, [
     el('section', {
@@ -224,7 +337,7 @@ export function settingsModal(
           navButton('library', activeTab, createElement(Database, { width: 16, height: 16 }), '资料库'),
           navButton('logs', activeTab, createElement(Bug, { width: 16, height: 16 }), '日志'),
         ]),
-        el('main', { class: `settings-content ${activeTab === 'logs' ? 'settings-content--logs' : ''}` }, content),
+        el('main', { class: `settings-content ${activeTab === 'logs' ? 'settings-content--logs' : 'settings-content--library'}` }, content),
       ]),
     ]),
   ]);
