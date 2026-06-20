@@ -143,12 +143,12 @@ function markerStemPx(
   const dotRadius = displayMode === 'compact' ? COMPACT_DOT_RADIUS_PX : FULL_DOT_RADIUS_PX;
   if (placement === 'bottom') {
     const stemPx = topPx + markerHeight / 2 - dotRadius - trackHeightPx + STEM_TRACK_OVERLAP_PX;
-    return Math.max(6, Math.round(stemPx));
+    return Math.max(6, stemPx);
   }
   const stemPx = -topPx
     - markerHeight / 2
     - dotRadius
     + STEM_DOT_OVERLAP_PX
     + STEM_TRACK_OVERLAP_PX;
-  return Math.max(6, Math.round(stemPx));
+  return Math.max(6, stemPx);
 }

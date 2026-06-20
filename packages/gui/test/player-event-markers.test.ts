@@ -48,11 +48,11 @@ describe('layoutEventMarkers', () => {
     ], 100_000);
 
     expect(markers.map(m => m.stackLevel)).toEqual([0, 1, 2, 0]);
-    expect(markers.map(m => m.stemPx)).toEqual([20, 28, 30, 20]);
+    expect(markers.map(m => m.stemPx)).toEqual([20.5, 28.5, 30.5, 20.5]);
     expect(markers[0]!.topPx).toBe(-32);
     expect(markers[1]!.topPx).toBeLessThan(markers[0]!.topPx);
     expect(markers[2]!.topPx).toBeLessThan(markers[1]!.topPx);
-    expect(markers.map(m => m.topPx + 11 + 3.5 - 1 + m.stemPx)).toEqual([1.5, 1.5, 1.5, 1.5]);
+    expect(markers.map(m => m.topPx + 11 + 3.5 - 1 + m.stemPx)).toEqual([2, 2, 2, 2]);
   });
 
   test('uses compact display on dense timelines to reduce visual noise', () => {
