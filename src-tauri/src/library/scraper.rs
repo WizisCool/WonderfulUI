@@ -6,6 +6,7 @@ use crate::parser::model::{MatchRecord, SnapshotAchievement};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use tauri::Emitter;
 use uuid::Uuid;
 
 const ACLOS_SOURCE_ID: &str = "aclos_wonderfuldb";
@@ -17,6 +18,56 @@ pub struct ScrapeSummary {
     pub events_seen: usize,
     pub errors_seen: usize,
     pub skipped_accounts: usize,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ScrapePhaseEvent {
+    phase: String,
+    label: String,
+    sub: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AccountStartedEvent {
+    openid: String,
+    current: usize,
+    total: usize,
+    size_bytes_done: i64,
+    size_bytes_total: i64,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AccountFinishedEvent {
+    openid: String,
+    status: String,
+    current: usize,
+    total: usize,
+    size_bytes_done: i64,
+    size_bytes_total: i64,
+    error: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct AccountLoadedEvent {
+    openid: String,
+    matches_count: usize,
+    videos_count: usize,
+    events_count: usize,
+    status: String, // "ok" | "error"
+    error: Option<String>,
+    duration_ms: i64,
+    current: usize,
+    total: usize,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ScrapeSummaryEventData {
+    matches_seen: usize,
+    videos_seen: usize,
+    events_seen: usize,
+    errors_seen: usize,
+    skipped_accounts: usize,
+    duration_ms: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,7 +422,7 @@ pub fn scrape_wonderful_dir(
     dir: &Path,
     trigger: &str,
 ) -> Result<ScrapeSummary, String> {
-    scrape_wonderful_dir_with_mode(conn, dir, trigger, ScrapeMode::Full)
+    scrape_wonderful_dir_with_mode(conn, dir, trigger, ScrapeMode::Full, None)
 }
 
 pub fn scrape_wonderful_dir_with_mode(
@@ -379,8 +430,19 @@ pub fn scrape_wonderful_dir_with_mode(
     dir: &Path,
     trigger: &str,
     mode: ScrapeMode,
+    app: Option<&tauri::AppHandle>,
 ) -> Result<ScrapeSummary, String> {
-    let now = now_ms();
+    let start_ms = now_ms();
+    let now = start_ms;
+
+    if let Some(a) = app {
+        let _ = a.emit("wui://phase", ScrapePhaseEvent {
+            phase: "opening".into(),
+            label: "打开资料库".into(),
+            sub: None,
+        });
+    }
+
     upsert_source(conn, dir, now).map_err(|e| e.to_string())?;
     let job_id = Uuid::new_v4().to_string();
     conn.execute(
@@ -406,6 +468,8 @@ pub fn scrape_wonderful_dir_with_mode(
         }
     };
 
+    // Pre-enumerate account files for progress reporting.
+    let mut account_files: Vec<(String, std::path::PathBuf, Option<SourceFileMeta>)> = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name();
@@ -414,27 +478,74 @@ pub fn scrape_wonderful_dir_with_mode(
             continue;
         }
         let path = entry.path();
-        let openid = name_str.into_owned();
-        let source_meta = source_file_meta(&path);
-        let snapshot_meta = snapshot_file_meta(dir, &openid);
+        let meta = source_file_meta(&path);
+        account_files.push((name_str.into_owned(), path, meta));
+    }
+
+    let total_accounts = account_files.len();
+    let total_size: i64 = account_files.iter().filter_map(|(_, _, m)| m.map(|x| x.size_bytes)).sum();
+    let mut size_done: i64 = 0;
+
+    if let Some(a) = app {
+        let _ = a.emit("wui://phase", ScrapePhaseEvent {
+            phase: "scanning".into(),
+            label: "扫描账户".into(),
+            sub: if total_accounts > 0 {
+                Some(format!("{} 个账户 · {} MB", total_accounts, total_size / 1_048_576))
+            } else {
+                Some("未发现账户数据".into())
+            },
+        });
+    }
+
+    for (idx, (openid, path, source_meta)) in account_files.iter().enumerate() {
+        let snapshot_meta = snapshot_file_meta(dir, openid);
+        let current = idx + 1;
+
         if matches!(mode, ScrapeMode::Incremental)
             && source_meta
-                .map(|meta| account_is_fresh(conn, &openid, meta, snapshot_meta))
+                .map(|meta| account_is_fresh(conn, openid, meta, snapshot_meta))
                 .transpose()
                 .map_err(|e| e.to_string())?
                 .unwrap_or(false)
         {
             summary.skipped_accounts += 1;
+            if let Some(a) = app {
+                let _ = a.emit("wui://account_finished", AccountFinishedEvent {
+                    openid: openid.clone(),
+                    status: "skipped".into(),
+                    current,
+                    total: total_accounts,
+                    size_bytes_done: size_done,
+                    size_bytes_total: total_size,
+                    error: None,
+                });
+            }
             continue;
         }
-        let (nick, tag, achievements) = read_snapshot_for_account(dir, &openid);
-        match parser::parse_wonderful_db(&path, &openid) {
+
+        if let Some(a) = app {
+            let _ = a.emit("wui://account_started", AccountStartedEvent {
+                openid: openid.clone(),
+                current,
+                total: total_accounts,
+                size_bytes_done: size_done,
+                size_bytes_total: total_size,
+            });
+        }
+        let account_start = now_ms();
+
+        let (nick, tag, achievements) = read_snapshot_for_account(dir, openid);
+        let mut acc_matches = 0usize;
+        let mut acc_videos = 0usize;
+        let mut acc_events = 0usize;
+        match parser::parse_wonderful_db(path, openid) {
             Ok(file) => {
                 upsert_account(
                     conn,
-                    &openid,
-                    &path,
-                    source_meta,
+                    openid,
+                    path,
+                    *source_meta,
                     snapshot_meta,
                     nick,
                     tag,
@@ -445,19 +556,45 @@ pub fn scrape_wonderful_dir_with_mode(
                 .map_err(|e| e.to_string())?;
                 for m in &file.matches {
                     upsert_match(conn, m, now).map_err(|e| e.to_string())?;
-                    summary.videos_seen +=
+                    acc_videos +=
                         upsert_videos(conn, m, now).map_err(|e| e.to_string())?;
-                    summary.events_seen += upsert_events(conn, m).map_err(|e| e.to_string())?;
+                    acc_events += upsert_events(conn, m).map_err(|e| e.to_string())?;
+                    acc_matches += 1;
                     summary.matches_seen += 1;
+                }
+                summary.videos_seen += acc_videos;
+                summary.events_seen += acc_events;
+                let acc_duration = now_ms() - account_start;
+                if let Some(a) = app {
+                    let _ = a.emit("wui://account_finished", AccountFinishedEvent {
+                        openid: openid.clone(),
+                        status: "ok".into(),
+                        current,
+                        total: total_accounts,
+                        size_bytes_done: size_done,
+                        size_bytes_total: total_size,
+                        error: None,
+                    });
+                    let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
+                        openid: openid.clone(),
+                        matches_count: acc_matches,
+                        videos_count: acc_videos,
+                        events_count: acc_events,
+                        status: "ok".into(),
+                        error: None,
+                        duration_ms: acc_duration,
+                        current,
+                        total: total_accounts,
+                    });
                 }
             }
             Err(e) => {
                 let message = format!("parse {}: {}", path.display(), e);
                 upsert_account(
                     conn,
-                    &openid,
-                    &path,
-                    source_meta,
+                    openid,
+                    path,
+                    *source_meta,
                     snapshot_meta,
                     nick,
                     tag,
@@ -467,8 +604,47 @@ pub fn scrape_wonderful_dir_with_mode(
                 )
                 .map_err(|e| e.to_string())?;
                 summary.errors_seen += 1;
+                let acc_duration = now_ms() - account_start;
+                if let Some(a) = app {
+                    let _ = a.emit("wui://account_finished", AccountFinishedEvent {
+                        openid: openid.clone(),
+                        status: "error".into(),
+                        current,
+                        total: total_accounts,
+                        size_bytes_done: size_done,
+                        size_bytes_total: total_size,
+                        error: Some(message.clone()),
+                    });
+                    let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
+                        openid: openid.clone(),
+                        matches_count: 0,
+                        videos_count: 0,
+                        events_count: 0,
+                        status: "error".into(),
+                        error: Some(message),
+                        duration_ms: acc_duration,
+                        current,
+                        total: total_accounts,
+                    });
+                }
             }
         }
+        if let Some(m) = source_meta {
+            size_done += m.size_bytes;
+        }
+    }
+
+    let duration_ms = now_ms() - start_ms;
+
+    if let Some(a) = app {
+        let _ = a.emit("wui://scrape_summary", ScrapeSummaryEventData {
+            matches_seen: summary.matches_seen,
+            videos_seen: summary.videos_seen,
+            events_seen: summary.events_seen,
+            errors_seen: summary.errors_seen,
+            skipped_accounts: summary.skipped_accounts,
+            duration_ms,
+        });
     }
 
     let status = if summary.errors_seen > 0 {
@@ -699,6 +875,7 @@ mod tests {
             &dir,
             "manual",
             ScrapeMode::Incremental,
+            None,
         )
         .expect("incremental scrape succeeds");
         let status: String = conn
@@ -747,7 +924,7 @@ mod tests {
         )
         .expect("seed unchanged account");
 
-        let summary = scrape_wonderful_dir_with_mode(&conn, &dir, "manual", ScrapeMode::Full)
+        let summary = scrape_wonderful_dir_with_mode(&conn, &dir, "manual", ScrapeMode::Full, None)
             .expect("full scrape completes");
 
         std::fs::remove_dir_all(&dir).expect("temp dir removed");

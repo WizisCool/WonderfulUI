@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use parser::model::{LoadResult, MatchRecord};
 use sha2::{Digest, Sha256};
+use tauri::Emitter;
 
 fn sha256_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
@@ -17,6 +18,7 @@ fn sha256_hex(input: &str) -> String {
 pub fn run() {
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            scan_shell,
             scan_all,
             scrape_library,
             load_library,
@@ -51,6 +53,7 @@ fn default_wonderful_dir() -> PathBuf {
 fn load_after_startup_scrape(
     conn: &rusqlite::Connection,
     base: &std::path::Path,
+    app: Option<&tauri::AppHandle>,
 ) -> Result<LoadResult, String> {
     let dir = base.to_string_lossy().into_owned();
     match library::scraper::scrape_wonderful_dir_with_mode(
@@ -58,6 +61,7 @@ fn load_after_startup_scrape(
         base,
         "startup",
         library::scraper::ScrapeMode::Incremental,
+        app,
     ) {
         Ok(_) => {
             library::db::load_library_view(conn, dir).map_err(|e| format!("load library: {}", e))
@@ -74,21 +78,78 @@ fn load_after_startup_scrape(
     }
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ScanShellPayload {
+    accounts: Vec<parser::model::Account>,
+    dir: String,
+    total_errors: usize,
+}
+
+/// Return existing library state immediately, then spawn a background
+/// thread to refresh from WonderfulDb. The frontend receives the account
+/// shell in the return value and streams per-account scrape results via
+/// `wui://account_loaded` events. This keeps the UI responsive during
+/// first launch.
+#[tauri::command]
+fn scan_shell(app: tauri::AppHandle, dir: Option<String>) -> Result<ScanShellPayload, String> {
+    let base = match dir {
+        Some(d) => PathBuf::from(d),
+        None => default_wonderful_dir(),
+    };
+    let dir_str = base.to_string_lossy().into_owned();
+    let conn = library::db::open_library()
+        .map_err(|e| format!("open library: {}", e))?;
+
+    let _ = app.emit("wui://phase", serde_json::json!({
+        "phase": "opening",
+        "label": "正在打开 WonderfulUI\u{2026}",
+    }));
+
+    // Phase 1: return existing accounts immediately
+    let view = library::db::load_library_view(&conn, dir_str.clone())
+        .map_err(|e| format!("load library: {}", e))?;
+
+    // Phase 2: scrape in background
+    let app2 = app.clone();
+    let base2 = base.clone();
+    std::thread::spawn(move || {
+        let conn = match library::db::open_library() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app2.emit("wui://phase", serde_json::json!({
+                    "phase": "error",
+                    "label": "资料库打开失败",
+                    "sub": e.to_string(),
+                }));
+                return;
+            }
+        };
+        let _ = load_after_startup_scrape(&conn, &base2, Some(&app2));
+    });
+
+    Ok(ScanShellPayload {
+        accounts: view.accounts,
+        dir: dir_str,
+        total_errors: view.total_errors,
+    })
+}
+
 /// Refresh the local SQLite library from the configured WonderfulDb source,
 /// then return the library view. WonderfulDb is only read by the source
 /// adapter; this command no longer has a direct parser fallback.
 #[tauri::command]
-fn scan_all(dir: Option<String>) -> Result<LoadResult, String> {
+fn scan_all(app: tauri::AppHandle, dir: Option<String>) -> Result<LoadResult, String> {
     let base = match dir {
         Some(d) => PathBuf::from(d),
         None => default_wonderful_dir(),
     };
     let conn = library::db::open_library()?;
-    load_after_startup_scrape(&conn, &base)
+    load_after_startup_scrape(&conn, &base, Some(&app))
 }
 
 #[tauri::command]
 fn scrape_library(
+    app: tauri::AppHandle,
     dir: Option<String>,
     trigger: Option<String>,
     mode: Option<String>,
@@ -103,6 +164,7 @@ fn scrape_library(
         &base,
         trigger.as_deref().unwrap_or("manual"),
         library::scraper::ScrapeMode::from_arg(mode.as_deref()),
+        Some(&app),
     )?;
     library::db::load_library_view(&conn, base.to_string_lossy().into_owned())
         .map_err(|e| format!("load library: {}", e))
@@ -197,7 +259,7 @@ fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
         .join(kind))
 }
 
-fn cache_asset_inner(kind: &str, url: &str) -> Result<String, String> {
+fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), String> {
     let dir = assets_dir(kind)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
 
@@ -218,16 +280,25 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<String, String> {
                 &hash,
             );
         }
-        return Ok(cached.to_string_lossy().into_owned());
+        let size = std::fs::metadata(&cached).map(|m| m.len()).unwrap_or(0);
+        return Ok((cached.to_string_lossy().into_owned(), size, true));
     }
 
     let resp = ureq::get(url)
         .call()
         .map_err(|e| format!("download {}: {}", url, e))?;
+    let content_length: u64 = resp
+        .header("Content-Length")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let mut out =
         std::fs::File::create(&cached).map_err(|e| format!("create cache file: {}", e))?;
     let mut reader = resp.into_reader();
     std::io::copy(&mut reader, &mut out).map_err(|e| format!("write cache file: {}", e))?;
+
+    let size = std::fs::metadata(&cached)
+        .map(|m| m.len())
+        .unwrap_or(content_length);
 
     if let Ok(conn) = library::db::open_library() {
         let _ = library::db::upsert_asset(
@@ -239,7 +310,7 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<String, String> {
         );
     }
 
-    Ok(cached.to_string_lossy().into_owned())
+    Ok((cached.to_string_lossy().into_owned(), size, false))
 }
 
 /// Download (or hit cache for) an agent head icon URL. Delegates to the
@@ -247,7 +318,7 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<String, String> {
 /// path to the cached file.
 #[tauri::command]
 fn cache_hero_image(url: String) -> Result<String, String> {
-    cache_asset_inner("hero_image", &url)
+    cache_asset_inner("hero_image", &url).map(|(p, _, _)| p)
 }
 
 /// Download (or hit cache for) a remote asset by kind and URL. Kind is
@@ -255,7 +326,7 @@ fn cache_hero_image(url: String) -> Result<String, String> {
 /// absolute local path to the cached file.
 #[tauri::command]
 fn cache_asset(kind: String, url: String) -> Result<String, String> {
-    cache_asset_inner(&kind, &url)
+    cache_asset_inner(&kind, &url).map(|(p, _, _)| p)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -267,15 +338,93 @@ struct CacheEntry {
 /// Batch version of `cache_asset`. Returns a map of url → local_path for
 /// every successful download. Failed entries are silently omitted —
 /// callers already have graceful fallbacks.
+#[derive(Clone, serde::Serialize)]
+struct CacheAssetProgress {
+    url: String,
+    kind: String,
+    index: usize,
+    total: usize,
+    file_size: u64,        // size of THIS file (0 if unknown)
+    bytes_done: u64,       // running total of all completed files
+    status: String, // "started" | "finished" | "cached" | "failed"
+}
+
+const CACHE_CONCURRENCY: usize = 6;
+
 #[tauri::command]
-fn cache_assets(entries: Vec<CacheEntry>) -> HashMap<String, String> {
-    let mut results = HashMap::new();
-    for entry in entries {
-        if let Ok(path) = cache_asset_inner(&entry.kind, &entry.url) {
-            results.insert(entry.url, path);
-        }
+fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<String, String> {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let total = entries.len();
+    if total == 0 {
+        return HashMap::new();
     }
-    results
+
+    let results: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+    let next_idx = AtomicUsize::new(0);
+    let bytes_done = AtomicU64::new(0);
+
+    // Pre-dedupe by url; later entries with the same url are skipped
+    // (they'd produce the same file and rewrite SQLite needlessly).
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let work: Vec<(usize, CacheEntry)> = entries
+        .into_iter()
+        .enumerate()
+        .filter(|(_, e)| seen.insert(e.url.clone()))
+        .map(|(i, e)| (i + 1, e))
+        .collect();
+
+    std::thread::scope(|s| {
+        for _ in 0..CACHE_CONCURRENCY.min(work.len()) {
+            s.spawn(|| {
+                loop {
+                    let idx = next_idx.fetch_add(1, Ordering::Relaxed);
+                    if idx >= work.len() {
+                        break;
+                    }
+                    let (index, entry) = &work[idx];
+
+                    let _ = app.emit("wui://cache_asset_progress", CacheAssetProgress {
+                        url: entry.url.clone(),
+                        kind: entry.kind.clone(),
+                        index: *index,
+                        total,
+                        file_size: 0,
+                        bytes_done: bytes_done.load(Ordering::Relaxed),
+                        status: "started".into(),
+                    });
+
+                    if let Ok((path, file_size, was_cached)) = cache_asset_inner(&entry.kind, &entry.url) {
+                        bytes_done.fetch_add(file_size, Ordering::Relaxed);
+                        let status = if was_cached { "cached" } else { "finished" };
+                        let _ = results.lock().map(|mut g| g.insert(entry.url.clone(), path));
+                        let _ = app.emit("wui://cache_asset_progress", CacheAssetProgress {
+                            url: entry.url.clone(),
+                            kind: entry.kind.clone(),
+                            index: *index,
+                            total,
+                            file_size,
+                            bytes_done: bytes_done.load(Ordering::Relaxed),
+                            status: status.into(),
+                        });
+                    } else {
+                        let _ = app.emit("wui://cache_asset_progress", CacheAssetProgress {
+                            url: entry.url.clone(),
+                            kind: entry.kind.clone(),
+                            index: *index,
+                            total,
+                            file_size: 0,
+                            bytes_done: bytes_done.load(Ordering::Relaxed),
+                            status: "failed".into(),
+                        });
+                    }
+                }
+            });
+        }
+    });
+
+    results.into_inner().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -324,7 +473,7 @@ mod tests {
         migrate(&conn).expect("migration succeeds");
         seed_library_match(&conn);
 
-        let view = load_after_startup_scrape(&conn, &missing_dir()).expect("library view loads");
+        let view = load_after_startup_scrape(&conn, &missing_dir(), None).expect("library view loads");
 
         assert_eq!(view.accounts.len(), 1);
         assert_eq!(view.matches.len(), 1);
@@ -337,7 +486,7 @@ mod tests {
         migrate(&conn).expect("migration succeeds");
 
         let err =
-            load_after_startup_scrape(&conn, &missing_dir()).expect_err("empty library errors");
+            load_after_startup_scrape(&conn, &missing_dir(), None).expect_err("empty library errors");
 
         assert!(err.contains("read_dir"), "{err}");
     }

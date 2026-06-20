@@ -16,6 +16,7 @@
  */
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { MatchRecord, VideoItem, EventItem, RoundItem } from '@wonderful-ui/parser';
 import { createElement, Play, Settings, Crosshair, Skull, HeartHandshake, TrendingUp, Star, SlidersHorizontal, Zap, Loader2, Crown, Medal, Video, RefreshCw, Database, X, Clock3, HardDrive, GripVertical, Pencil } from 'lucide';
 import Sortable from 'sortablejs';
@@ -913,20 +914,45 @@ function detailPane(
   return detail;
 }
 
-function renderLoading(): HTMLElement {
-  return el('div', { class: 'app' }, [
-    el('header', { class: 'topbar' }, [
-      brandLockup(),
-    ]),
+// ─── boot panel (render-once, update-content pattern) ──────
+
+interface BootState {
+  label: string;       // main status text (13px)
+  pct: number;         // 0..100
+  closing: boolean;    // exit animation flag
+}
+
+interface BootNodes {
+  root: HTMLElement;
+  statusNode: HTMLElement;
+  fillNode: HTMLElement;
+}
+
+function mountBoot(parent: HTMLElement, boot: BootState): BootNodes {
+  const statusNode = el('div', { class: 'boot-status' }, [boot.label]);
+  const fillNode = el('div', { class: 'boot-progress-fill', style: `width:${boot.pct}%` });
+  const root = el('div', { class: 'app' }, [
+    el('header', { class: 'topbar' }, [brandLockup()]),
     el('div', { class: 'panes' }, [
-      el('main', { class: 'pane list full' }, [
-        el('div', { class: 'empty' }, [
-          el('div', { class: 'empty-title' }, ['正在读取高光数据库…']),
-          el('div', { class: 'empty-sub' }, ['AES-256-CBC 解密 + JSON 解析']),
+      el('main', { class: 'pane list full', 'aria-label': '启动中' }, [
+        el('div', { class: 'boot-panel' }, [
+          el('div', { class: 'boot-brand' }, [brandLockup()]),
+          el('div', { class: 'boot-progress' }, [fillNode]),
+          statusNode,
         ]),
       ]),
     ]),
   ]);
+  parent.replaceChildren(root);
+  return { root, statusNode, fillNode };
+}
+
+function updateBootFn(nodes: BootNodes, boot: BootState): void {
+  if (nodes.statusNode.textContent !== boot.label) {
+    nodes.statusNode.textContent = boot.label;
+  }
+  // Width update — CSS transition on .boot-progress-fill handles smoothing
+  nodes.fillNode.style.width = `${boot.pct}%`;
 }
 
 function renderError(message: string): HTMLElement {
@@ -976,20 +1002,141 @@ function showToast(message: string, kind: 'ok' | 'error' = 'ok') {
 }
 
 export async function renderApp(root: HTMLElement) {
-  root.replaceChildren(renderLoading());
+  const boot: BootState = {
+    label: '正在打开 WonderfulUI\u2026',
+    pct: 5,
+    closing: false,
+  };
+  const bootNodes = mountBoot(root, boot);
+  const updateBoot = () => updateBootFn(bootNodes, boot);
 
+  const unlisteners: UnlistenFn[] = [];
+
+  unlisteners.push(await listen<Record<string, unknown>>('wui://phase', (event) => {
+    const d = event.payload;
+    const phase = (d.phase as string) || '';
+    if (phase === 'scanning') { boot.label = '正在扫描账户\u2026'; boot.pct = 12; }
+    else if (phase === 'loading_view') { boot.label = '正在加载对局\u2026'; boot.pct = 80; }
+    else if (phase === 'caching_assets') { boot.label = '正在准备素材\u2026'; boot.pct = 88; }
+    else if (phase === 'error') { boot.label = `错误: ${d.sub ?? '启动失败'}`; }
+    else if (phase === 'done') { boot.label = '准备就绪'; boot.pct = 100; }
+    updateBoot();
+  }));
+
+  unlisteners.push(await listen<Record<string, unknown>>('wui://scrape_summary', () => {
+    if (boot.pct < 80) {
+      boot.pct = 80;
+      boot.label = '正在加载对局\u2026';
+      updateBoot();
+    }
+  }));
+
+  unlisteners.push(await listen<Record<string, unknown>>('wui://account_started', (event) => {
+    const d = event.payload;
+    const cur = (d.current as number) ?? 0;
+    const tot = (d.total as number) ?? 0;
+    if (tot > 0) {
+      boot.pct = Math.max(boot.pct, Math.min(78, 12 + Math.round(cur / tot * 65)));
+      boot.label = `正在扫描账户\u2026  ${cur} / ${tot}`;
+    }
+    // Detail intentionally not set — only cache_asset_progress gets
+    // to fill the detail line so it stays focused on the actual
+    // download activity.
+    updateBoot();
+  }));
+
+  unlisteners.push(await listen<Record<string, unknown>>('wui://account_loaded', (event) => {
+    const d = event.payload;
+    const cur = (d.current as number) ?? 0;
+    const tot = (d.total as number) ?? 0;
+    if (tot > 0) {
+      boot.pct = Math.max(boot.pct, Math.min(78, 12 + Math.round(cur / tot * 65)));
+      boot.label = `正在扫描账户\u2026  ${cur} / ${tot}`;
+    }
+    // Detail intentionally not set — scanning progress shows in
+    // label + progress bar; detail is reserved for cache_asset_progress
+    // so the user sees actual file activity.
+    updateBoot();
+  }));
+
+  unlisteners.push(await listen<Record<string, unknown>>('wui://cache_asset_progress', (event) => {
+    const d = event.payload;
+    const idx = (d.index as number) ?? 0;
+    const tot = (d.total as number) ?? 0;
+    if (tot > 0) {
+      boot.pct = Math.max(boot.pct, 88 + Math.round(idx / tot * 11));
+      boot.label = `正在准备素材\u2026  ${idx} / ${tot}`;
+    }
+    updateBoot();
+  }));
+
+  // Phase 1: get account shell immediately (does not block on scrape)
   let state: State;
   try {
-    const data = await loadAll();
-    state = { kind: 'ready', data };
+    const shell = await invoke<{ accounts: Account[]; dir: string; totalErrors: number }>('scan_shell');
+    state = {
+      kind: 'ready',
+      data: { accounts: shell.accounts, matches: [], dir: shell.dir, totalErrors: shell.totalErrors },
+    };
   } catch (e) {
-    state = { kind: 'error', message: (e as Error).message ?? String(e) };
-  }
-
-  if (state.kind === 'error') {
-    root.replaceChildren(renderError(state.message));
+    boot.label = `错误: ${(e as Error).message ?? String(e)}`;
+    updateBoot();
+    await new Promise(r => setTimeout(r, 2000));
+    root.replaceChildren(renderError((e as Error).message ?? String(e)));
+    for (const u of unlisteners) u();
     return;
   }
+
+  // Wait for scrape to advance past scanning (poll on pct)
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      if (boot.pct >= 80) resolve();
+      else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+
+  // Get full match list
+  let fullData: LoadResult;
+  try {
+    fullData = await invoke<LoadResult>('load_library');
+  } catch {
+    fullData = (state as Extract<State, { kind: 'ready' }>).data;
+  }
+  state = { kind: 'ready', data: fullData };
+
+  // --- Asset pre-warm ---
+  boot.label = '正在准备素材\u2026';
+  boot.pct = 88;
+  updateBoot();
+
+  const assetPathCache = new Map<string, string>();
+  const entries: Array<{ kind: string; url: string }> = [];
+  const seenAssets = new Set<string>();
+  for (const m of fullData.matches) {
+    const heroUrl = m.career?.hero_image;
+    if (typeof heroUrl === 'string' && heroUrl && !seenAssets.has(heroUrl)) { seenAssets.add(heroUrl); entries.push({ kind: 'hero_image', url: heroUrl }); }
+    const mapUrl = m.career?.map_image;
+    if (typeof mapUrl === 'string' && mapUrl && !seenAssets.has(mapUrl)) { seenAssets.add(mapUrl); entries.push({ kind: 'map_image', url: mapUrl }); }
+    const modeUrl = m.career?.game_mode_icon;
+    if (typeof modeUrl === 'string' && modeUrl && !seenAssets.has(modeUrl)) { seenAssets.add(modeUrl); entries.push({ kind: 'game_mode_icon', url: modeUrl }); }
+  }
+
+  if (entries.length > 0) {
+    try {
+      const results = await invoke<Record<string, string>>('cache_assets', { entries });
+      for (const [url, localPath] of Object.entries(results)) {
+        assetPathCache.set(url, localPath);
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  boot.label = '准备就绪';
+  boot.pct = 100;
+  updateBoot();
+  await new Promise<void>(r => setTimeout(r, 220));
+
+  for (const u of unlisteners) u();
 
   let data = state.data;
   let selectedAccount: string | null = data.accounts.length > 0 ? ALL_ACCOUNTS : null;
@@ -1007,7 +1154,7 @@ export async function renderApp(root: HTMLElement) {
   let editingAccount: string | null = null;
   let suppressAccountClick = false;
   let accountSortable: Sortable | null = null;
-  const assetPathCache = new Map<string, string>();  // URL -> cached local path (hero_image / map_image / game_mode_icon)
+  // assetPathCache defined above in the boot phase; shared via closure
 
   // Fold per-account achievements into a flat matchesId → achievement map
   const matchAchievements = new Map<string, { type: 'mvp' | 'svp'; typeStr: string }>();
@@ -1077,29 +1224,6 @@ export async function renderApp(root: HTMLElement) {
       setSettingsOpen(true);
     }
   });
-
-  // After data loads, kick off background fetch of every unique remote
-  // asset (hero heads, map covers, mode icons) the user's matches
-  // reference. On the first run this downloads them into
-  // %LOCALAPPDATA%\wonderful-ui\assets\{kind}\;
-  // subsequent runs are pure cache hits. The heroImg/modeIcon helpers
-  // read from this map synchronously.
-  const entries: Array<{ kind: string; url: string }> = [];
-  const seen = new Set<string>();
-  for (const m of data.matches) {
-    const heroUrl = m.career?.hero_image;
-    if (typeof heroUrl === 'string' && heroUrl && !seen.has(heroUrl)) { seen.add(heroUrl); entries.push({ kind: 'hero_image', url: heroUrl }); }
-    const mapUrl = m.career?.map_image;
-    if (typeof mapUrl === 'string' && mapUrl && !seen.has(mapUrl)) { seen.add(mapUrl); entries.push({ kind: 'map_image', url: mapUrl }); }
-    const modeUrl = m.career?.game_mode_icon;
-    if (typeof modeUrl === 'string' && modeUrl && !seen.has(modeUrl)) { seen.add(modeUrl); entries.push({ kind: 'game_mode_icon', url: modeUrl }); }
-  }
-  void (async () => {
-    const results = await invoke<Record<string, string>>('cache_assets', { entries });
-    for (const [url, localPath] of Object.entries(results)) {
-      assetPathCache.set(url, localPath);
-    }
-  })().then(() => refreshAll(), () => refreshAll());
 
   function playFirst(m: MatchRecord, seekMs?: number) {
     const video = m.videos[0];

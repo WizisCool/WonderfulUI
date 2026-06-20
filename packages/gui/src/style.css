@@ -1420,6 +1420,87 @@ button {
   from { opacity: 1; transform: translateY(0) scale(1); }
   to   { opacity: 0; transform: translateY(4px) scale(0.99); }
 }
+
+/* ─── boot panel (inline loading state, in .pane.list.full) ── */
+.boot-panel {
+  max-width: 540px;
+  margin: auto;
+  padding: 24px 32px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+}
+.boot-brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: var(--w-bold);
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+.boot-brand .brand-logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+.boot-brand .brand-name-base,
+.boot-brand .brand-name-accent {
+  font-size: 22px;
+  font-weight: var(--w-bold);
+}
+.boot-progress {
+  width: 100%; height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.boot-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 0.18) 50%,
+    transparent 100%
+  );
+  animation: boot-shimmer 1.6s linear infinite;
+  pointer-events: none;
+}
+.boot-progress-fill {
+  height: 100%; width: 0%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: width;
+  position: relative;
+}
+@keyframes boot-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+.boot-status {
+  color: var(--ink-3);
+  font-size: 13px;
+  text-align: center;
+  min-height: 18px;
+}
+.boot-openid {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.boot-stepper {
+  display: flex; gap: 8px; justify-content: center;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border-soft);
+  margin-top: 4px;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
