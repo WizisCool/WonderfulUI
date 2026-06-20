@@ -1501,6 +1501,38 @@ button {
   margin-top: 4px;
 }
 
+/* ─── scan progress overlay (in-app full scan) ─────────────
+   Mounted into the .scan-progress-root slot in the app skeleton.
+   Reuses .boot-panel visuals but renders as a fullscreen fixed
+   overlay so it sits above the settings modal (1300), the
+   player (1200) and toasts (1500) without disturbing them.
+   The boot phase also uses .scan-progress (combined with .app
+   for the grid layout); the position/inset/z-index rules
+   below are gated by `:not(.app)` so the boot root stays in
+   the document flow. Both modes share the fade-in / fade-out
+   transitions driven by the .is-mounted / .is-closing classes. */
+.scan-progress {
+  opacity: 0;
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.scan-progress.is-mounted {
+  opacity: 1;
+}
+.scan-progress.is-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+.scan-progress:not(.app) {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  pointer-events: auto;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -1519,6 +1551,13 @@ button {
   .settings-row,
   .settings-action,
   .settings-segment-btn {
+    transition-duration: 1ms;
+  }
+  .scan-progress,
+  .scan-progress.is-closing {
+    transition-duration: 1ms;
+  }
+  .boot-progress-fill {
     transition-duration: 1ms;
   }
 }

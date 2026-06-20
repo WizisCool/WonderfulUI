@@ -16,7 +16,6 @@
  */
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { MatchRecord, VideoItem, EventItem, RoundItem } from '@wonderful-ui/parser';
 import { createElement, Play, Settings, Crosshair, Skull, HeartHandshake, TrendingUp, Star, SlidersHorizontal, Zap, Loader2, Crown, Medal, Video, RefreshCw, Database, X, Clock3, HardDrive, GripVertical, Pencil } from 'lucide';
 import Sortable from 'sortablejs';
@@ -28,6 +27,7 @@ import { FilterState, EMPTY_FILTERS, activeFilterCount, activeFilterSummary, loa
 import { applyFilters, pruneUnavailableCategories } from './filter-engine.ts';
 import { createFilterRail, buildAppliedChips } from './filter-bar.ts';
 import { positionFloating, createArrow, referenceAtX } from './floating.ts';
+import { mountScanProgress, type ScanProgressHandle } from './scan-progress.ts';
 
 export const BRAND_NAME = 'WonderfulUI';
 export const BRAND_NAME_BASE = 'Wonderful';
@@ -914,46 +914,13 @@ function detailPane(
   return detail;
 }
 
-// ─── boot panel (render-once, update-content pattern) ──────
-
-interface BootState {
-  label: string;       // main status text (13px)
-  pct: number;         // 0..100
-  closing: boolean;    // exit animation flag
-}
-
-interface BootNodes {
-  root: HTMLElement;
-  statusNode: HTMLElement;
-  fillNode: HTMLElement;
-}
-
-function mountBoot(parent: HTMLElement, boot: BootState): BootNodes {
-  const statusNode = el('div', { class: 'boot-status' }, [boot.label]);
-  const fillNode = el('div', { class: 'boot-progress-fill', style: `width:${boot.pct}%` });
-  const root = el('div', { class: 'app' }, [
-    el('header', { class: 'topbar' }, [brandLockup()]),
-    el('div', { class: 'panes' }, [
-      el('main', { class: 'pane list full', 'aria-label': '启动中' }, [
-        el('div', { class: 'boot-panel' }, [
-          el('div', { class: 'boot-brand' }, [brandLockup()]),
-          el('div', { class: 'boot-progress' }, [fillNode]),
-          statusNode,
-        ]),
-      ]),
-    ]),
-  ]);
-  parent.replaceChildren(root);
-  return { root, statusNode, fillNode };
-}
-
-function updateBootFn(nodes: BootNodes, boot: BootState): void {
-  if (nodes.statusNode.textContent !== boot.label) {
-    nodes.statusNode.textContent = boot.label;
-  }
-  // Width update — CSS transition on .boot-progress-fill handles smoothing
-  nodes.fillNode.style.width = `${boot.pct}%`;
-}
+// ─── scan progress (boot + in-app full scan) ───────────────
+//
+// Wraps the boot panel / full-scan overlay in a single async function.
+// See `scan-progress.ts` for the listener wiring and the fade-out
+// handoff. The boot phase mounts with `mode: 'boot'` and replaces
+// `#app`; in-app full scans mount with `mode: 'overlay'` over a
+// pre-allocated `.scan-progress-root` slot in the app skeleton.
 
 function renderError(message: string): HTMLElement {
   return el('div', { class: 'app' }, [
@@ -1002,73 +969,7 @@ function showToast(message: string, kind: 'ok' | 'error' = 'ok') {
 }
 
 export async function renderApp(root: HTMLElement) {
-  const boot: BootState = {
-    label: '正在打开 WonderfulUI\u2026',
-    pct: 5,
-    closing: false,
-  };
-  const bootNodes = mountBoot(root, boot);
-  const updateBoot = () => updateBootFn(bootNodes, boot);
-
-  const unlisteners: UnlistenFn[] = [];
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://phase', (event) => {
-    const d = event.payload;
-    const phase = (d.phase as string) || '';
-    if (phase === 'scanning') { boot.label = '正在扫描账户\u2026'; boot.pct = 12; }
-    else if (phase === 'loading_view') { boot.label = '正在加载对局\u2026'; boot.pct = 80; }
-    else if (phase === 'caching_assets') { boot.label = '正在准备素材\u2026'; boot.pct = 88; }
-    else if (phase === 'error') { boot.label = `错误: ${d.sub ?? '启动失败'}`; }
-    else if (phase === 'done') { boot.label = '准备就绪'; boot.pct = 100; }
-    updateBoot();
-  }));
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://scrape_summary', () => {
-    if (boot.pct < 80) {
-      boot.pct = 80;
-      boot.label = '正在加载对局\u2026';
-      updateBoot();
-    }
-  }));
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://account_started', (event) => {
-    const d = event.payload;
-    const cur = (d.current as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      boot.pct = Math.max(boot.pct, Math.min(78, 12 + Math.round(cur / tot * 65)));
-      boot.label = `正在扫描账户\u2026  ${cur} / ${tot}`;
-    }
-    // Detail intentionally not set — only cache_asset_progress gets
-    // to fill the detail line so it stays focused on the actual
-    // download activity.
-    updateBoot();
-  }));
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://account_loaded', (event) => {
-    const d = event.payload;
-    const cur = (d.current as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      boot.pct = Math.max(boot.pct, Math.min(78, 12 + Math.round(cur / tot * 65)));
-      boot.label = `正在扫描账户\u2026  ${cur} / ${tot}`;
-    }
-    // Detail intentionally not set — scanning progress shows in
-    // label + progress bar; detail is reserved for cache_asset_progress
-    // so the user sees actual file activity.
-    updateBoot();
-  }));
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://cache_asset_progress', (event) => {
-    const d = event.payload;
-    const idx = (d.index as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      boot.pct = Math.max(boot.pct, 88 + Math.round(idx / tot * 11));
-      boot.label = `正在准备素材\u2026  ${idx} / ${tot}`;
-    }
-    updateBoot();
-  }));
+  const progress: ScanProgressHandle = await mountScanProgress(root, { mode: 'boot' });
 
   // Phase 1: get account shell immediately (does not block on scrape)
   let state: State;
@@ -1079,18 +980,18 @@ export async function renderApp(root: HTMLElement) {
       data: { accounts: shell.accounts, matches: [], dir: shell.dir, totalErrors: shell.totalErrors },
     };
   } catch (e) {
-    boot.label = `错误: ${(e as Error).message ?? String(e)}`;
-    updateBoot();
+    const msg = (e as Error).message ?? String(e);
+    progress.update(`错误: ${msg}`);
     await new Promise(r => setTimeout(r, 2000));
-    root.replaceChildren(renderError((e as Error).message ?? String(e)));
-    for (const u of unlisteners) u();
+    root.replaceChildren(renderError(msg));
+    progress.dispose();
     return;
   }
 
   // Wait for scrape to advance past scanning (poll on pct)
   await new Promise<void>((resolve) => {
     const check = () => {
-      if (boot.pct >= 80) resolve();
+      if (progress.getPct() >= 80) resolve();
       else requestAnimationFrame(check);
     };
     requestAnimationFrame(check);
@@ -1106,10 +1007,8 @@ export async function renderApp(root: HTMLElement) {
   state = { kind: 'ready', data: fullData };
 
   // --- Asset pre-warm ---
-  boot.label = '正在准备素材\u2026';
-  boot.pct = 88;
-  updateBoot();
-
+  // The progress component's cache_asset_progress listener ticks the
+  // bar through 88→99 as Rust emits the events; no manual label needed.
   const assetPathCache = new Map<string, string>();
   const entries: Array<{ kind: string; url: string }> = [];
   const seenAssets = new Set<string>();
@@ -1131,12 +1030,9 @@ export async function renderApp(root: HTMLElement) {
     } catch { /* non-fatal */ }
   }
 
-  boot.label = '准备就绪';
-  boot.pct = 100;
-  updateBoot();
-  await new Promise<void>(r => setTimeout(r, 220));
-
-  for (const u of unlisteners) u();
+  // Fade the boot screen out. The component sets pct=100, holds 220ms,
+  // fades over 280ms, then unlistens and removes itself from #app.
+  await progress.complete();
 
   let data = state.data;
   let selectedAccount: string | null = data.accounts.length > 0 ? ALL_ACCOUNTS : null;
@@ -1189,10 +1085,14 @@ export async function renderApp(root: HTMLElement) {
   const listSlot = el('main', { class: 'pane list', 'aria-label': '高光列表' });
   const detailSlot = el('aside', { class: 'pane detail', 'aria-label': '高光详情' });
   const settingsSlot = el('div', { class: 'settings-modal-root' });
+  // In-app full scan mounts a `.scan-progress` overlay into this slot.
+  // The overlay is `position: fixed; inset: 0`, so DOM placement is
+  // cosmetic — it visually covers the whole viewport regardless.
+  const scanProgressSlot = el('div', { class: 'scan-progress-root' });
   filterSlot.hidden = !filterBarOpen;
   panes.append(accountSlot, filterSlot, listSlot, detailSlot);
   settingsSlot.hidden = true;
-  app.append(top, panes, settingsSlot);
+  app.append(top, panes, settingsSlot, scanProgressSlot);
   root.replaceChildren(app);
 
   const search = top.querySelector<HTMLInputElement>('.search');
@@ -1692,6 +1592,19 @@ export async function renderApp(root: HTMLElement) {
     refreshSettingsModal();
     const prevAccount = selectedAccount;
     const prevMatchId = selectedMatch?.matches_id;
+    // Full scans reuse the boot progress UI: a fixed fullscreen overlay
+    // with the same brand+progress+status visuals, then a smooth fade.
+    // Incremental scans keep the original lightweight button-spinner
+    // path — they're usually short and the overlay would be distracting.
+    const useOverlay = mode === 'full';
+    const progress = useOverlay
+      ? await mountScanProgress(scanProgressSlot, {
+          mode: 'overlay',
+          skipAssetPreWarm: true,
+          initialLabel: '正在准备全量扫描\u2026',
+          initialPct: 5,
+        })
+      : null;
     try {
       const fresh = await invoke<LoadResult>('scrape_library', {
         trigger: mode === 'full' ? 'full_manual' : 'manual',
@@ -1712,11 +1625,23 @@ export async function renderApp(root: HTMLElement) {
       if (selectedMatch && !matchesForAccount(selectedAccount).some(m => m.matches_id === selectedMatch!.matches_id)) {
         selectedMatch = null;
       }
-      showToast(`资料库已${scanModeLabel(mode)}`);
+      if (progress) {
+        // The overlay's own completion handles the "done" feedback,
+        // so suppress the toast when the overlay is in use.
+        await progress.complete();
+      } else {
+        showToast(`资料库已${scanModeLabel(mode)}`);
+      }
       refreshAll();
       ensureSelectedMatchRoundsLoaded();
     } catch (e) {
-      showToast(`${scanModeLabel(mode)}失败: ${(e as Error).message ?? String(e)}`, 'error');
+      const msg = `${scanModeLabel(mode)}失败: ${(e as Error).message ?? String(e)}`;
+      if (progress) {
+        progress.update(msg);
+        await progress.complete();
+      } else {
+        showToast(msg, 'error');
+      }
     } finally {
       scraping = false;
       refreshTopbarChrome();
