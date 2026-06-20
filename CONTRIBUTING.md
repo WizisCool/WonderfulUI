@@ -11,21 +11,26 @@ bun install --frozen-lockfile
 bunx tauri dev
 ```
 
-## 分支模型
+## 开发模型
 
-本项目采用 **GitHub Flow**：
+WonderfulUI 主要是个人维护者项目。维护者的默认路径是：
 
+- 在 `main` 上小步开发
+- 按改动范围运行本地验证
+- 需要时直接提交和推送
+- 发布时由 `v*` tag 触发 GitHub Actions 构建正式产物
+
+外部贡献仍建议使用短分支和 Pull Request，方便讨论和审阅：
+
+```text
+feat/xxx
+fix/xxx
+docs/xxx
 ```
-main              ← 永远可发布
-├─ feat/xxx       ← 新功能
-├─ fix/xxx        ← 修 bug
-├─ refactor/xxx   ← 重构
-└─ docs/xxx       ← 文档
-```
 
-所有改动通过 Pull Request 合入 `main`，合并前 PR CI 必须通过。合并后的
-`main` push 不会自动重复跑同一套完整 CI；需要主线复验时可在 GitHub Actions
-手动触发 CI。正式发布仍由 `v*` tag 触发 Release workflow。
+`.github/workflows/ci.yml` 不会在 PR 或 push 时自动运行。需要远端 Windows
+复验时，维护者可以在 GitHub Actions 手动触发 `Manual Check`；正式发布仍由
+`v*` tag 触发 Release workflow。
 
 ## 提交规范
 
@@ -62,25 +67,26 @@ bun test             # 前端 + 解析器测试
 cargo test --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
 ```
 
-PR CI 会按改动范围跳过无关的重检查：前端/解析器改动跑 Bun 检查，Rust/Tauri
-改动跑 Rust 测试，文档改动不会强制启动两套工具链。PR CI 不默认执行完整 Tauri
-打包；需要打包验证时可手动触发 CI 的 `full-build` 选项，正式发布则由 Release
-workflow 从 `v*` tag 执行完整验证和 `bun run build`。
+这些检查主要在本地运行。需要远端 Windows 复验时，可手动触发 `Manual Check`。
+该 workflow 默认运行 typecheck、Bun 测试和 Rust lib 测试；需要打包验证时可勾选
+`full-build`。正式发布由 Release workflow 从 `v*` tag 执行完整验证和
+`bun run build`。
 
 ## 发布流程
 
 正式发布必须由 GitHub Actions 从 tag 构建，不手动上传本地产物。
 
-维护者通常在 release 分支执行：
+维护者通常在干净的 `main` 上执行：
 
 ```bash
 bun run version:patch   # bump 版本号（patch/minor/major）
 ```
 
-该脚本会更新版本文件、提交 `chore(release): vX.Y.Z` 并创建 tag。先通过 PR 合入
-`main`，确认 tag 指向合并后的 `main` 提交，再推送 tag：
+该脚本会更新版本文件、提交 `chore(release): vX.Y.Z` 并创建 tag。确认本地验证
+通过后，推送 `main` 和 tag：
 
 ```bash
+git push origin main
 git push origin vX.Y.Z
 ```
 

@@ -2,6 +2,8 @@
 
 请简要说明此 PR 的内容。
 
+> 本项目维护者日常改动不强制走 PR；此模板主要用于外部贡献或需要审阅的可选 PR。
+
 ## 关联 Issue
 
 Closes #(issue)
@@ -16,7 +18,5 @@ Closes #(issue)
 
 ## 检查清单
 
-- [ ] `bun test` 通过
-- [ ] `cargo test --release --lib` 通过
-- [ ] `bun run typecheck` 通过
+- [ ] 已运行与改动范围相关的本地检查
 - [ ] 提交信息遵循 Conventional Commits 格式

@@ -122,14 +122,14 @@ More detail: `docs/ARCHITECTURE.md`.
 - `docs/ACLOS_FORMAT.md` - WonderfulDb paths, format notes, snapshot nicknames, parser field semantics, rounds/clips/events.
 - `docs/ARCHITECTURE.md` - runtime shape, Tauri commands, scaling plan, dev/test workflow, repo layout.
 - `docs/FRONTEND_CONVENTIONS.md` - stable DOM rendering, account sentinel, match/detail layout, asset cache, player rules, fonts/icons, event interaction flow.
-- `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, PRs, CI, and GitHub Actions releases.
+- `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, optional PRs, manual checks, and GitHub Actions releases.
 - `DESIGN.md` - product visual system and UI constraints.
 - `PRODUCT.md` - product intent and user-facing behavior.
 
 Before changing parser behavior, read `docs/ACLOS_FORMAT.md`.
 Before changing app structure or build workflow, read `docs/ARCHITECTURE.md`.
 Before changing GUI layout, DOM refresh, CSS, icons, player, or tooltips, read `docs/FRONTEND_CONVENTIONS.md` plus `DESIGN.md`.
-Before preparing a PR or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`.
+Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`.
 
 ## Development Workflow
 
@@ -199,7 +199,7 @@ Details for these pitfalls are in `docs/ACLOS_FORMAT.md` and `docs/FRONTEND_CONV
 ## Documentation Maintenance
 
 - Keep `AGENTS.md` as the short entry point.
-- Add agent execution, PR, CI, and release workflow facts to `docs/AGENT_WORKFLOW.md`.
+- Add agent execution, optional PR, manual check, and release workflow facts to `docs/AGENT_WORKFLOW.md`.
 - Add durable parser facts to `docs/ACLOS_FORMAT.md`.
 - Add architecture, workflow, or performance facts to `docs/ARCHITECTURE.md`.
 - Add GUI implementation conventions to `docs/FRONTEND_CONVENTIONS.md`.

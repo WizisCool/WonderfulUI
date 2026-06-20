@@ -5,7 +5,9 @@ Last organized: 2026-06-20.
 This document is the operating manual for agents maintaining WonderfulUI.
 `AGENTS.md` is still the short high-priority entry point; use this file when
 you need the full workflow for feature work, bug fixes, refactors, and
-releases.
+releases. WonderfulUI is maintained primarily as a personal open-source
+project, so the default workflow optimizes for local iteration instead of
+mandatory branches, PRs, and CI waits.
 
 ## Ground Rules
 
@@ -38,10 +40,10 @@ Read the smallest context set that matches the task.
 | GUI layout, DOM refresh, icons, CSS, player, tooltips | `AGENTS.md`, `docs/FRONTEND_CONVENTIONS.md`, `DESIGN.md` |
 | Product wording or user-facing behavior | `AGENTS.md`, `PRODUCT.md`, `DESIGN.md` |
 | Version bump or release | `AGENTS.md`, `VERSIONING.md`, this file |
-| Contribution or PR hygiene | `AGENTS.md`, `CONTRIBUTING.md`, this file |
+| External contribution, PR, or GitHub release hygiene | `AGENTS.md`, `CONTRIBUTING.md`, this file |
 
 If a fact is durable and likely to matter to future edits, update the matching
-doc in the same PR.
+doc in the same change.
 
 ## Standard Change Loop
 
@@ -51,9 +53,9 @@ Use this loop for new features, bug fixes, UI polish, and refactors:
 1. Inspect -> verify: read status, relevant docs, nearby code, existing tests
 2. Reproduce or specify -> verify: failing test, visible symptom, or concrete acceptance criteria
 3. Implement surgically -> verify: changed lines map to the request
-4. Run checks -> verify: smallest relevant set first, then broader checks before PR
+4. Run checks -> verify: smallest relevant set first, broader checks before release-impacting work
 5. Review diff -> verify: no generated files, unrelated cleanup, secrets, or user-specific paths
-6. Open PR -> verify: GitHub CI succeeds before merge
+6. Commit or hand off -> verify: local checks are recorded, optional remote checks only when useful
 ```
 
 Prefer fixing the root cause over patching symptoms. If the bug involves
@@ -131,42 +133,44 @@ bun run test
 
 Run Rust tests too when Rust or IPC-facing shapes changed.
 
-## GitHub Flow
+## Git Workflow
 
-`main` must stay releasable.
+`main` is the normal working branch for trusted maintainer work. For this
+mostly solo project, do not create a topic branch, PR, or CI dependency unless
+the user asks for one, an external contributor is involved, or the change is
+large enough that review isolation is genuinely useful.
 
-1. Work on a topic branch, usually `codex/<description>` for agent work.
-2. Push the branch.
-3. Open a Pull Request into `main`.
-4. Wait for `.github/workflows/ci.yml` to pass on the PR.
-5. Merge only after CI is green.
+Default maintainer loop:
 
-The PR CI workflow runs on `windows-latest` for pull requests targeting
-`main`. It first detects changed areas and skips irrelevant heavy checks:
+1. Work from the current branch after checking `git status --short --branch`.
+2. Keep each change small and locally verified.
+3. Commit directly when the user asks for a commit or when a release step
+   requires it.
+4. Push directly when the user asks, after local checks pass.
+
+Use branches and PRs only for external contributions, risky experiments, or
+when the user explicitly wants a GitHub review flow. In those cases, prefer a
+short-lived branch such as `codex/<description>` for agent work and use the PR
+template as a reminder, not as a mandatory gate for solo changes.
+
+`.github/workflows/ci.yml` is now a manual safety net named `Manual Check`.
+It does not run on PRs or pushes. Trigger it from GitHub Actions only when you
+want a remote Windows confirmation or a full build without blocking normal
+development.
 
 ```bash
-# Frontend / TypeScript / parser changes
 bun install --frozen-lockfile
 bun run typecheck
 bun run test
-
-# Rust / Tauri changes
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-Workflow changes run both frontend and Rust checks so CI edits validate their
-own behavior. Docs-only PRs may pass after checkout and path detection without
-running either toolchain.
+The manual workflow has a `full-build` option for running `bun run build`.
+Release tags still run the full release workflow independently.
 
-CI does not run again automatically on the post-merge `main` push. This keeps
-normal PR merges from paying for the same full Windows/Tauri build twice. If a
-manual confirmation of `main` is needed, start the CI workflow from GitHub
-Actions. The manual CI trigger has a `full-build` option for running
-`bun run build`; release tags still run the full release workflow
-independently.
-
-If CI fails, inspect the failing step logs before changing code. Fix the root
-cause on the branch, push again, and let CI re-run.
+If a manual check fails, inspect the failing step logs before changing code.
+Fix the root cause locally, then rerun only if remote confirmation is still
+useful.
 
 ## Release Workflow
 
@@ -175,7 +179,7 @@ as the official release artifacts.
 
 ### Normal Release
 
-1. Start from a clean branch off `main`.
+1. Start from a clean `main` worktree unless the user wants a release branch.
 2. Pick the semver bump from `VERSIONING.md`.
 3. Run the version script:
 
@@ -189,22 +193,29 @@ bun run version:major
 
 The script reads `src-tauri/tauri.conf.json`, updates version files, commits
 `chore(release): vX.Y.Z`, and creates tag `vX.Y.Z`. It stages the whole
-worktree, so use it only when the release branch contains exactly the intended
+worktree, so use it only when the worktree contains exactly the intended
 release changes.
 
-4. Push the release branch and open a PR.
-5. Wait for CI to pass.
-6. Merge the PR into `main`.
-7. Ensure the tag points at the merged `main` commit. If the tag was created
-   before PR merge, move or recreate it intentionally before pushing.
-8. Push the tag:
+4. Run the relevant local checks. For release-impacting changes, prefer:
+
+```bash
+bun run typecheck
+bun run test
+cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+bun run build
+```
+
+5. Push `main` if the release commit is not already remote.
+6. Push the tag:
 
 ```bash
 git push origin vX.Y.Z
 ```
 
 `.github/workflows/release.yml` then runs the full validation/build sequence,
-uploads the bundle artifact, and creates the GitHub Release.
+uploads the bundle artifact, and creates the GitHub Release. A PR can still be
+used for a release if the user wants a review checkpoint, but it is not the
+default maintainer path.
 
 ### Manual 0.1.0-Style Release
 
@@ -238,7 +249,7 @@ A completed release must have:
 ## Local Verification Matrix
 
 Choose the smallest set while iterating, but run the full relevant set before
-opening or merging release-impacting PRs.
+tagging a release or pushing a risky maintainer change.
 
 | Change | Minimum verification |
 |---|---|
@@ -266,9 +277,10 @@ Keep documentation layered:
 - `docs/ACLOS_FORMAT.md`: parser facts and ACLOS data semantics.
 - `docs/ARCHITECTURE.md`: runtime, IPC, SQLite, build, and scaling facts.
 - `docs/FRONTEND_CONVENTIONS.md`: GUI rendering, CSS, icons, player, tooltips.
-- `docs/AGENT_WORKFLOW.md`: how agents should execute, verify, PR, and release.
-- `CONTRIBUTING.md`: contributor-facing short version of branch, test, and
-  release expectations.
+- `docs/AGENT_WORKFLOW.md`: how agents should execute, verify, use optional
+  PRs, and release.
+- `CONTRIBUTING.md`: contributor-facing short version of maintainer,
+  contributor, test, and release expectations.
 - `VERSIONING.md`: semver and version-file rules.
 
 If a new workflow becomes standard, update this file and link to the exact

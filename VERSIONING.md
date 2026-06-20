@@ -24,8 +24,8 @@ bun run version:major    # 0.1.0 → 1.0.0
 4. 提交 `chore(release): vX.Y.Z`
 5. 创建 git 标签
 
-`scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的 release 分支上运行，
-且分支中只能包含本次发布需要提交的版本文件变更。
+`scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的工作树上运行，
+且工作树中只能包含本次发布需要提交的版本文件变更。
 
 ## GitHub Actions 发布
 
@@ -33,11 +33,10 @@ bun run version:major    # 0.1.0 → 1.0.0
 
 发布顺序：
 
-1. 在 release 分支 bump 版本并创建 PR。
-2. 等 `.github/workflows/ci.yml` 通过。
-3. 合入 `main`。
-4. 确认 `vX.Y.Z` tag 指向合并后的 `main` 提交。
-5. 推送 tag，触发 Release workflow。
+1. 在干净的 `main` 工作树 bump 版本。
+2. 本地运行与发布相关的验证。
+3. 推送 `main`。
+4. 推送 `vX.Y.Z` tag，触发 Release workflow。
 
 Release workflow 会运行：
 
