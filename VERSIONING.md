@@ -24,6 +24,35 @@ bun run version:major    # 0.1.0 → 1.0.0
 4. 提交 `chore(release): vX.Y.Z`
 5. 创建 git 标签
 
+`scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的 release 分支上运行，
+且分支中只能包含本次发布需要提交的版本文件变更。
+
+## GitHub Actions 发布
+
+官方发布产物必须由 `.github/workflows/release.yml` 在 `v*` tag 上构建。
+
+发布顺序：
+
+1. 在 release 分支 bump 版本并创建 PR。
+2. 等 `.github/workflows/ci.yml` 通过。
+3. 合入 `main`。
+4. 确认 `vX.Y.Z` tag 指向合并后的 `main` 提交。
+5. 推送 tag，触发 Release workflow。
+
+Release workflow 会运行：
+
+```bash
+bun install --frozen-lockfile
+bun run typecheck
+bun run test
+cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+bun run build
+```
+
+成功后会创建 GitHub Release，并上传 Windows x64 NSIS 安装器与 MSI。
+
+详细执行手册见 `docs/AGENT_WORKFLOW.md`。
+
 ## 应用内更新（预留）
 
 Tauri 的 updater 插件已作为脚手架引入但**默认未启用**。详见：
