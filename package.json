@@ -11,7 +11,8 @@
     "typecheck": "bunx tsc --noEmit",
     "version:patch": "bun run scripts/version-bump.ts patch",
     "version:minor": "bun run scripts/version-bump.ts minor",
-    "version:major": "bun run scripts/version-bump.ts major"
+    "version:major": "bun run scripts/version-bump.ts major",
+    "update:skins": "bun run tools/update-valorant-skins.ts"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

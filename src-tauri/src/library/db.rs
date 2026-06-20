@@ -335,6 +335,54 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
+pub fn upsert_asset(
+    conn: &Connection,
+    kind: &str,
+    source_url: &str,
+    cache_path: &str,
+    hash: &str,
+) -> Result<()> {
+    let now = now_ms();
+    let id = format!("{}:{}", kind, hash);
+    conn.execute(
+        "INSERT INTO assets(id, kind, source_url, cache_path, hash, last_seen_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(id) DO UPDATE SET
+           last_seen_at = excluded.last_seen_at",
+        rusqlite::params![id, kind, source_url, cache_path, hash, now],
+    )?;
+    Ok(())
+}
+
+pub fn get_asset(
+    conn: &Connection,
+    kind: &str,
+    source_url: &str,
+) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT cache_path FROM assets WHERE kind = ?1 AND source_url = ?2
+         ORDER BY last_seen_at DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(rusqlite::params![kind, source_url])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn prune_unused_assets(conn: &Connection, max_age_days: i64) -> Result<Vec<String>> {
+    let cutoff = now_ms() - max_age_days * 86_400 * 1_000;
+    let mut stmt = conn.prepare("SELECT cache_path FROM assets WHERE last_seen_at < ?1")?;
+    let paths: Vec<String> = stmt
+        .query_map(rusqlite::params![cutoff], |row| row.get(0))?
+        .collect::<Result<Vec<_>>>()?;
+    conn.execute(
+        "DELETE FROM assets WHERE last_seen_at < ?1",
+        rusqlite::params![cutoff],
+    )?;
+    Ok(paths)
+}
+
 pub fn load_match_rounds(
     conn: &Connection,
     openid: &str,

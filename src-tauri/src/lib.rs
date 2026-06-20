@@ -1,9 +1,17 @@
 mod library;
 mod parser;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use parser::model::{LoadResult, MatchRecord};
+use sha2::{Digest, Sha256};
+
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,6 +25,8 @@ pub fn run() {
             rename_account,
             play_video,
             cache_hero_image,
+            cache_asset,
+            cache_assets,
             reveal_in_explorer
         ]);
 
@@ -179,44 +189,93 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn hero_cache_dir() -> Result<std::path::PathBuf, String> {
+fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
     let local = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA not set".to_string())?;
     Ok(std::path::PathBuf::from(local)
         .join("wonderful-ui")
-        .join("hero-cache"))
+        .join("assets")
+        .join(kind))
 }
 
-/// Download (or hit cache for) an agent head icon URL. The URL is expected
-/// to look like `https://game.gtimg.cn/.../headicon/10.png` — we extract
-/// `10` as the stable cache key so the file name is agent-scoped, not
-/// URL-scoped. Returns the absolute local path to the cached PNG.
-#[tauri::command]
-fn cache_hero_image(url: String) -> Result<String, String> {
-    let id = std::path::Path::new(&url)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| format!("bad hero url (no file stem): {}", url))?
-        .to_string();
-    if id.is_empty() {
-        return Err(format!("bad hero url (empty id): {}", url));
-    }
+fn cache_asset_inner(kind: &str, url: &str) -> Result<String, String> {
+    let dir = assets_dir(kind)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
 
-    let dir = hero_cache_dir()?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir cache: {}", e))?;
-    let cached = dir.join(format!("{}.png", id));
+    let hash = sha256_hex(url);
+    let ext = std::path::Path::new(url)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png");
+    let cached = dir.join(format!("{hash}.{ext}"));
 
     if cached.exists() {
+        if let Ok(conn) = library::db::open_library() {
+            let _ = library::db::upsert_asset(
+                &conn,
+                kind,
+                url,
+                &cached.to_string_lossy(),
+                &hash,
+            );
+        }
         return Ok(cached.to_string_lossy().into_owned());
     }
 
-    let resp = ureq::get(&url)
+    let resp = ureq::get(url)
         .call()
         .map_err(|e| format!("download {}: {}", url, e))?;
     let mut out =
         std::fs::File::create(&cached).map_err(|e| format!("create cache file: {}", e))?;
     let mut reader = resp.into_reader();
     std::io::copy(&mut reader, &mut out).map_err(|e| format!("write cache file: {}", e))?;
+
+    if let Ok(conn) = library::db::open_library() {
+        let _ = library::db::upsert_asset(
+            &conn,
+            kind,
+            url,
+            &cached.to_string_lossy(),
+            &hash,
+        );
+    }
+
     Ok(cached.to_string_lossy().into_owned())
+}
+
+/// Download (or hit cache for) an agent head icon URL. Delegates to the
+/// unified asset cache under kind `hero_image`. Returns the absolute local
+/// path to the cached file.
+#[tauri::command]
+fn cache_hero_image(url: String) -> Result<String, String> {
+    cache_asset_inner("hero_image", &url)
+}
+
+/// Download (or hit cache for) a remote asset by kind and URL. Kind is
+/// one of `hero_image`, `map_image`, `game_mode_icon`. Returns the
+/// absolute local path to the cached file.
+#[tauri::command]
+fn cache_asset(kind: String, url: String) -> Result<String, String> {
+    cache_asset_inner(&kind, &url)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CacheEntry {
+    kind: String,
+    url: String,
+}
+
+/// Batch version of `cache_asset`. Returns a map of url → local_path for
+/// every successful download. Failed entries are silently omitted —
+/// callers already have graceful fallbacks.
+#[tauri::command]
+fn cache_assets(entries: Vec<CacheEntry>) -> HashMap<String, String> {
+    let mut results = HashMap::new();
+    for entry in entries {
+        if let Ok(path) = cache_asset_inner(&entry.kind, &entry.url) {
+            results.insert(entry.url, path);
+        }
+    }
+    results
 }
 
 #[cfg(test)]

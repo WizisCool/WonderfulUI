@@ -413,23 +413,25 @@ function unknownIndices(accounts: Account[]): Map<string, number> {
   return idx;
 }
 
-function matchRow(m: MatchRecord, accountLabel: string, isSelected: boolean, heroPathCache: Map<string, string>, matchAchievements: Map<string, { type: 'mvp' | 'svp'; typeStr: string }>): HTMLElement {
+function matchRow(m: MatchRecord, accountLabel: string, isSelected: boolean, assetPathCache: Map<string, string>, matchAchievements: Map<string, { type: 'mvp' | 'svp'; typeStr: string }>): HTMLElement {
   const result = m.stats.has_won ? '胜' : '败';
   const resultClass = m.stats.has_won ? 'result-win' : 'result-loss';
   // Cover: map image (blurred) background + agent head icon badge (bottom-right corner).
   const mapUrl = m.career?.map_image as string | undefined;
+  const mapLocal = mapUrl ? assetPathCache.get(mapUrl) : undefined;
   const heroUrl = m.career?.hero_image as string | undefined;
   const initial = agentCn(m)[0] ?? '?';
   const mode = modeCn(m);
   const cover = el('div', { class: 'match-cover', 'aria-hidden': 'true' });
   if (mapUrl) {
-    const bg = el('img', { class: 'cover-bg', src: mapUrl, alt: '', loading: 'lazy' });
+    const src = mapLocal ? convertFileSrc(mapLocal) : mapUrl;
+    const bg = el('img', { class: 'cover-bg', src, alt: '', loading: 'lazy' });
     bg.addEventListener('error', () => { if (bg.isConnected) bg.remove(); });
     cover.append(bg);
   } else {
     cover.append(el('div', { class: 'cover-bg-fallback' }, [initial]));
   }
-  cover.append(heroImg(agentCn(m), heroUrl, heroPathCache));
+  cover.append(heroImg(agentCn(m), heroUrl, assetPathCache));
   // MVP/SVP pill — only when snapshot data is present
   const achv = matchAchievements.get(m.matches_id);
   if (achv) {
@@ -463,7 +465,7 @@ function matchRow(m: MatchRecord, accountLabel: string, isSelected: boolean, her
       // Line 2: map (left) + mode chip (right).
       el('div', { class: 'match-line match-line-2' }, [
         el('span', { class: 'match-map' }, [mapCn(m)]),
-        mode ? modeChipWithIcon(m, mode) : document.createTextNode(''),
+        mode ? modeChipWithIcon(m, mode, assetPathCache) : document.createTextNode(''),
       ]),
       // Line 3: KDA (left) + video chip (right).
       el('div', { class: 'match-line match-line-3' }, [
@@ -513,7 +515,7 @@ function listPane(
   onFilterChange: (patch: Partial<FilterState>) => void,
   filterBarOpen: boolean,
   onToggleFilterBar: () => void,
-  heroPathCache: Map<string, string>,
+  assetPathCache: Map<string, string>,
   onClearFilter: (key: string, value?: string) => void,
   onFocusSection: (key: string) => void,
   matchAchievements: Map<string, { type: 'mvp' | 'svp'; typeStr: string }>,
@@ -563,7 +565,7 @@ function listPane(
     list.append(emptyDiv);
   } else {
     for (const m of filteredMatches) {
-      list.append(matchRow(m, accountLabels.get(m.openID) ?? m.openID, m.matches_id === selectedId, heroPathCache, matchAchievements));
+      list.append(matchRow(m, accountLabels.get(m.openID) ?? m.openID, m.matches_id === selectedId, assetPathCache, matchAchievements));
     }
   }
   pane.append(list);
@@ -627,17 +629,16 @@ function heroPlaceholder(agentName: string): HTMLElement {
 }
 
 /**
-  * Build the hero avatar element. The pre-fetched `heroPathCache`
- * (populated after `scan_all` returns) maps the ACLOS career CDN URL
- * to a cached local path on disk. Cache hits render instantly; cache
- * misses (new agent never seen) fall back to a colored initial
- * placeholder. No bundled PNGs, no static `/heroes/` path — the
- * cache lives entirely under
- * `%LOCALAPPDATA%\wonderful-ui\hero-cache\`.
- */
-function heroImg(cnName: string, heroUrl: string | undefined, heroPathCache: Map<string, string>): HTMLElement {
+  * Build the hero avatar element. The pre-fetched `assetPathCache`
+  * (populated after `scan_all` returns) maps the ACLOS career CDN URL
+  * to a cached local path on disk. Cache hits render instantly; cache
+  * misses (new agent never seen) fall back to a colored initial
+  * placeholder. No bundled PNGs — the cache lives entirely under
+  * `%LOCALAPPDATA%\wonderful-ui\assets\hero_image\`.
+  */
+function heroImg(cnName: string, heroUrl: string | undefined, assetPathCache: Map<string, string>): HTMLElement {
   if (!heroUrl) return heroPlaceholder(cnName);
-  const localPath = heroPathCache.get(heroUrl);
+  const localPath = assetPathCache.get(heroUrl);
   if (!localPath) return heroPlaceholder(cnName);
   const img = el('img', {
     class: 'hero-img',
@@ -709,14 +710,17 @@ function momentCard(v: MatchRecord['videos'][number]): HTMLElement {
 
 /** Small game-mode icon (e.g. `competitive.png`) from
  *  `career.game_mode_icon`. Returns null when ACLOS didn't supply one
- *  — caller skips the element. The <img> uses onerror to self-destruct
- *  if the remote 404s so we never show a broken-image icon. */
-function modeIconFor(m: MatchRecord, size: 'sm' | 'md'): HTMLElement | null {
+ *  — caller skips the element. When the cache has the file, serves it
+ *  locally; otherwise falls back to the original CDN URL. The <img> uses
+ *  onerror to self-destruct if either source 404s. */
+function modeIconFor(m: MatchRecord, size: 'sm' | 'md', assetPathCache: Map<string, string>): HTMLElement | null {
   const url = m.career?.game_mode_icon;
   if (typeof url !== 'string' || !url) return null;
+  const localPath = assetPathCache.get(url);
+  const src = localPath ? convertFileSrc(localPath) : url;
   const img = el('img', {
     class: `mode-icon mode-icon-${size}`,
-    src: url,
+    src,
     alt: '',
     loading: 'lazy',
   });
@@ -725,9 +729,9 @@ function modeIconFor(m: MatchRecord, size: 'sm' | 'md'): HTMLElement | null {
 }
 
 /** `match-mode` chip with the mode icon prepended when available. */
-function modeChipWithIcon(m: MatchRecord, mode: string): HTMLElement {
+function modeChipWithIcon(m: MatchRecord, mode: string, assetPathCache: Map<string, string>): HTMLElement {
   const chip = el('span', { class: 'match-mode' });
-  const icon = modeIconFor(m, 'sm');
+  const icon = modeIconFor(m, 'sm', assetPathCache);
   if (icon) chip.append(icon);
   chip.append(document.createTextNode(mode));
   return chip;
@@ -784,7 +788,7 @@ function detailPane(
   m: MatchRecord | null,
   momentFilter: string | null,
   onMomentFilter: (t: string | null) => void,
-  heroPathCache: Map<string, string>,
+  assetPathCache: Map<string, string>,
   onOpenEventList: (m: MatchRecord) => void,
   roundsLoaded: boolean,
 ): HTMLElement {
@@ -821,9 +825,9 @@ function detailPane(
   // The pill sits to the right of the agent name on line 1, where it
   // semantically belongs ("the result of this match").
   const heroUrl = m.career?.hero_image as string | undefined;
-  const heroSlot = el('div', { class: 'hero-avatar' }, [heroImg(agentName, heroUrl, heroPathCache)]);
+  const heroSlot = el('div', { class: 'hero-avatar' }, [heroImg(agentName, heroUrl, assetPathCache)]);
   const matchDuration = fmtMatchDuration(m);
-  const modeIconEl = modeIconFor(m, 'md');
+  const modeIconEl = modeIconFor(m, 'md', assetPathCache);
   const detailSub = el('div', { class: 'detail-sub' });
   if (modeIconEl) detailSub.append(modeIconEl);
   detailSub.append(
@@ -1003,7 +1007,7 @@ export async function renderApp(root: HTMLElement) {
   let editingAccount: string | null = null;
   let suppressAccountClick = false;
   let accountSortable: Sortable | null = null;
-  const heroPathCache = new Map<string, string>();  // career.hero_image URL -> cached local path
+  const assetPathCache = new Map<string, string>();  // URL -> cached local path (hero_image / map_image / game_mode_icon)
 
   // Fold per-account achievements into a flat matchesId → achievement map
   const matchAchievements = new Map<string, { type: 'mvp' | 'svp'; typeStr: string }>();
@@ -1074,24 +1078,28 @@ export async function renderApp(root: HTMLElement) {
     }
   });
 
-  // After data loads, kick off background fetch of every unique agent
-  // head icon the user's matches reference. On the first run this
-  // downloads the PNGs into %LOCALAPPDATA%\wonderful-ui\hero-cache\;
-  // subsequent runs are pure cache hits. The heroImg() helper reads
-  // from this map synchronously.
-  const urls = new Set<string>();
+  // After data loads, kick off background fetch of every unique remote
+  // asset (hero heads, map covers, mode icons) the user's matches
+  // reference. On the first run this downloads them into
+  // %LOCALAPPDATA%\wonderful-ui\assets\{kind}\;
+  // subsequent runs are pure cache hits. The heroImg/modeIcon helpers
+  // read from this map synchronously.
+  const entries: Array<{ kind: string; url: string }> = [];
+  const seen = new Set<string>();
   for (const m of data.matches) {
-    const u = m.career?.hero_image;
-    if (typeof u === 'string' && u) urls.add(u);
+    const heroUrl = m.career?.hero_image;
+    if (typeof heroUrl === 'string' && heroUrl && !seen.has(heroUrl)) { seen.add(heroUrl); entries.push({ kind: 'hero_image', url: heroUrl }); }
+    const mapUrl = m.career?.map_image;
+    if (typeof mapUrl === 'string' && mapUrl && !seen.has(mapUrl)) { seen.add(mapUrl); entries.push({ kind: 'map_image', url: mapUrl }); }
+    const modeUrl = m.career?.game_mode_icon;
+    if (typeof modeUrl === 'string' && modeUrl && !seen.has(modeUrl)) { seen.add(modeUrl); entries.push({ kind: 'game_mode_icon', url: modeUrl }); }
   }
-  void Promise.all([...urls].map(async url => {
-    try {
-      const localPath = await invoke<string>('cache_hero_image', { url });
-      heroPathCache.set(url, localPath);
-    } catch (e) {
-      showToast(`头像缓存失败: ${(e as Error).message ?? String(e)}`, 'error');
+  void (async () => {
+    const results = await invoke<Record<string, string>>('cache_assets', { entries });
+    for (const [url, localPath] of Object.entries(results)) {
+      assetPathCache.set(url, localPath);
     }
-  })).then(() => refreshAll());
+  })().then(() => refreshAll(), () => refreshAll());
 
   function playFirst(m: MatchRecord, seekMs?: number) {
     const video = m.videos[0];
@@ -1700,7 +1708,7 @@ export async function renderApp(root: HTMLElement) {
       patch => applyFilterPatch(patch, { refreshRail: true }),
       filterBarOpen,
       () => setFilterBarOpen(!filterBarOpen),
-      heroPathCache,
+      assetPathCache,
       onClearFilter,
       onFocusSection,
       matchAchievements,
@@ -1733,7 +1741,7 @@ export async function renderApp(root: HTMLElement) {
     const pane = detailPane(selectedMatch, momentFilter, t => {
       momentFilter = t;
       refreshDetail();
-    }, heroPathCache, openEventListForMatch, roundsLoaded);
+    }, assetPathCache, openEventListForMatch, roundsLoaded);
     detailSlot.className = pane.className;
     detailSlot.setAttribute('aria-label', pane.getAttribute('aria-label') ?? '高光详情');
     detailSlot.replaceChildren(...Array.from(pane.childNodes));

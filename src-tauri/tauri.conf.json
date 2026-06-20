@@ -24,7 +24,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**", "$LOCALDATA/wonderful-ui/hero-cache/**"]
+        "scope": ["**", "$LOCALDATA/wonderful-ui/assets/**"]
       }
     }
   },
