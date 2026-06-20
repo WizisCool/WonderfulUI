@@ -1,0 +1,13 @@
+{
+  "name": "@wonderful-ui/parser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "wonderful-parser": "./cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

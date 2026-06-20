@@ -1,0 +1,55 @@
+# ── Build artifacts ──────────────────────────────────
+target/
+src-tauri/target/
+src-tauri/binaries/
+node_modules/
+out/
+dist/
+release/
+packages/gui/dist/
+
+# ── Generated ────────────────────────────────────────
+src-tauri/gen/
+.bun/
+
+# ── Rust ──────────────────────────────────────────────
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# ── TypeScript ────────────────────────────────────────
+*.tsbuildinfo
+*.d.ts
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ── Editor / IDE ──────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────
+*.log
+
+# ── Env ───────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Local-only AI agent / workflow files ──────────────
+.agents/
+AGENTS.md
+PRODUCT.md
+DESIGN.md
+.impeccable/
+docs/
+tools/
+.github/BFG_GUIDE.md
+.github/RELEASE_TEMPLATE.md

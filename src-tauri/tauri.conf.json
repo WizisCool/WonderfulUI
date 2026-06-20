@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WonderfulUI",
+  "version": "0.1.0",
+  "identifier": "local.wonderfului.app",
+  "build": {
+    "frontendDist": "../packages/gui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "cd packages/gui && bun install --silent && bun run dev",
+    "beforeBuildCommand": "cd packages/gui && bun install --silent && bun run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "WonderfulUI",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**", "$LOCALDATA/wonderful-ui/hero-cache/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "dialog": false,
+      "endpoints": [],
+      "pubkey": ""
+    }
+  }
+}

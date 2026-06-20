@@ -1,0 +1,78 @@
+# 贡献指南
+
+## 开发环境
+
+- **Bun 1.1+** — 前端依赖与构建
+- **Rust 1.77+** — 后端编译（通过 rustup 安装）
+- **Windows** — ACLOS 仅限 Windows 平台，故本项目仅支持 Windows
+
+```bash
+bun install
+bunx tauri dev
+```
+
+## 分支模型
+
+本项目采用 **GitHub Flow**：
+
+```
+main              ← 永远可发布
+├─ feat/xxx       ← 新功能
+├─ fix/xxx        ← 修 bug
+├─ refactor/xxx   ← 重构
+└─ docs/xxx       ← 文档
+```
+
+所有改动通过 Pull Request 合入 `main`，合并前 CI 必须通过。
+
+## 提交规范
+
+采用 [Conventional Commits](https://www.conventionalcommits.org/)，便于自动生成 changelog 和版本 bump：
+
+```
+feat(gui): add scan settings modal
+fix(parser): handle empty snapshot gracefully
+docs: clarify ACLOS legal boundary
+chore(release): v0.2.0
+test(parser): add fixture for empty snapshot
+```
+
+| 前缀 | 对应版本变动 |
+|---|---|
+| `feat:` | minor |
+| `fix:` | patch |
+| `BREAKING CHANGE:` / `feat!:` | major |
+| `docs:` / `refactor:` / `test:` / `chore:` | 不触发 |
+
+## 开发约束
+
+**不得触碰 ACLOS / Riot / Vanguard 游戏文件。** 本项目只读解析 ACLOS 本地缓存，不会修改任何游戏数据、启动游戏或触发反作弊。
+
+详情见项目根目录下的设计文档。
+
+## 构建验证
+
+提交前请确保以下命令通过：
+
+```bash
+bun run typecheck    # TypeScript 类型检查
+bun test             # 前端 + 解析器测试
+cargo test --release --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
+```
+
+## 发布流程
+
+维护者执行：
+
+```bash
+bun run version:patch   # bump 版本号（patch/minor/major）
+git push --follow-tags  # 推送 commit + tag
+```
+
+GitHub Actions 会自动构建 Release 产物。之后在 GitHub Releases 页面填写发布说明。
+
+## 问题报告
+
+- Bug 请使用 GitHub Issues，附上 ACLOS 版本号
+- 安全问题请参阅 `SECURITY.md`
+- 新功能建议先开 Discussion 讨论

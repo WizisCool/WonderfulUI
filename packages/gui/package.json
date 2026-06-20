@@ -1,0 +1,23 @@
+{
+  "name": "@wonderful-ui/gui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.6.0",
+    "@tanstack/table-core": "8.21.3",
+    "@wonderful-ui/parser": "workspace:*",
+    "fuse.js": "7.4.2",
+    "sortablejs": "1.15.7"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@types/sortablejs": "1.15.9",
+    "vite": "^5.4.0"
+  }
+}

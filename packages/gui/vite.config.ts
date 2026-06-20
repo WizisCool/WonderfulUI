@@ -1,0 +1,22 @@
+import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
+
+export default defineConfig({
+  root: '.',
+  clearScreen: false,
+  resolve: {
+    alias: {
+      '@wonderful-ui/parser': resolve(__dirname, '..', 'parser', 'src', 'index.ts'),
+    },
+  },
+  server: {
+    port: 1420,
+    strictPort: true,
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    target: 'esnext',
+    sourcemap: true,
+  },
+});
