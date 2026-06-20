@@ -9,36 +9,14 @@
  *   2. We need a compact trigger button ("选择日期范围" / "2024-01-12 — 2024-12-18")
  *      that fits inside the filter row, not a stacked two-input layout.
  *
- * UX design notes (post-feedback round):
+ * UX design notes:
  *
- *   The popover is treated as a CONTINUATION of the trigger, not a
- *   separate floating card. Two principles:
- *
- *   • **Layered hierarchy** — when the popover is open, the trigger
- *     raises to surface-3 with an accent border; the popover below
- *     uses a 1px top border in border-soft to read as a single extended
- *     surface. The multi-layer drop shadow (3 stops, warm-tinted)
- *     signals elevation without using pure black.
- *
- *   • **Interaction continuity** — the popover doesn't fade in: it
- *     emerges from the trigger. transform-origin is set to the trigger
- *     so the popover slides down + scales subtly (0.97→1) with a
- *     180ms ease-out-expo curve. The trigger itself gets a brief
- *     scale-pulse (1→1.02→1, 240ms) so the user feels the connection.
- *     Range hover-preview cells fade between selections rather than
- *     flickering. Day cells get a 0.92→1.08 scale on press for
- *     tactile feedback.
- *
- *   • **State choreography** — the trigger has three visual states
- *     (idle / hover / expanded); the popover shares the accent border
- *     with the trigger so the eye traces the source. The backdrop is
- *     intentionally absent inside the filter popover (no need — the
- *     popover is already in a closed container). When invoked outside
- *     the filter popover the backdrop fades in slower (260ms) so it
- *     doesn't compete with the popover's own entrance.
+ *   This is a compact filter-rail control, not a modal or standalone
+ *   date-picker card. Keep it visually aligned with filter chips and
+ *   numeric inputs: low elevation, token colors, clear focus, no shadow.
  */
 
-import { createElement, CalendarDays, X } from 'lucide';
+import { createElement, CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide';
 
 const WEEKDAYS_CN = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -120,6 +98,20 @@ function el<K extends keyof HTMLElementTagNameMap>(
 const PRECISION_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
 const PRECISION_IN  = 'cubic-bezier(0.7, 0, 0.84, 0)';
 
+function rangeFromTuple(current: [number | null, number | null]): DateRange {
+  return {
+    start: current[0] != null ? startOfDay(new Date(current[0])) : null,
+    end: current[1] != null ? startOfDay(new Date(current[1])) : null,
+  };
+}
+
+function cloneRange(r: DateRange): DateRange {
+  return {
+    start: r.start ? new Date(r.start) : null,
+    end: r.end ? new Date(r.end) : null,
+  };
+}
+
 /**
  * Build the date-range picker. Returns the trigger button; the popover
  * is created lazily on first click and lives on `document.body` so it
@@ -137,27 +129,22 @@ export function createDateRangePicker(
     'aria-expanded': 'false',
   });
 
-  let range: DateRange = {
-    start: current[0] != null ? startOfDay(new Date(current[0])) : null,
-    end: current[1] != null ? startOfDay(new Date(current[1])) : null,
-  };
+  let appliedRange: DateRange = rangeFromTuple(current);
+  let draftRange: DateRange = cloneRange(appliedRange);
 
   function syncTrigger() {
     trigger.innerHTML = '';
     trigger.append(createElement(CalendarDays, { width: 12, height: 12 }));
     const text = el('span', { class: 'dr-trigger-text' });
-    if (range.start && range.end) {
-      text.textContent = `${fmtDate(range.start)}  —  ${fmtDate(range.end)}`;
-      trigger.classList.add('is-active');
-    } else if (range.start) {
-      text.textContent = `${fmtDate(range.start)}  —  ?`;
+    if (appliedRange.start && appliedRange.end) {
+      text.textContent = `${fmtDate(appliedRange.start)}  —  ${fmtDate(appliedRange.end)}`;
       trigger.classList.add('is-active');
     } else {
       text.textContent = '选择日期范围';
       trigger.classList.remove('is-active');
     }
     trigger.append(text);
-    if (range.start || range.end) {
+    if (appliedRange.start || appliedRange.end) {
       const clear = el('button', {
         class: 'dr-trigger-clear',
         type: 'button',
@@ -166,7 +153,8 @@ export function createDateRangePicker(
       }, [createElement(X, { width: 10, height: 10 })]);
       clear.addEventListener('click', e => {
         e.stopPropagation();
-        range = { start: null, end: null };
+        appliedRange = { start: null, end: null };
+        draftRange = cloneRange(appliedRange);
         onChange(null, null);
         syncTrigger();
         closePopover();
@@ -179,20 +167,11 @@ export function createDateRangePicker(
   let popover: HTMLElement | null = null;
   let viewYear: number;
   let viewMonth: number;
-  let hoverEnd: Date | null = null;  // preview while picking end
-
-  function pulseTrigger() {
-    // brief 1→1.02→1 scale to confirm the connection
-    trigger.classList.remove('is-pulse');
-    // force reflow so the animation can re-trigger
-    void trigger.offsetWidth;
-    trigger.classList.add('is-pulse');
-  }
 
   function openPopover() {
     if (popover) return;
-    // view month = start month if a range is set, else current month
-    const seed = range.start ?? new Date();
+    draftRange = cloneRange(appliedRange);
+    const seed = draftRange.start ?? new Date();
     viewYear = seed.getFullYear();
     viewMonth = seed.getMonth();
 
@@ -207,7 +186,6 @@ export function createDateRangePicker(
     renderPopover();
     positionPopover();
     popover.style.visibility = '';
-    pulseTrigger();
     trigger.classList.add('is-expanded');
     trigger.setAttribute('aria-expanded', 'true');
 
@@ -242,7 +220,25 @@ export function createDateRangePicker(
       // after the max transition duration + a small buffer.
       setTimeout(cleanup, 240);
     }
-    hoverEnd = null;
+  }
+
+  function applyDraftRange() {
+    if (!draftRange.start && !draftRange.end) {
+      appliedRange = { start: null, end: null };
+      onChange(null, null);
+    } else {
+      const start = draftRange.start ?? draftRange.end!;
+      const end = draftRange.end ?? draftRange.start!;
+      appliedRange = start <= end
+        ? { start, end }
+        : { start: end, end: start };
+      onChange(
+        appliedRange.start?.getTime() ?? null,
+        appliedRange.end ? endOfSelectedDayForFilter(appliedRange.end) : null,
+      );
+    }
+    draftRange = cloneRange(appliedRange);
+    syncTrigger();
   }
 
   function onKey(e: KeyboardEvent) {
@@ -291,9 +287,13 @@ export function createDateRangePicker(
     popover.append(el('div', { class: 'dr-header' }, [
       el('span', { class: 'dr-title' }, ['日期范围']),
       el('div', { class: 'dr-nav' }, [
-        el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '上一月' }, ['‹']),
+        el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '上一月' }, [
+          createElement(ChevronLeft, { width: 14, height: 14 }),
+        ]),
         el('span', { class: 'dr-nav-label' }, [`${viewYear}年  ${MONTH_NAMES[viewMonth]}`]),
-        el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '下一月' }, ['›']),
+        el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '下一月' }, [
+          createElement(ChevronRight, { width: 14, height: 14 }),
+        ]),
       ]),
     ]));
     popover.querySelector<HTMLButtonElement>('.dr-nav-btn:first-child')!
@@ -324,61 +324,36 @@ export function createDateRangePicker(
           class: 'dr-day',
           type: 'button',
           'data-time': String(day.getTime()),
-        }, [String(day.getDate())]);
+        }, [
+          el('span', { class: 'dr-day-num' }, [String(day.getDate())]),
+        ]);
 
         if (isOtherMonth) cell.classList.add('is-other');
         if (isSameDay(day, new Date())) cell.classList.add('is-today');
 
         // range highlighting
-        if (range.start && range.end) {
-          if (isSameDay(day, range.start)) cell.classList.add('is-range-start');
-          else if (isSameDay(day, range.end)) cell.classList.add('is-range-end');
-          else if (inRange(day, range.start, range.end)) cell.classList.add('is-in-range');
-        } else if (range.start && !range.end) {
-          // start picked, hovering for end
-          if (hoverEnd) {
-            if (isSameDay(day, range.start)) cell.classList.add('is-range-start');
-            else if (isSameDay(day, hoverEnd)) cell.classList.add('is-range-end');
-            else {
-              const lo = range.start < hoverEnd ? range.start : hoverEnd;
-              const hi = range.start < hoverEnd ? hoverEnd : range.start;
-              if (inRange(day, lo, hi)) cell.classList.add('is-in-range');
-            }
-          } else {
-            if (isSameDay(day, range.start)) cell.classList.add('is-range-start');
-          }
+        if (draftRange.start && draftRange.end) {
+          if (isSameDay(day, draftRange.start)) cell.classList.add('is-range-start');
+          else if (isSameDay(day, draftRange.end)) cell.classList.add('is-range-end');
+          else if (inRange(day, draftRange.start, draftRange.end)) cell.classList.add('is-in-range');
+        } else if (draftRange.start && !draftRange.end) {
+          if (isSameDay(day, draftRange.start)) cell.classList.add('is-range-start');
         }
 
-        cell.addEventListener('mouseenter', () => {
-          if (range.start && !range.end) {
-            hoverEnd = startOfDay(day);
-            renderPopover();
-          }
-        });
         cell.addEventListener('click', e => {
           e.stopPropagation();
           const d = startOfDay(day);
-          if (!range.start || (range.start && range.end)) {
-            range = { start: d, end: null };
-            hoverEnd = null;
+          if (!draftRange.start || (draftRange.start && draftRange.end)) {
+            draftRange = { start: d, end: null };
             renderPopover();
           } else {
             // picking end
-            if (d < range.start) {
-              range = { start: d, end: range.start };
+            if (d < draftRange.start) {
+              draftRange = { start: d, end: draftRange.start };
             } else {
-              range = { start: range.start, end: d };
+              draftRange = { start: draftRange.start, end: d };
             }
-            hoverEnd = null;
-            onChange(
-              range.start?.getTime() ?? null,
-              range.end ? endOfSelectedDayForFilter(range.end) : null,
-            );
-            syncTrigger();
             renderPopover();
-            // brief settle delay so the user sees their selection
-            // before the popover eases away
-            setTimeout(closePopover, 200);
           }
         });
 
@@ -389,22 +364,23 @@ export function createDateRangePicker(
 
     // footer
     const footer = el('div', { class: 'dr-footer' });
-    if (range.start || range.end) {
+    if (draftRange.start || draftRange.end) {
       const reset = el('button', { class: 'dr-footer-btn', type: 'button' }, ['清除']);
       reset.addEventListener('click', () => {
-        range = { start: null, end: null };
-        onChange(null, null);
-        syncTrigger();
+        draftRange = { start: null, end: null };
         renderPopover();
       });
       footer.append(reset);
     }
     const hint = el('span', { class: 'dr-hint' }, [
-      range.start && !range.end ? '再点一次选结束日期' : '',
+      draftRange.start && !draftRange.end ? '再点一次选结束日期' : '',
     ]);
     footer.append(hint);
     const close = el('button', { class: 'dr-footer-btn dr-footer-close', type: 'button' }, ['完成']);
-    close.addEventListener('click', closePopover);
+    close.addEventListener('click', () => {
+      applyDraftRange();
+      closePopover();
+    });
     footer.append(close);
     popover.append(footer);
   }

@@ -7,7 +7,7 @@
 - **Windows** — ACLOS 仅限 Windows 平台，故本项目仅支持 Windows
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bunx tauri dev
 ```
 
@@ -62,14 +62,28 @@ cargo test --release --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
 
 ## 发布流程
 
-维护者执行：
+正式发布必须由 GitHub Actions 从 tag 构建，不手动上传本地产物。
+
+维护者通常在 release 分支执行：
 
 ```bash
 bun run version:patch   # bump 版本号（patch/minor/major）
-git push --follow-tags  # 推送 commit + tag
 ```
 
-GitHub Actions 会自动构建 Release 产物。之后在 GitHub Releases 页面填写发布说明。
+该脚本会更新版本文件、提交 `chore(release): vX.Y.Z` 并创建 tag。先通过 PR 合入
+`main`，确认 tag 指向合并后的 `main` 提交，再推送 tag：
+
+```bash
+git push origin vX.Y.Z
+```
+
+`.github/workflows/release.yml` 会运行完整验证、执行 `bun run build`，并自动创建
+GitHub Release，上传：
+
+- `WonderfulUI_*_x64-setup.exe`
+- `WonderfulUI_*_x64_en-US.msi`
+
+完整 agent/维护者流程见 `docs/AGENT_WORKFLOW.md`。
 
 ## 问题报告
 

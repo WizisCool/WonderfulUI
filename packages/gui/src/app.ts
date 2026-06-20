@@ -1904,7 +1904,10 @@ function ensureTooltip(): HTMLDivElement {
   tooltipEl = document.createElement('div');
   tooltipEl.className = 'tooltip';
   tooltipEl.setAttribute('role', 'tooltip');
+  const body = document.createElement('span');
+  body.className = 'tooltip-body';
   const arrow = createArrow();
+  tooltipEl.appendChild(body);
   tooltipEl.appendChild(arrow);
   document.body.appendChild(tooltipEl);
   return tooltipEl;
@@ -1919,11 +1922,13 @@ function clearTooltipTimer() {
 
 function showTooltipNow(target: HTMLElement, text: string) {
   const tip = ensureTooltip();
-  if (tip.textContent === text && tip.classList.contains('is-visible')) {
+  const body = tip.querySelector<HTMLElement>('.tooltip-body');
+  if (!body) return;
+  if (body.textContent === text && tip.classList.contains('is-visible')) {
     positionTooltip(target);
     return;
   }
-  tip.textContent = text;
+  body.textContent = text;
   tip.classList.add('is-visible');
   positionTooltip(target);
 }

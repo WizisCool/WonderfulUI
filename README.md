@@ -89,7 +89,7 @@ bun run dev
 bun run build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。
+构建产物位于 `target/release/bundle/`。
 
 ---
 
@@ -134,6 +134,9 @@ WonderfulUI/
 ## 贡献
 
 欢迎参与贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+维护者和 agent 工作流（功能开发、bug 修复、重构、PR、CI、发布）见
+[docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md)。
 
 所有贡献者请遵循 [贡献者公约](CODE_OF_CONDUCT.md)。
 

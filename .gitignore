@@ -45,11 +45,12 @@ ehthumbs.db
 
 # ── Local-only AI agent / workflow files ──────────────
 .agents/
-AGENTS.md
-PRODUCT.md
-DESIGN.md
 .impeccable/
-docs/
+docs/*
+!docs/ACLOS_FORMAT.md
+!docs/ARCHITECTURE.md
+!docs/FRONTEND_CONVENTIONS.md
+!docs/AGENT_WORKFLOW.md
 tools/
 .github/BFG_GUIDE.md
 .github/RELEASE_TEMPLATE.md

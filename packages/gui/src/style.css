@@ -1858,6 +1858,9 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   color: var(--ink);
 }
 .tooltip .tt-key { color: var(--ink-3); }
+.tooltip-body {
+  display: block;
+}
 
 .floating-arrow {
   position: absolute;
@@ -2644,26 +2647,15 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   color: var(--ink);
   background: var(--surface-3);
 }
-/* Active state: at least one of the two inputs has a value. The
-   row gets the accent-coloured left bar to make active filters
-   scannable in a long list. */
+/* Active state: at least one of the two inputs has a value. */
 .filter-num-row.is-active .filter-num-input {
   color: var(--ink);
-  border-color: var(--accent-soft);
+  border-color: var(--accent);
   background: var(--surface-2);
 }
 .filter-num-row.is-active .filter-num-input:focus {
   border-color: var(--accent);
   background: var(--surface-3);
-}
-.filter-num-row.is-active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 4px; bottom: 4px;
-  width: 2px;
-  background: var(--accent);
-  border-radius: 1px;
 }
 .filter-num-sep {
   color: var(--ink-4);
@@ -2767,78 +2759,58 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 /* ─── date range picker ──────────────────────────────────── */
 /*
  * Custom dark-theme date range picker. Replaces flatpickr.
- *
- * Layered hierarchy:
- *   - The trigger and the popover share the same warm-dark panel
- *     surface family. When the popover is open, the trigger raises to
- *     surface-3 with an accent border; the popover sits below as a
- *     continuation of that surface (top border continues seamlessly).
- *   - A 3-layer warm-tinted drop shadow signals elevation without
- *     using pure black, matching the rest of the UI's elevation rules.
- *
- * Interaction continuity:
- *   - The popover emerges from the trigger, not from a fixed origin.
- *     transform-origin is set per-open to the trigger's top-center via
- *     CSS custom properties --dr-origin-x / --dr-origin-y.
- *   - Entry: 200ms ease-out-expo, slides down 6px + scales 0.96 → 1 +
- *     opacity 0 → 1. Exit: same path in reverse at 160ms.
- *   - The trigger gets a brief 1 → 1.02 → 1 scale pulse to confirm
- *     the connection. Range preview cells fade in/out smoothly when
- *     the user moves between end-date candidates.
+ * This is a filter-rail control: visually close to chips and numeric
+ * inputs, with low elevation and no decorative shadow.
  */
 
 .dr-trigger {
   display: inline-flex; align-items: center; gap: 6px;
   width: 100%;
+  min-height: 28px;
   padding: 4px 8px;
   font: inherit;
   font-size: 11px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   color: var(--ink-2);
-  background: var(--surface-2);
+  background: var(--bg);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: 4px;
   cursor: pointer;
   text-align: left;
   position: relative;
   transition:
     background 120ms ease-out,
     border-color 120ms ease-out,
-    color 120ms ease-out,
-    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 160ms ease-out;
+    color 120ms ease-out;
   min-width: 0;
 }
 .dr-trigger:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
   border-color: var(--ink-4);
   color: var(--ink);
 }
 .dr-trigger.is-active {
   color: var(--ink);
-  background: var(--surface-3);
+  background: var(--surface-2);
   border-color: var(--accent);
 }
 .dr-trigger.is-expanded {
-  background: var(--surface-3);
+  background: var(--surface-2);
   border-color: var(--accent);
   color: var(--ink);
-  box-shadow:
-    0 1px 0 1px var(--accent) inset,
-    0 4px 12px oklch(0.08 0.01 30 / 0.35);
   z-index: 1;
-}
-.dr-trigger.is-pulse {
-  animation: dr-trigger-pulse 240ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes dr-trigger-pulse {
-  0%   { transform: scale(1); }
-  35%  { transform: scale(1.02); }
-  100% { transform: scale(1); }
 }
 .dr-trigger:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+.dr-trigger svg {
+  color: var(--ink-3);
+  flex: 0 0 auto;
+}
+.dr-trigger.is-active svg,
+.dr-trigger.is-expanded svg {
+  color: var(--accent);
 }
 .dr-trigger-text {
   flex: 1;
@@ -2865,43 +2837,33 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   color: var(--accent);
 }
 
-/* The popover — layered card that emerges from the trigger.
-   transform-origin is set inline per-open via --dr-origin-x / --dr-origin-y
-   so the entrance appears to flow from the trigger. */
 .dr-popover {
   position: fixed;
   z-index: 200;
-  width: 268px;
-  background: var(--surface-3);
+  width: 252px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: var(--radius-lg);
-  box-shadow:
-    0 1px 0 var(--accent) inset,
-    0 1px 0 oklch(1 0 0 / 0.04) inset,
-    0 4px 8px oklch(0.08 0.01 30 / 0.25),
-    0 12px 24px oklch(0.08 0.01 30 / 0.35),
-    0 24px 48px oklch(0.05 0.01 30 / 0.45);
-  padding: 8px;
-  display: flex; flex-direction: column; gap: 4px;
+  border-radius: var(--radius);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 6px;
   opacity: 0;
-  transform: translateY(-6px) scale(0.96);
+  transform: translateY(-4px);
   transform-origin: var(--dr-origin-x, 50%) var(--dr-origin-y, 0%);
   transition:
-    opacity 200ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    opacity 120ms ease-out,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
 }
 .dr-popover.is-open {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
   pointer-events: auto;
 }
 
 /* header */
 .dr-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 4px 6px;
+  padding: 2px 2px 6px;
   border-bottom: 1px solid var(--border-soft);
 }
 .dr-title {
@@ -2912,14 +2874,12 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 }
 .dr-nav { display: flex; align-items: center; gap: 2px; }
 .dr-nav-btn {
-  width: 22px; height: 22px;
+  width: 24px; height: 24px;
   display: inline-flex; align-items: center; justify-content: center;
   background: transparent;
   border: 0;
   border-radius: 4px;
   color: var(--ink-2);
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
   transition: background 100ms ease-out, color 100ms ease-out, transform 120ms ease-out;
 }
@@ -2929,7 +2889,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 }
 .dr-nav-btn:active { transform: scale(0.92); }
 .dr-nav-label {
-  min-width: 92px;
+  min-width: 86px;
   text-align: center;
   font-size: 12px;
   font-weight: var(--w-medium);
@@ -2942,7 +2902,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 0;
-  padding: 4px 0 2px;
+  padding: 0;
 }
 .dr-weekday {
   text-align: center;
@@ -2958,7 +2918,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 0;
+  gap: 2px;
 }
 .dr-day {
   position: relative;
@@ -2967,7 +2927,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   display: flex; align-items: center; justify-content: center;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--ink);
   font: inherit;
   font-size: 11px;
@@ -2984,28 +2944,17 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-day::before {
   content: '';
   position: absolute;
-  top: 4px; bottom: 4px;
-  left: -1px; right: -1px;
+  inset: 3px;
   background: var(--accent-soft);
   opacity: 0;
   transition: opacity 140ms ease-out;
   z-index: 0;
-  border-radius: 0;
+  border-radius: 4px;
 }
 .dr-day.is-in-range::before,
 .dr-day.is-range-start::before,
 .dr-day.is-range-end::before {
   opacity: 1;
-}
-/* The end caps need rounded corners on the outside so the range band
-   doesn't visually float. */
-.dr-day.is-range-start::before {
-  border-top-left-radius: 5px;
-  border-bottom-left-radius: 5px;
-}
-.dr-day.is-range-end::before {
-  border-top-right-radius: 5px;
-  border-bottom-right-radius: 5px;
 }
 .dr-day > * { position: relative; z-index: 1; }
 .dr-day:hover {
@@ -3022,7 +2971,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-day.is-today::after {
   content: '';
   position: absolute;
-  bottom: 4px;
+  bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
   width: 3px; height: 3px;
@@ -3048,7 +2997,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
   color: var(--ink);
 }
 .dr-day:active {
-  transform: scale(0.92);
+  transform: scale(0.96);
 }
 .dr-day:focus-visible {
   outline: 2px solid var(--focus);
@@ -3060,9 +3009,9 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-footer {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px;
-  padding: 6px 4px 2px;
+  padding: 6px 2px 0;
   border-top: 1px solid var(--border-soft);
-  margin-top: 2px;
+  margin-top: 0;
 }
 .dr-hint {
   flex: 1;
@@ -3073,9 +3022,9 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 }
 .dr-footer-btn {
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
   padding: 4px 10px;
-  border-radius: var(--radius);
+  border-radius: 4px;
   font: inherit;
   font-size: 11px;
   font-weight: var(--w-medium);
@@ -3089,10 +3038,13 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 }
 .dr-footer-close {
   color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
 }
 .dr-footer-close:hover {
-  color: var(--accent);
+  color: var(--accent-hi);
   background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 /* ─── empty filter state ─────────────────────────────────── */
