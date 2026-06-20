@@ -417,6 +417,7 @@ fn upsert_events(conn: &Connection, m: &MatchRecord) -> rusqlite::Result<usize> 
     Ok(events.len())
 }
 
+#[cfg(test)]
 pub fn scrape_wonderful_dir(
     conn: &Connection,
     dir: &Path,
