@@ -94,7 +94,7 @@ git push origin vX.Y.Z
 GitHub Release，上传：
 
 - `WonderfulUI_*_x64-setup.exe`
-- `WonderfulUI_*_x64_en-US.msi`
+- `WonderfulUI_*_x64_zh-CN.msi`
 
 完整 agent/维护者流程见 `docs/AGENT_WORKFLOW.md`。
 

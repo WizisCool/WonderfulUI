@@ -244,7 +244,7 @@ A completed release must have:
 - a non-draft, non-prerelease GitHub Release unless intentionally marked
   otherwise
 - `WonderfulUI_*_x64-setup.exe`
-- `WonderfulUI_*_x64_en-US.msi`
+- `WonderfulUI_*_x64_zh-CN.msi`
 
 ## Local Verification Matrix
 
