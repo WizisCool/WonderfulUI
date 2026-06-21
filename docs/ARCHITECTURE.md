@@ -15,11 +15,13 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
   `packages/gui/src/tauri-adapter.ts`, so UI surfaces can be inspected with
   browser tooling without reading ACLOS or launching the Tauri shell.
 - Parser: Rust in-process inside the Tauri shell.
-- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db`.
+- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**.
 - App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
 - TS parser: retained for CLI and Bun unit tests.
 - Build: `cargo tauri build` / `bunx tauri build`, no sidecar parser executable.
 - Git: single repository, main branch, no pre-commit hook.
+- **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
+- **Frontend virtual scrolling**: match list renders only visible + buffer rows (~12 DOM nodes instead of hundreds), using `position: absolute` + `transform: translateY()` with a `.vlist-spacer` for scrollable height and rAF-batched scroll handler.
 
 ## Parser Layout
 
@@ -215,14 +217,16 @@ full match `raw_json` from SQLite and returns one match with full rounds
 
 At 10x data, around 100 MB raw / 600 matches / account and 40 accounts:
 
-- Sequential scans become the first likely wall: 40 x 20 ms is around 800 ms.
+- Sequential scans are no longer the wall: `rayon` parallelizes account parsing across cores.
+- Transactions (`BEGIN IMMEDIATE` / `COMMIT`) batch SQLite writes per account, reducing fsync from hundreds per account to one.
 - Memory is acceptable around 1 GB of matches, but streaming or paging may matter at 100x.
 - The old walls, raw IPC, Web Crypto throughput, and command-layer
   WonderfulDb re-parse on detail open are already gone.
+- **Frontend scaling**: virtual scrolling limits DOM nodes to ~12 visible rows regardless of match count. GPU composited layers are capped at ~12 (visible rows) + 1 (canvas markers) from previously ~1000+.
 
 If users actually hit 10x:
 
-1. Parallelize the scraper with `rayon` only if sequential source refresh shows up in profiling.
+1. ~~Parallelize the scraper with `rayon`~~ Done (2026-06-21).
 2. Add a stronger optional freshness layer such as quick file hashes if mtime/size proves insufficient on user systems.
 3. Profile before optimizing the parser itself; disk IO is likely to dominate before Rust AES does.
 4. If users open many matches in a session, add an in-memory full-match cache above `get_match_rounds` so back-to-back detail opens skip SQLite JSON decode.

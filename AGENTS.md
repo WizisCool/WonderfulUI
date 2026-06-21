@@ -89,13 +89,17 @@ Production code must not hard-code user-specific paths.
 - Rust parser runs in-process inside Tauri.
 - Frontend is Vite + native TypeScript / DOM APIs.
 - TS parser remains for CLI and Bun tests.
-- SQLite library lives at `%LOCALAPPDATA%\wonderful-ui\library.db`.
+- SQLite library lives at `%LOCALAPPDATA%\wonderful-ui\library.db` with **WAL mode** for concurrent reads during writes.
 - WonderfulDb is read only by `src-tauri/src/library/scraper.rs` as a source adapter; Tauri commands must not directly parse WonderfulDb files.
 - The scraper also writes a deduped normalized event index into SQLite `events`. Keep raw match JSON as the replay/audit source; the SQL event index is for fast lookup, migration, and future library features.
 - Account drag order and manual display names are WonderfulUI-local preferences stored in SQLite `account_preferences`; never write them back to `snapshot<openid>` or WonderfulDb.
 - GUI calls `scan_all(dir?: string)` / `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full")` to refresh the SQLite library, then receives parsed match JSON from the library view. Startup uses incremental scan; the top-right refresh button uses the user's saved scan mode from the settings modal (`增量扫描` / `全量扫描`). The bulk payload is **rounds-stripped** (see `strip_match_rounds`) to keep IPC small.
 - Round / clip / event data is fetched on demand via the `get_match_rounds(openid, match_id)` Tauri command, which reads the full match JSON from SQLite.
 - No parser sidecar executable is part of the current architecture.
+- **Account scraping is parallelized** with `rayon`: account files are decrypted and parsed in parallel, then written to SQLite sequentially within per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
+- **Match list uses DOM virtual scrolling** (`app.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap).
+- **CSS GPU compositing**: `filter: brightness()` replaced with `::after` overlays, `backdrop-filter: blur()` removed, progress bar uses `transform: scaleX()` / `translateX()` instead of `width`/`left`, ECharts uses `renderer: 'canvas'`.
+- **Event markers use Canvas rendering** when count > 20 (`CANVAS_MARKER_THRESHOLD` in `player-event-markers.ts`), reducing GPU composited layers from 50+ to 1. DOM path preserved for <= 20 markers.
 - Tooltips and floating overlays use `packages/gui/src/floating.ts` (`@floating-ui/dom`), a shared positioning utility with cursor-aware alignment and edge flips. The global `.tooltip` element lives on `document.body` with a `.floating-arrow` indicator. Event markers on the progress bar detect track space and flip to bottom placement when needed.
 
 More detail: `docs/ARCHITECTURE.md`.
@@ -166,6 +170,9 @@ bun test packages/parser
 # Rust parser unit tests
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 
+# GUI unit tests
+bun test packages/gui
+
 # TS parser CLI sanity
 bun run packages/parser/cli.ts scan 4807045517549591240
 ```
@@ -193,6 +200,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - `KillerIsMe=1` is unreliable in ACLOS highlight videos (often marks the whole team's kills as "me"). Never derive a per-match kill/death count from the event list — use `m.stats.*` instead. Visible kill rows require `KillerIsMe=1` and `KilledIsMe=0`; visible death rows require `KilledIsMe=1` and `KillerIsMe=0`; missing flags quarantine the row. **The filtered event count is still not a reliable K/D tally**.
 - **Cross-match event filtering:** ACLOS highlight videos (especially 击杀集锦) can stitch kills from multiple matches. The shared state machine requires `event_ext.AgentName` to be present and match `m.agent.agent_name`; missing or mismatching agent evidence prevents UI exposure. This is a heuristic — if the same agent was played in multiple matches, cross-match events with the same agent name may slip through.
 - **Snapshot achievements** (MVP/SVP badge + filter) come from `snapshot<openid>`, not the main WonderfulDb file. Coverage is partial (early ACLOS builds didn't write `match`-type records). The badge silently hides when data is missing. **Never aggregate** snapshot data — only filter by it.
+- **Virtual scroll layout**: match rows are `position: absolute` siblings of `.vlist-spacer` inside `.match-list` (`position: relative`). Do not nest rows inside a separate wrapper — it pushes them below the spacer. `ROW_HEIGHT` (104) must account for card `min-height` (96) + visual gap (8). Changing `.match-row` padding or `min-height` requires adjusting `ROW_HEIGHT`.
 
 Details for these pitfalls are in `docs/ACLOS_FORMAT.md` and `docs/FRONTEND_CONVENTIONS.md`.
 

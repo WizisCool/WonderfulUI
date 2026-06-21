@@ -11,6 +11,8 @@ This document holds GUI implementation conventions that are too detailed for `AG
 - State changes use targeted refresh helpers for accounts, filters, match list, and detail.
 - Do not reintroduce `root.innerHTML = ''` or whole-`#app` rebuilds for ordinary interactions.
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
+- **Match list uses DOM virtual scrolling** (`app.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
+- Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
 
@@ -351,6 +353,17 @@ Progress-bar markers:
   machine accepts an event. `eventMarkersForVideo` must call
   `resolveClipEventState`; do not add a second event-validity state machine
   in the player or marker code.
+- **Dual rendering path**: when marker count <= 20 (`CANVAS_MARKER_THRESHOLD`),
+  use DOM-based rendering (`.player-event-marker` divs with pseudo-elements).
+  When count > 20, switch to Canvas rendering (`renderCanvasMarkers`) — all
+  markers are drawn in a single `<canvas>` element, reducing GPU composited
+  layers from 50+ to 1.
+- Canvas markers use `.player-event-markers.is-canvas` with
+  `pointer-events: auto` for hit-testing. Click coordinates are matched against
+  stored layout positions in `dataset.canvasLayouts`. The canvas child has
+  `pointer-events: none`.
+- `repositionEventMarkers` branches on `.is-canvas` to re-render via Canvas on
+  fullscreen/resize.
 - The event list dedupes across videos for the user's per-match view, but the
   progress bar is scoped to the currently playing video. It keeps accepted
   moment-video events visible even when the list's best playable duplicate is
