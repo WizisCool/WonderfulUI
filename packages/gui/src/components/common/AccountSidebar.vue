@@ -47,7 +47,7 @@
             ref="renameInputRef"
             class="account-rename-input"
             type="text"
-            :value="renameValue"
+            v-model="renameValue"
             placeholder="昵称#编号"
             aria-label="账户显示名"
             @blur="commitRename(a)"
@@ -86,6 +86,7 @@ const filterStore = useFilterStore();
 
 const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
+const renameInputRef = ref<HTMLInputElement | null>(null);
 let sortable: Sortable | null = null;
 
 const realCount = computed(() =>
@@ -147,9 +148,8 @@ function startRename(a: Account) {
   editingOpenid.value = a.openid;
   renameValue.value = a.customName ?? '';
   nextTick(() => {
-    const inp = document.querySelector(`[data-account-rename-input="${a.openid}"]`) as HTMLInputElement | null;
-    inp?.focus();
-    inp?.select();
+    renameInputRef.value?.focus();
+    renameInputRef.value?.select();
   });
 }
 
@@ -157,10 +157,13 @@ function cancelRename() {
   editingOpenid.value = null;
 }
 
-function commitRename(a: Account) {
-  const inp = document.querySelector(`[data-account-rename-input="${a.openid}"]`) as HTMLInputElement | null;
-  const val = inp?.value?.trim() ?? '';
-  account.renameAccount(a.openid, val || null);
+async function commitRename(a: Account) {
+  const val = renameValue.value.trim();
+  try {
+    await account.renameAccount(a.openid, val || null);
+  } catch {
+    return;
+  }
   editingOpenid.value = null;
 }
 

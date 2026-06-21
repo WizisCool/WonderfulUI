@@ -149,6 +149,7 @@ export const useAccountStore = defineStore('account', () => {
     account.customName = customName || undefined;
     try {
       await invoke('rename_account', { openid, customName: customName || null });
+      assignAccountLabels();
     } catch (e) {
       account.customName = prev;
       throw e;
