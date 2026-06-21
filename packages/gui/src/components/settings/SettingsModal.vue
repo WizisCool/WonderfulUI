@@ -9,7 +9,7 @@
       aria-label="关闭设置"
       @click="settings.setOpen(false)"
     >
-      <X :size="16" />
+      <WIcon icon="ph:x" :size="16" />
     </button>
   </header>
   <div class="settings-modal-body">
@@ -21,7 +21,7 @@
         aria-current="page"
         @click="settings.setTab('library')"
       >
-        <Database :size="16" />
+        <WIcon icon="ph:database" :size="16" />
         <span>资料库</span>
       </button>
       <button
@@ -31,7 +31,7 @@
         aria-current="false"
         @click="settings.setTab('logs')"
       >
-        <Bug :size="16" />
+        <WIcon icon="ph:bug" :size="16" />
         <span>日志</span>
       </button>
     </nav>
@@ -77,6 +77,9 @@
             <div class="stats-video-body">
               <div class="stats-video-summary">
                 <button
+                  v-motion
+                  :initial="{ opacity: 0, y: 12 }"
+                  :enter="{ opacity: 1, y: 0, transition: { delay: 0 } }"
                   class="stats-video-metric stats-video-metric--toggle"
                   :class="{ 'is-active': settings.chartMetric === 'video' }"
                   type="button"
@@ -88,6 +91,9 @@
                   <span class="stats-video-label">视频</span>
                 </button>
                 <button
+                  v-motion
+                  :initial="{ opacity: 0, y: 12 }"
+                  :enter="{ opacity: 1, y: 0, transition: { delay: 60 } }"
                   class="stats-video-metric stats-video-metric--toggle"
                   :class="{ 'is-active': settings.chartMetric === 'match' }"
                   type="button"
@@ -98,22 +104,40 @@
                   <span class="stats-video-value">{{ statsTotalMatches }}</span>
                   <span class="stats-video-label">对局</span>
                 </button>
-                <div class="stats-video-metric">
+                <div
+                  v-motion
+                  :initial="{ opacity: 0, y: 12 }"
+                  :enter="{ opacity: 1, y: 0, transition: { delay: 120 } }"
+                  class="stats-video-metric"
+                >
                   <span class="stats-video-value">{{ statsData.totalAccounts }}</span>
                   <span class="stats-video-label">账户</span>
                 </div>
               </div>
               <div
+                v-motion
+                :initial="{ opacity: 0, scale: 0.96 }"
+                :enter="{ opacity: 1, scale: 1, transition: { delay: 180, duration: 300 } }"
                 class="stats-video-chart"
                 id="stats-account-video-chart"
                 ref="chartRef"
                 role="img"
                 :aria-label="chartAriaLabel"
-              />
+              >
+                <div class="stats-video-chart-center" aria-hidden="true">
+                  <template v-if="chartOverlay.total > 0">
+                    <span class="stats-video-chart-center-number">{{ chartOverlay.total }}</span>
+                    <span class="stats-video-chart-center-label">{{ chartOverlay.label }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="stats-video-chart-center-empty">{{ chartOverlay.emptyLabel }}</span>
+                  </template>
+                </div>
+              </div>
             </div>
             <div v-if="chartNotices.length > 0" class="stats-video-notice">
               <span v-for="(notice, i) in chartNotices" :key="i" class="stats-video-warn">
-                <X :size="12" /> {{ notice }}
+                <WIcon icon="ph:x" :size="12" /> {{ notice }}
               </span>
             </div>
           </template>
@@ -129,7 +153,7 @@
             <div class="settings-row-main">
               <div class="settings-row-title">刷新模式</div>
               <div class="settings-row-sub settings-sub-line">
-                决定右上角 <RefreshCw :size="12" /> 刷新按钮的工作方式
+                决定右上角 <WIcon icon="ph:arrows-clockwise" :size="12" /> 刷新按钮的工作方式
               </div>
             </div>
             <div class="settings-segment" role="radiogroup" aria-label="扫描模式">
@@ -162,7 +186,7 @@
               :disabled="account.scraping"
               @click="onFullScan"
             >
-              <Database :size="15" />
+              <WIcon icon="ph:database" :size="15" />
               <span>{{ account.scraping ? '扫描中' : '全量扫描' }}</span>
             </button>
           </div>
@@ -175,7 +199,7 @@
           <header class="settings-log-toolbar">
             <div class="settings-log-identity">
               <div class="settings-log-icon">
-                <FileText :size="16" />
+                <WIcon icon="ph:file-text" :size="16" />
               </div>
               <div class="settings-log-copy">
                 <div class="settings-log-name">{{ logFileName }}</div>
@@ -193,7 +217,7 @@
                 :aria-busy="String(settings.logLoading)"
                 @click="settings.fetchLogs()"
               >
-                <RefreshCw :size="15" />
+                <WIcon icon="ph:arrows-clockwise" :size="15" />
                 <span>{{ settings.logLoading ? '刷新中' : '刷新' }}</span>
               </button>
               <button
@@ -201,7 +225,7 @@
                 type="button"
                 @click="revealLogsDir"
               >
-                <FolderOpen :size="15" />
+                <WIcon icon="ph:folder-open" :size="15" />
                 <span>打开目录</span>
               </button>
             </div>
@@ -224,15 +248,13 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import {
-  X, Database, Bug, RefreshCw, FolderOpen, FileText,
-} from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke } from '../../tauri-adapter.ts';
-import { fmtBytes, CHART_METRIC_LABELS, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
+import { fmtBytes, CHART_METRIC_LABELS, CHART_METRIC_EMPTY, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
 import type { LibraryStats } from '../../utils/library-stats.ts';
 
 const account = useAccountStore();
@@ -241,6 +263,12 @@ const settings = useSettingsStore();
 const ui = useUiStore();
 
 const chartRef = ref<HTMLElement | null>(null);
+
+const chartOverlay = ref<{ total: number; label: string; emptyLabel: string }>({
+  total: 0,
+  label: CHART_METRIC_LABELS.video,
+  emptyLabel: CHART_METRIC_EMPTY.video,
+});
 
 const statsData = computed<LibraryStats | null>(() => settings.statsData);
 const statsError = computed(() => settings.statsError);
@@ -352,13 +380,13 @@ watch(() => settings.activeTab, (tab) => {
 
 watch([statsData, () => settings.chartMetric], () => {
   if (chartRef.value && statsData.value) {
-    mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
+    chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
   }
 });
 
 onMounted(() => {
   if (chartRef.value && statsData.value) {
-    mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
+    chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
   }
 });
 

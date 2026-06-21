@@ -7,7 +7,7 @@ export const CHART_METRIC_LABELS: Record<ChartMetric, string> = {
   match: '对局',
 };
 
-const CHART_METRIC_EMPTY: Record<ChartMetric, string> = {
+export const CHART_METRIC_EMPTY: Record<ChartMetric, string> = {
   video: '暂无视频',
   match: '暂无对局',
 };
@@ -127,7 +127,6 @@ let accountVideoChart: echarts.ECharts | null = null;
 let accountVideoResizeObserver: ResizeObserver | null = null;
 let accountVideoHost: HTMLElement | null = null;
 let accountVideoSignature: string | null = null;
-let accountVideoOverlay: HTMLElement | null = null;
 
 export interface AccountChartSlice {
   name: string;
@@ -253,50 +252,23 @@ function buildChartOption(
   };
 }
 
-function renderAccountVideoCenterOverlay(
-  host: HTMLElement,
-  total: number,
-  accountCount: number,
-  metric: ChartMetric,
-): void {
-  if (accountVideoOverlay && accountVideoOverlay.parentNode === host) {
-    host.removeChild(accountVideoOverlay);
-  }
-  accountVideoOverlay?.remove();
-  const overlay = document.createElement('div');
-  overlay.className = 'stats-video-chart-center';
-  overlay.setAttribute('aria-hidden', 'true');
-  if (total > 0) {
-    const number = document.createElement('span');
-    number.className = 'stats-video-chart-center-number';
-    number.textContent = String(total);
-    const label = document.createElement('span');
-    label.className = 'stats-video-chart-center-label';
-    label.textContent = CHART_METRIC_LABELS[metric];
-    overlay.append(number, label);
-  } else {
-    const empty = document.createElement('span');
-    empty.className = 'stats-video-chart-center-empty';
-    empty.textContent = CHART_METRIC_EMPTY[metric];
-    overlay.append(empty);
-  }
-  host.appendChild(overlay);
-  accountVideoOverlay = overlay;
-}
-
 export function mountAccountVideoChart(
   host: HTMLElement,
   stats: LibraryStats,
   metric: ChartMetric = 'video',
-): void {
+): { total: number; label: string; emptyLabel: string } {
   if (!host.isConnected) {
     disposeAccountVideoChart();
-    return;
+    return { total: 0, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
   }
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const sig = chartSignature(stats, metric, reducedMotion);
-  if (accountVideoChart && accountVideoHost === host && accountVideoSignature === sig) return;
+  if (accountVideoChart && accountVideoHost === host && accountVideoSignature === sig) {
+    const accounts = [...stats.accounts].filter(a => countFor(a, metric) > 0);
+    const total = accounts.reduce((sum, a) => sum + countFor(a, metric), 0);
+    return { total, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
+  }
 
   if (!accountVideoChart || accountVideoHost !== host) {
     disposeAccountVideoChart();
@@ -317,7 +289,6 @@ export function mountAccountVideoChart(
   accountVideoSignature = sig;
 
   const total = accounts.reduce((sum, account) => sum + countFor(account, metric), 0);
-  renderAccountVideoCenterOverlay(host, total, accounts.length, metric);
 
   const instance = accountVideoChart;
   if (!accountVideoResizeObserver && 'ResizeObserver' in window) {
@@ -329,6 +300,8 @@ export function mountAccountVideoChart(
   window.requestAnimationFrame(() => {
     if (accountVideoChart === instance) instance.resize();
   });
+
+  return { total, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
 }
 
 export function disposeAccountVideoChart(): void {
@@ -338,8 +311,6 @@ export function disposeAccountVideoChart(): void {
     accountVideoChart.dispose();
     accountVideoChart = null;
   }
-  accountVideoOverlay?.remove();
-  accountVideoOverlay = null;
   accountVideoHost = null;
   accountVideoSignature = null;
 }

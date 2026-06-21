@@ -16,7 +16,32 @@
  *   numeric inputs: low elevation, token colors, clear focus, no shadow.
  */
 
-import { createElement, CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const ICON_PATHS: Record<string, string> = {
+  calendar: 'M8 2v4M16 2v4M3 10h18M21 6v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z',
+  chevronLeft: 'm15 18-6-6 6-6',
+  chevronRight: 'm9 18 6-6-6-6',
+  x: 'M18 6 6 18M6 6l12 12',
+};
+
+function svgIcon(name: string, size: number): SVGElement {
+  const path = ICON_PATHS[name] ?? '';
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('xmlns', SVG_NS);
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  const p = document.createElementNS(SVG_NS, 'path');
+  p.setAttribute('d', path);
+  svg.appendChild(p);
+  return svg;
+}
 
 const WEEKDAYS_CN = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -134,7 +159,7 @@ export function createDateRangePicker(
 
   function syncTrigger() {
     trigger.innerHTML = '';
-    trigger.append(createElement(CalendarDays, { width: 12, height: 12 }));
+    trigger.append(svgIcon('calendar', 12));
     const text = el('span', { class: 'dr-trigger-text' });
     if (appliedRange.start && appliedRange.end) {
       text.textContent = `${fmtDate(appliedRange.start)}  —  ${fmtDate(appliedRange.end)}`;
@@ -150,7 +175,7 @@ export function createDateRangePicker(
         type: 'button',
         'aria-label': '清除日期范围',
         title: '清除',
-      }, [createElement(X, { width: 10, height: 10 })]);
+      }, [svgIcon('x', 10)]);
       clear.addEventListener('click', e => {
         e.stopPropagation();
         appliedRange = { start: null, end: null };
@@ -288,11 +313,11 @@ export function createDateRangePicker(
       el('span', { class: 'dr-title' }, ['日期范围']),
       el('div', { class: 'dr-nav' }, [
         el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '上一月' }, [
-          createElement(ChevronLeft, { width: 14, height: 14 }),
+          svgIcon('chevronLeft', 14),
         ]),
         el('span', { class: 'dr-nav-label' }, [`${viewYear}年  ${MONTH_NAMES[viewMonth]}`]),
         el('button', { class: 'dr-nav-btn', type: 'button', 'aria-label': '下一月' }, [
-          createElement(ChevronRight, { width: 14, height: 14 }),
+          svgIcon('chevronRight', 14),
         ]),
       ]),
     ]));

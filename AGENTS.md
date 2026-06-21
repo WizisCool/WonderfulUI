@@ -195,7 +195,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - User-facing hero/map/mode labels should come from `career.*` when available.
 - Rust `VideoItem.video_is_processing` must serialize as `video_isProcessing`.
 - Date range end dates are inclusive through `23:59:59.999` local time.
-- Icons come from lucide; do not use Unicode symbol glyphs for controls.
+- Icons come from @iconify/vue (Phosphor set), via the shared `WIcon.vue` wrapper (`packages/gui/src/components/common/WIcon.vue`). Do not use Unicode symbol glyphs for controls.
 - Chinese UI labels must use MiSans / `--font-sans`, not JetBrains Mono.
 - Built-in video player lives in `#player-host`, outside `#app`.
 - Player z-index (1200) is above event modal z-index (1100) so the list modal stays visible behind the player when the user clicks a row.

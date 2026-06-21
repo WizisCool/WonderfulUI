@@ -12,7 +12,7 @@
           data-tip="展开筛选"
           @click="filter.toggleFilterBar()"
         >
-          <SlidersHorizontal :size="14" />
+          <WIcon icon="ph:sliders-horizontal" :size="14" />
           <span v-if="filter.activeCount > 0" class="scope-filter-toggle-count">{{ filter.activeCount }}</span>
         </button>
       </div>
@@ -58,7 +58,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { SlidersHorizontal } from 'lucide-vue-next';
+import WIcon from '../components/common/WIcon.vue';
 import { useAccountStore } from '../stores/account.ts';
 import { useFilterStore } from '../stores/filter.ts';
 import { useDetailStore } from '../stores/detail.ts';

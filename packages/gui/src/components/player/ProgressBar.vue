@@ -32,8 +32,8 @@
           :aria-label="markerTip(layout)"
           :style="markerStyle(layout)"
         >
-          <Skull v-if="layout.marker.type === 'death'" :size="11" />
-          <Crosshair v-else :size="11" />
+          <WIcon v-if="layout.marker.type === 'death'" icon="ph:skull" :size="11" />
+          <WIcon v-else icon="ph:crosshair" :size="11" />
         </div>
       </div>
       <div class="player-progress-fill" :style="fillStyle" />
@@ -44,7 +44,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from 'vue';
-import { Skull, Crosshair } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { useEventMarkers } from '../../composables/useEventMarkers.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 import type { EventMarkerLayout } from '../../utils/player-event-markers.ts';

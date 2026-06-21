@@ -1,7 +1,7 @@
 import { pulseRendererForMotion } from './render-pulse.ts';
-import { listen, type UnlistenFn } from './tauri-adapter.ts';
+import { listen, type UnlistenFn } from '../tauri-adapter.ts';
 
-const BRAND_LOGO_URL = new URL('./assets/logo.svg', import.meta.url).href;
+const BRAND_LOGO_URL = new URL('../assets/logo.svg', import.meta.url).href;
 const BRAND_NAME_BASE = 'Wonderful';
 const BRAND_NAME_ACCENT = 'UI';
 

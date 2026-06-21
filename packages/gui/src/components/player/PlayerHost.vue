@@ -2,7 +2,7 @@
    <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }" @click.self="doClose">
     <div class="player-modal" ref="modalRef" :class="{ 'is-closing': closing }">
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
-        <X :size="16" />
+        <WIcon icon="ph:x" :size="16" />
       </button>
 
       <div class="player-stage" ref="stageRef" @click.stop="togglePlay" @contextmenu.prevent="openContextMenu">
@@ -43,15 +43,15 @@
           aria-label="重播"
           @click.stop="replay"
         >
-          <Play :size="28" />
+          <WIcon icon="ph:play" :size="28" />
         </button>
 
         <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }" @click.stop>
           <button class="frame-stepper-btn" aria-label="上一帧" @click.stop="stepFrame(-1)">
-            <ChevronLeft :size="24" />
+            <WIcon icon="ph:caret-left" :size="24" />
           </button>
           <button class="frame-stepper-btn" aria-label="下一帧" @click.stop="stepFrame(1)">
-            <ChevronRight :size="24" />
+            <WIcon icon="ph:caret-right" :size="24" />
           </button>
         </div>
 
@@ -95,7 +95,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { X, Play, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';

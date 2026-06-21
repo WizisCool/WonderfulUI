@@ -30,7 +30,7 @@
       />
       <div v-else class="hero-placeholder" :style="{ '--hue': heroHue }">{{ agentInitial }}</div>
       <div v-if="badge" :class="'cover-badge cover-badge-' + badge.type" :aria-label="badge.ariaLabel" :title="badge.title">
-        <component :is="badge.icon" :size="9" />
+        <WIcon :icon="badge.icon" :size="9" />
         {{ badge.type.toUpperCase() }}
       </div>
     </div>
@@ -61,7 +61,7 @@
       <div class="match-line match-line-3">
         <span class="match-kda">{{ kdaText }}</span>
         <span class="match-video-chip">
-          <Video :size="10" />
+          <WIcon icon="ph:video" :size="10" />
           × {{ match.videos.length }}
         </span>
       </div>
@@ -76,7 +76,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Video, Crown, Medal } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { convertFileSrc } from '../../tauri-adapter.ts';
 import { useAccountStore } from '../../stores/account.ts';
 import { agentCn, mapCn, modeCn, fmtScore } from '../../utils/filters.ts';
@@ -157,7 +157,7 @@ const badge = computed(() => {
     type: achv.type,
     ariaLabel: isMvp ? '本局获得 MVP' : '本局获得 SVP',
     title: achv.typeStr,
-    icon: isMvp ? Crown : Medal,
+    icon: isMvp ? 'ph:crown' : 'ph:medal',
   };
 });
 

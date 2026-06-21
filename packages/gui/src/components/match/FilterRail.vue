@@ -8,7 +8,7 @@
       <div class="pane-head-right">
         <span v-if="activeN > 0" class="pane-sub">{{ activeN }} 个</span>
         <button class="filter-rail-close" type="button" aria-label="关闭筛选" @click="$emit('close')">
-          <X :size="14" />
+          <WIcon icon="ph:x" :size="14" />
         </button>
       </div>
     </div>
@@ -25,7 +25,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { X } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import FilterBar from './FilterBar.vue';
 import type { FilterState } from '../../utils/filters.ts';
 import { activeFilterCount } from '../../utils/filters.ts';

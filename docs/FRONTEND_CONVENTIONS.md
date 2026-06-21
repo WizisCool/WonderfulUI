@@ -32,7 +32,8 @@ Whole-app rebuilds break input focus, date-picker anchors, scroll position, and 
 
 ## Animation Compatibility
 
-- Use `packages/gui/src/render-pulse.ts` when a user-triggered CSS animation
+- `@vueuse/motion` (v-motion directive, MotionPlugin) is used for entrance animations in the settings modal. Directed, staggered animations in non-primary surfaces are acceptable; do not use motion directives on main workflow elements.
+- Use `packages/gui/src/utils/render-pulse.ts` when a user-triggered CSS animation
   or transition must run next to a static canvas surface. This keeps WebView2
   painting for the short duration of the motion without leaving a permanent
   animation loop active.
@@ -178,7 +179,7 @@ Account list uses a custom tooltip, not native `title=`.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
 - The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus an ECharts donut chart showing per-account video-count share. It is a library composition view, not a storage/disk-usage view.
-- The `资料库概览` chart is mounted by `packages/gui/src/library-stats.ts` into `ACCOUNT_VIDEO_CHART_HOST_ID`. Dispose the chart when the settings tab leaves `资料库` or the modal closes; do not leave hidden canvas instances around.
+- The `资料库概览` chart is mounted by `mountAccountVideoChart` from `packages/gui/src/utils/library-stats.ts` via a Vue `ref` on the chart container. The chart center overlay (total count + label) is rendered as a Vue template element, not via DOM manipulation. `mountAccountVideoChart` returns `{ total, label, emptyLabel }` for the reactive overlay. Dispose the chart when the settings tab leaves `资料库` or the modal closes; do not leave hidden canvas instances around.
 - Known handoff (2026-06-21): the ECharts donut hover tooltip can visually flicker during continuous mouse movement. Prefer official ECharts tooltip/emphasis/graphic options over custom tooltip implementations, click-only fallbacks, or disabling hover wholesale. Current investigation found that putting the fixed center total in the pie `series.label` makes it participate in slice hover state; keep fixed center totals in a static ECharts `graphic` layer instead. HTML tooltip placement over or near the donut may also interfere with hover hit testing; evaluate official `tooltip.position`, `confine`, and `renderMode` options without requiring Browser Skill-only workflows.
 - Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the top-right refresh button/settings full-scan action are the scan controls.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
@@ -240,11 +241,12 @@ Known labels that must stay sans:
 
 Only pure Latin / digit / symbol elements should use `--font-mono`, such as `.match-time`, `.match-kda`, and `.match-sep-dot`.
 
-Icons come from lucide, not Unicode codepoints.
+Icons come from @iconify/vue (Phosphor set), via the shared `WIcon` wrapper at `packages/gui/src/components/common/WIcon.vue`.
 
-- Import named icons such as `Play` or `Settings`.
-- Use `createElement(icon, { width, height })` to create real SVG nodes.
-- The `el()` helper treats string children as text, not HTML. Passing an SVG string renders literal markup.
+- Import `WIcon` from `../common/WIcon.vue` (or appropriate relative path).
+- Usage: `<WIcon icon="ph:play" :size="16" />` where `icon` is the full @iconify icon name and `size` maps to `width`/`height`.
+- Do NOT import raw lucide icons or use `createElement()` for SVG icons.
+- Do NOT use Unicode symbol glyphs for controls.
 
 Brand lockup:
 
@@ -372,7 +374,7 @@ Progress-bar markers:
   multiple clip rows, render one marker for that event. This is a display
   dedupe only; the parser still returns the raw rows.
 - Default marker appearance is a compact small dot with a stem, not a visible
-  lucide icon. The icon expands only on hover or keyboard focus. This keeps
+  Phosphor icon. The icon expands only on hover or keyboard focus. This keeps
   timelines readable while preserving the clickable target and tooltip.
 - Marker stems must visually connect the dot to the progress track: start with
   a slight overlap under the dot and end with a slight overlap into the track.

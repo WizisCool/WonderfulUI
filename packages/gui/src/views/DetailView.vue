@@ -42,28 +42,28 @@
       <!-- stats: 3x2 card grid -->
       <div class="detail-stats-row">
         <div class="stat-cell is-win">
-          <div class="stat-icon"><Crosshair :size="14" /></div>
+          <div class="stat-icon"><WIcon icon="ph:crosshair" :size="14" /></div>
           <div class="stat-value">{{ match.stats.kills }}</div>
           <div class="stat-label">击杀</div>
         </div>
         <div class="stat-cell is-loss">
-          <div class="stat-icon"><Skull :size="14" /></div>
+          <div class="stat-icon"><WIcon icon="ph:skull" :size="14" /></div>
           <div class="stat-value">{{ match.stats.deaths }}</div>
           <div class="stat-label">死亡</div>
         </div>
         <div class="stat-cell is-assist">
-          <div class="stat-icon"><HeartHandshake :size="14" /></div>
+          <div class="stat-icon"><WIcon icon="ph:hand-heart" :size="14" /></div>
           <div class="stat-value">{{ match.stats.assists }}</div>
           <div class="stat-label">助攻</div>
         </div>
         <div class="stat-row2">
           <div class="stat-cell" :class="kdaToneClass">
-            <div class="stat-icon"><TrendingUp :size="14" /></div>
+            <div class="stat-icon"><WIcon icon="ph:trend-up" :size="14" /></div>
             <div class="stat-value">{{ kdaRatioText }}</div>
             <div class="stat-label">KDA</div>
           </div>
           <div class="stat-cell">
-            <div class="stat-icon"><Star :size="14" /></div>
+            <div class="stat-icon"><WIcon icon="ph:star" :size="14" /></div>
             <div class="stat-value">{{ match.stats.score }}</div>
             <div class="stat-label">得分</div>
           </div>
@@ -76,12 +76,12 @@
             @click="openEventList()"
           >
             <template v-if="!detail.roundsLoaded">
-              <div class="event-stat-spinner"><Loader2 :size="14" class="spin" /></div>
+              <div class="event-stat-spinner"><WIcon icon="ph:circle-notch" :size="14" class="spin" /></div>
               <div class="stat-value">—</div>
               <div class="stat-label">加载中…</div>
             </template>
             <template v-else>
-              <div class="stat-icon"><Zap :size="14" /></div>
+              <div class="stat-icon"><WIcon icon="ph:lightning" :size="14" /></div>
               <div class="stat-value">{{ eventCount }}</div>
               <div class="stat-label">事件</div>
             </template>
@@ -116,7 +116,7 @@
               :aria-label="'播放 ' + v.video_name"
               @click="playVideo(v)"
             >
-              <Play :size="14" />
+              <WIcon icon="ph:play" :size="14" />
             </button>
           </div>
         </div>
@@ -161,7 +161,7 @@
                 :aria-label="'播放 ' + v.video_name"
                 @click="playVideo(v)"
               >
-                <Play :size="14" />
+                <WIcon icon="ph:play" :size="14" />
               </button>
             </div>
           </template>
@@ -193,9 +193,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import {
-  Play, Crosshair, Skull, HeartHandshake, TrendingUp, Star, Zap, Loader2,
-} from 'lucide-vue-next';
+import WIcon from '../components/common/WIcon.vue';
 import { convertFileSrc } from '../tauri-adapter.ts';
 import { useAccountStore } from '../stores/account.ts';
 import { useDetailStore } from '../stores/detail.ts';

@@ -2,8 +2,8 @@
   <div class="player-controls" ref="controlsEl" @mouseenter="show" @mouseleave="scheduleHide">
     <div class="player-ctrl-row">
       <button class="ctrl-btn player-ctrl-play" :aria-label="playing ? '暂停' : '播放'" @click.stop="$emit('playPause')">
-        <Pause v-if="playing" :size="16" />
-        <Play v-else :size="16" />
+        <WIcon v-if="playing" icon="ph:pause" :size="16" />
+        <WIcon v-else icon="ph:play" :size="16" />
       </button>
 
       <ProgressBar
@@ -26,9 +26,9 @@
           @click.stop="$emit('volumeMuteToggle')"
           @wheel.prevent="onVolWheel"
         >
-          <VolumeX v-if="volumeMuted || volumeLevel === 0" :size="16" />
-          <Volume1 v-else-if="volumeLevel < 50" :size="16" />
-          <Volume2 v-else :size="16" />
+          <WIcon v-if="volumeMuted || volumeLevel === 0" icon="ph:speaker-x" :size="16" />
+          <WIcon v-else-if="volumeLevel < 50" icon="ph:speaker-low" :size="16" />
+          <WIcon v-else icon="ph:speaker-high" :size="16" />
         </button>
         <div class="player-vol-track" ref="volTrackRef" @mousedown.prevent="onVolMouseDown">
           <div class="player-vol-fill" :style="{ width: `${volumeMuted ? 0 : volumeLevel}%` }" />
@@ -36,14 +36,14 @@
       </div>
 
       <button class="ctrl-btn player-ctrl-explorer" title="在资源管理器中打开" @click.stop="$emit('explorer')">
-        <FolderOpen :size="16" />
+        <WIcon icon="ph:folder-open" :size="16" />
       </button>
       <button class="ctrl-btn player-ctrl-share" disabled title="即将推出">
-        <Share2 :size="16" />
+        <WIcon icon="ph:share" :size="16" />
       </button>
       <button class="ctrl-btn player-ctrl-fullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" @click.stop="$emit('fullscreen')">
-        <Minimize2 v-if="isFullscreen" :size="16" />
-        <Maximize2 v-else :size="16" />
+        <WIcon v-if="isFullscreen" icon="ph:arrows-in" :size="16" />
+        <WIcon v-else icon="ph:arrows-out" :size="16" />
       </button>
     </div>
   </div>
@@ -51,10 +51,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
-import {
-  Play, Pause, Volume1, Volume2, VolumeX,
-  FolderOpen, Share2, Maximize2, Minimize2,
-} from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import ProgressBar from './ProgressBar.vue';
 import { EVENT_PREROLL_MS } from '../../utils/event-time.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';

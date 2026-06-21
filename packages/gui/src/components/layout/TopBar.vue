@@ -28,7 +28,7 @@
         :disabled="account.scraping"
         @click="onScrape"
       >
-        <RefreshCw :size="16" />
+        <WIcon icon="ph:arrows-clockwise" :size="16" />
       </button>
       <button
         class="iconbtn settings-btn"
@@ -38,7 +38,7 @@
         type="button"
         @click="settings.setOpen(true)"
       >
-        <Settings :size="16" />
+        <WIcon icon="ph:gear" :size="16" />
       </button>
     </div>
   </header>
@@ -46,7 +46,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RefreshCw, Settings } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';

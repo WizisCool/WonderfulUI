@@ -11,8 +11,8 @@
   >
     <span class="event-list-col-time">{{ fmtMs(event.timeMs) }}</span>
     <span class="event-list-col-type" :class="`event-list-type-${event.type}`">
-      <Crosshair v-if="event.type === 'kill'" :size="11" />
-      <Skull v-else :size="11" />
+      <WIcon v-if="event.type === 'kill'" icon="ph:crosshair" :size="11" />
+      <WIcon v-else icon="ph:skull" :size="11" />
       <span>{{ event.type === 'kill' ? '击杀' : '阵亡' }}</span>
     </span>
     <span class="event-list-col-player">{{ event.playerName || '—' }}</span>
@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Crosshair, Skull } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import { weaponNameOnly } from '../../utils/weapons.ts';
 import type { NormalizedMatchEvent } from '../../utils/match-events.ts';
 import type { VideoItem } from '@wonderful-ui/parser';

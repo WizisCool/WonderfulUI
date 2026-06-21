@@ -89,7 +89,7 @@
             title="清除"
             @click="onNumClear(row.key)"
           >
-            <X :size="10" />
+            <WIcon icon="ph:x" :size="10" />
           </button>
         </div>
       </template>
@@ -99,7 +99,7 @@
 
 <script setup lang="ts">
 import { computed, ref, reactive } from 'vue';
-import { X } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 import DateRangePicker from './DateRangePicker.vue';
 import {
   CATEGORY_KEYS, ADVANCED_RANGE_KEYS,

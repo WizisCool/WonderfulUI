@@ -40,7 +40,7 @@
       >
         <span class="account-main">
           <span v-if="a.openid !== ALL_ACCOUNTS" class="account-grip" aria-hidden="true">
-            <GripVertical :size="13" />
+            <WIcon icon="ph:dots-six-vertical" :size="13" />
           </span>
           <input
             v-if="editingOpenid === a.openid"
@@ -65,7 +65,7 @@
           :data-account-id="a.openid"
           @click.stop="startRename(a)"
         >
-          <Pencil :size="12" />
+          <WIcon icon="ph:pencil-simple" :size="12" />
         </button>
         <span class="account-count">{{ countText(a) }}</span>
       </div>
@@ -76,7 +76,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { GripVertical, Pencil } from 'lucide-vue-next';
+import WIcon from './WIcon.vue';
 import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';

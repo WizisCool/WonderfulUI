@@ -23,6 +23,5 @@
     "@types/bun": "latest"
   },
   "dependencies": {
-    "lucide": "1.20.0"
   }
 }

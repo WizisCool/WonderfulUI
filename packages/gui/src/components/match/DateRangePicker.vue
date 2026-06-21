@@ -9,7 +9,7 @@
     :aria-expanded="String(isOpen)"
     @click.stop="toggle"
   >
-    <CalendarDays :size="12" />
+    <WIcon icon="ph:calendar" :size="12" />
     <span class="dr-trigger-text">{{ triggerText }}</span>
     <button
       v-if="hasRange"
@@ -19,14 +19,14 @@
       title="清除"
       @click.stop="clearRange"
     >
-      <X :size="10" />
+      <WIcon icon="ph:x" :size="10" />
     </button>
   </button>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { CalendarDays, X, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import WIcon from '../common/WIcon.vue';
 
 const props = defineProps<{
   modelValue: [number | null, number | null];
@@ -265,8 +265,8 @@ function render() {
     viewDate.value = d;
     render();
   });
-  prevBtn.appendChild(createIcon(ChevronLeft, 14));
-  nextBtn.appendChild(createIcon(ChevronRight, 14));
+  prevBtn.appendChild(createNavIcon('left', 14));
+  nextBtn.appendChild(createNavIcon('right', 14));
 
   // Weekday row
   const wdRow = document.createElement('div');
@@ -358,16 +358,11 @@ function render() {
   popover.appendChild(footer);
 }
 
-function createIcon(iconFn: (props: any) => any, size: number): SVGSVGElement {
+function createNavIcon(direction: 'left' | 'right', size: number): SVGSVGElement {
   const wrapper = document.createElement('span');
-  // We can't easily call lucide render functions in the DOM directly,
-  // so just use text arrows
-  if (iconFn === ChevronLeft) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`;
-    wrapper.innerHTML = svg;
-    return wrapper.firstElementChild as SVGSVGElement;
-  }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`;
+  const svg = direction === 'left'
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`;
   wrapper.innerHTML = svg;
   return wrapper.firstElementChild as SVGSVGElement;
 }

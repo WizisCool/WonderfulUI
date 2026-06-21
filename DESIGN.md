@@ -184,7 +184,7 @@ Both shadows use pure black at 40–45% opacity — no color cast, so they read 
 - **Shape:** Rounded at 6px (`--radius`). Icon buttons are 32×32px squares with the same radius.
 - **Primary:** Signal Red background, Ash White text, 6px 12px padding. Used for the single most important action on screen. Hover lifts to Signal Red Bright. Transition: 80ms ease-out on background.
 - **Ghost/Play:** Transparent background, Dispatch Gray text, 4px 10px padding. Used for secondary actions and video play buttons. Hover: Panel Top background, Field White text. Transition: 80ms ease-out.
-- **Icon Button:** 32×32px, Dispatch Gray icon via lucide SVG. Hover: Panel Raised background, Field White icon. Used for toolbar actions (settings). Transition: 100ms ease-out.
+- **Icon Button:** 32×32px, Dispatch Gray icon via Phosphor SVG (WIcon). Hover: Panel Raised background, Field White icon. Used for toolbar actions (settings). Transition: 100ms ease-out.
 - **Focus:** Every button gets `outline: 2px solid Signal Red, outline-offset: 2px, border-radius: 4px` on `:focus-visible`.
 
 ### Chips
@@ -210,7 +210,7 @@ Three-line layout inside a 96px-min-height card:
 3×2 card grid inside the detail pane:
 - Row 1: Kills / Deaths / Assists (3 equal columns).
 - Row 2: KDA ratio / Score (2 equal columns spanning full width).
-- Each cell: Panel Raised background, 8px radius, 1px Line Faint border, 10px 6px padding. Vertical stack: icon (14px lucide SVG) → value (18px mono semibold) → label (11px caption).
+- Each cell: Panel Raised background, 8px radius, 1px Line Faint border, 10px 6px padding. Vertical stack: icon (14px Phosphor SVG via WIcon) → value (18px mono semibold) → label (11px caption).
 - Semantic coloring: kills/win = Victory green, deaths/loss = Defeat red, assists = Alert amber. KDA ratio is dynamic (≥1.5 green, ≤0.8 red, else neutral).
 
 ### Navigation
@@ -316,5 +316,5 @@ The PlayerModal is the primary justified modal — video playback requires focus
 - **Don't** use border-left or border-right greater than 1px as a colored accent stripe. The 2px left border on `.account.is-selected` is the sole delibereate exception — it signals the active account in a scrollable list.
 - **Don't** introduce a third font family. MiSans + JetBrains Mono is the ceiling.
 - **Don't** use shadow on cards, rows, dropdowns, or panes. Shadows are reserved for tooltips and toasts only.
-- **Don't** gate content behind entrance animations. Every surface must render in its final state on first paint.
+- **Don't** gate content behind entrance animations. Every surface must render in its final state on first paint. The settings modal `资料库概览` stats cards use a subtle staggered entrance (via @vueuse/motion) as an intentional exception — the modal itself already animates in, and the staggered cards reinforce the data-dashboard nature of that surface without blocking any primary workflow.
 - **Don't** use modals for anything except the settings center, the video player (PlayerModal), and irreversible destructive actions (video deletion). Exhaust inline and progressive-disclosure alternatives first.
