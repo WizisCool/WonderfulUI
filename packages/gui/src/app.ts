@@ -1871,6 +1871,7 @@ export async function renderApp(root: HTMLElement) {
       assetPathCache,
       achievements: matchAchievements,
     };
+    vscrollState = null;
     const pane = listPane(
       accountLabels(),
       accountMatches,

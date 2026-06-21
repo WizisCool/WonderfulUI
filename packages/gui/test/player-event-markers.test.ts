@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { effectiveMarkerDurationMs, layoutEventMarkers } from '../src/player-event-markers.ts';
+import { CANVAS_MARKER_THRESHOLD, effectiveMarkerDurationMs, layoutEventMarkers, renderCanvasMarkers } from '../src/player-event-markers.ts';
 
 describe('layoutEventMarkers', () => {
   test('places kill and death events on separate lanes', () => {
@@ -106,5 +106,17 @@ describe('effectiveMarkerDurationMs', () => {
     ];
 
     expect(effectiveMarkerDurationMs(markers, 120)).toBe(90_000);
+  });
+});
+
+describe('renderCanvasMarkers', () => {
+  test('is importable and is a function', () => {
+    expect(typeof renderCanvasMarkers).toBe('function');
+  });
+});
+
+describe('CANVAS_MARKER_THRESHOLD', () => {
+  test('is 20', () => {
+    expect(CANVAS_MARKER_THRESHOLD).toBe(20);
   });
 });
