@@ -17,6 +17,8 @@
           @pause="onPause"
           @ended="onEnded"
           @timeupdate="onTimeUpdate"
+          @waiting="onWaiting"
+          @seeking="onSeeking"
           @error="onError"
         />
 
@@ -119,6 +121,9 @@ const showLoading = ref(true);
 const showError = ref(false);
 const showReplay = ref(false);
 const showFrameStepper = ref(false);
+const isBuffering = ref(false);
+let wasPlayingBeforeBuffering = false;
+let isInitialLoad = true;
 
 watch(() => player.isOpen, (open) => {
   if (open) {
@@ -129,6 +134,9 @@ watch(() => player.isOpen, (open) => {
     showError.value = false;
     showReplay.value = false;
     showFrameStepper.value = false;
+    isBuffering.value = false;
+    wasPlayingBeforeBuffering = false;
+    isInitialLoad = true;
     seeked = false;
   }
 });
@@ -362,11 +370,23 @@ function onLoadedMeta() {
 
 function onCanPlay() {
   showLoading.value = false;
-  videoRef.value?.play().catch(() => {});
+  if (isInitialLoad) {
+    isInitialLoad = false;
+    videoRef.value?.play().catch(() => {});
+    return;
+  }
+  if (isBuffering.value) {
+    isBuffering.value = false;
+    if (wasPlayingBeforeBuffering) {
+      videoRef.value?.play().catch(() => {});
+    }
+  }
 }
 
 function onPlay() {
   isPlaying.value = true;
+  isBuffering.value = false;
+  showLoading.value = false;
   scheduleHide();
   showFrameStepper.value = false;
   if (!fpsMeasured) { fpsMeasured = true; measureFps(videoRef.value!); }
@@ -374,8 +394,20 @@ function onPlay() {
 
 function onPause() {
   isPlaying.value = false;
-  showControls();
-  showFrameStepper.value = true;
+  if (!isBuffering.value) {
+    showControls();
+    showFrameStepper.value = true;
+  }
+}
+
+function onWaiting() {
+  showLoading.value = true;
+}
+
+function onSeeking() {
+  if (isInitialLoad) return;
+  wasPlayingBeforeBuffering = isPlaying.value;
+  isBuffering.value = true;
 }
 
 function onEnded() {
