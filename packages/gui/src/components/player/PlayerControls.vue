@@ -169,30 +169,6 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.ctrl-btn {
-  width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: background 100ms ease-out, color 100ms ease-out;
-}
-.ctrl-btn:hover {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.ctrl-btn[disabled] {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.ctrl-btn[disabled]:hover {
-  background: transparent;
-  color: var(--ink-2);
-}
-
 .player-time {
   font-family: var(--font-mono);
   font-size: 12px;

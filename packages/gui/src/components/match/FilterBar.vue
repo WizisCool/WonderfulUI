@@ -107,15 +107,17 @@ import {
 } from '../../utils/filters.ts';
 import { facetValueCounts, rangeBounds } from '../../utils/filter-engine.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
+import { useFilterStore } from '../../stores/filter.ts';
+import { useAccountStore, ALL_ACCOUNTS } from '../../stores/account.ts';
 
-const props = defineProps<{
-  filters: FilterState;
-  allMatches: MatchRecord[];
-}>();
+const filterStore = useFilterStore();
+const account = useAccountStore();
 
-const emit = defineEmits<{
-  update: [patch: Partial<FilterState>];
-}>();
+const allMatches = computed(() => {
+  const openid = account.selectedAccountId;
+  if (!openid || openid === ALL_ACCOUNTS) return account.matches;
+  return account.matches.filter(m => m.openID === openid);
+});
 
 const advancedExpanded = ref(false);
 
@@ -133,14 +135,14 @@ const NUMERIC_LABELS: Record<string, string> = {
 const sections = computed(() => {
   return CATEGORY_KEYS.map(key => {
     if (key === 'videoTypes') {
-      const counts = facetValueCounts(props.allMatches, props.filters, 'videoTypes');
-      if (props.filters.videoTypes.length === 0 && counts.size <= 1) return null;
+      const counts = facetValueCounts(allMatches.value, filterStore.filters, 'videoTypes');
+      if (filterStore.filters.videoTypes.length === 0 && counts.size <= 1) return null;
     }
-    const counts = facetValueCounts(props.allMatches, props.filters, key as any);
+    const counts = facetValueCounts(allMatches.value, filterStore.filters, key as any);
     const entries = [...counts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     if (entries.length === 0) return null;
-    const selectedSet = new Set(props.filters[key]);
+    const selectedSet = new Set(filterStore.filters[key]);
     return {
       key,
       label: CAT_LABELS[key] ?? key,
@@ -161,14 +163,14 @@ const sections = computed(() => {
 });
 
 function onChipClick(key: string, value: string) {
-  const set = new Set(props.filters[key as keyof FilterState] as string[]);
+  const set = new Set(filterStore.filters[key as keyof FilterState] as string[]);
   if (set.has(value)) set.delete(value);
   else set.add(value);
-  emit('update', { [key]: [...set] } as any);
+  filterStore.setFilters( { [key]: [...set] } as any);
 }
 
 // Date
-const dateModel = computed(() => props.filters.dateRange);
+const dateModel = computed(() => filterStore.filters.dateRange);
 
 function latestMatchTime(matches: MatchRecord[]): number {
   let latest = 0;
@@ -194,7 +196,7 @@ function sameRange(a: [number | null, number | null], b: [number | null, number 
 }
 
 const datePresets = computed(() => {
-  const latest = latestMatchTime(props.allMatches);
+  const latest = latestMatchTime(allMatches.value);
   const day = 24 * 60 * 60 * 1000;
   const presets = [
     { label: '全部', range: [null, null] as [number | null, number | null] },
@@ -204,16 +206,16 @@ const datePresets = computed(() => {
   ];
   return presets.map(p => ({
     ...p,
-    active: (p.range[0] !== null || p.range[1] !== null) && sameRange(props.filters.dateRange, p.range),
+    active: (p.range[0] !== null || p.range[1] !== null) && sameRange(filterStore.filters.dateRange, p.range),
   }));
 });
 
 function onDatePreset(preset: { range: [number | null, number | null] }) {
-  emit('update', { dateRange: preset.range });
+  filterStore.setFilters( { dateRange: preset.range });
 }
 
 function onDateChange(range: [number | null, number | null]) {
-  emit('update', { dateRange: range });
+  filterStore.setFilters( { dateRange: range });
 }
 
 // Numeric helpers
@@ -235,9 +237,9 @@ function parseInputValue(kind: string, s: string): number | null {
 
 const advancedRows = computed(() => {
   return ADVANCED_RANGE_KEYS.map(key => {
-    const bounds = rangeBounds(props.allMatches, key as RangeKey);
+    const bounds = rangeBounds(allMatches.value, key as RangeKey);
     if (bounds[0] >= bounds[1]) return null;
-    const [lo, hi] = props.filters[key];
+    const [lo, hi] = filterStore.filters[key];
     const kind = NUMERIC_KIND[key] ?? 'int';
     const isFloat = kind === 'float';
     return {
@@ -273,26 +275,26 @@ const advancedActiveCount = computed(() =>
 );
 
 function emitRange(key: string, lo: number | null, hi: number | null) {
-  const bounds = rangeBounds(props.allMatches, key as RangeKey);
+  const bounds = rangeBounds(allMatches.value, key as RangeKey);
   const clampedLo = lo !== null ? Math.max(bounds[0], Math.min(lo, bounds[1])) : null;
   const clampedHi = hi !== null ? Math.max(bounds[0], Math.min(hi, bounds[1])) : null;
   const finalLo = clampedLo !== null && clampedLo <= bounds[0] ? null : clampedLo;
   const finalHi = clampedHi !== null && clampedHi >= bounds[1] ? null : clampedHi;
-  emit('update', { [key]: [finalLo, finalHi] } as any);
+  filterStore.setFilters( { [key]: [finalLo, finalHi] } as any);
 }
 
 function onNumInput(key: string, which: string, rawValue: string) {
   const kind = NUMERIC_KIND[key] ?? 'int';
   // Only update immediately for float; int/seconds/bytes update on blur
   if (kind === 'float') {
-    const [lo, hi] = props.filters[key];
+    const [lo, hi] = filterStore.filters[key];
     const v = parseInputValue(kind, rawValue);
     if (which === 'lo') emitRange(key, v, hi);
     else emitRange(key, lo, v);
   }
   // For int, also update immediately
   if (kind === 'int') {
-    const [lo, hi] = props.filters[key];
+    const [lo, hi] = filterStore.filters[key];
     const v = parseInputValue(kind, rawValue);
     if (which === 'lo') emitRange(key, v, hi);
     else emitRange(key, lo, v);
@@ -301,14 +303,14 @@ function onNumInput(key: string, which: string, rawValue: string) {
 
 function onNumBlur(key: string, which: string, rawValue: string) {
   const kind = NUMERIC_KIND[key] ?? 'int';
-  const [lo, hi] = props.filters[key];
+  const [lo, hi] = filterStore.filters[key];
   const v = parseInputValue(kind, rawValue);
   if (which === 'lo') emitRange(key, v, hi);
   else emitRange(key, lo, v);
 }
 
 function onNumClear(key: string) {
-  emit('update', { [key]: [null, null] } as any);
+  filterStore.setFilters( { [key]: [null, null] } as any);
 }
 </script>
 

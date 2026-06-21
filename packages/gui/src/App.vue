@@ -6,7 +6,7 @@
     <TopBar />
     <div class="panes">
       <AccountSidebar />
-      <FilterRail v-if="filter.filterBarOpen" />
+      <FilterRail v-if="filter.filterBarOpen" @close="filter.setFilterBarOpen(false)" />
       <RouterView />
       <DetailView />
     </div>

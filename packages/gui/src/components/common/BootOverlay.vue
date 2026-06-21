@@ -43,13 +43,13 @@ const HOLD_MS = 220;
 const FADE_SAFETY_MS = 320;
 
 function start(opts: { mode?: 'boot' | 'overlay'; skipAssetPreWarm?: boolean; initialLabel?: string; initialPct?: number } = {}) {
-  if (disposed) return;
+  disposed = false;
+  completePromise = null;
   mode.value = opts.mode ?? 'boot';
   label.value = opts.initialLabel ?? '正在打开 WonderfulUI…';
   pct.value = opts.initialPct ?? 5;
   visible.value = true;
   requestAnimationFrame(() => {
-    if (disposed) return;
     pulseRendererForMotion(320);
   });
 }
@@ -62,7 +62,6 @@ function update(newLabel: string, newPct?: number) {
 
 let completePromise: Promise<void> | null = null;
 function complete(): Promise<void> {
-  if (disposed) return Promise.resolve();
   if (completePromise) return completePromise;
   completePromise = (async () => {
     if (pct.value < 100) {

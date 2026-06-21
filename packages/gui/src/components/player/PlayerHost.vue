@@ -46,7 +46,7 @@
           <Play :size="28" />
         </button>
 
-        <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }">
+        <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }" @click.stop>
           <button class="frame-stepper-btn" aria-label="上一帧" @click.stop="stepFrame(-1)">
             <ChevronLeft :size="24" />
           </button>
@@ -119,6 +119,19 @@ const showLoading = ref(true);
 const showError = ref(false);
 const showReplay = ref(false);
 const showFrameStepper = ref(false);
+
+watch(() => player.isOpen, (open) => {
+  if (open) {
+    isPlaying.value = false;
+    currentTime.value = 0;
+    duration.value = 0;
+    showLoading.value = true;
+    showError.value = false;
+    showReplay.value = false;
+    showFrameStepper.value = false;
+    seeked = false;
+  }
+});
 let seeked = false;
 let fps = 60;
 

@@ -14,15 +14,11 @@
     </div>
 
     <div class="filter-rail-body">
-      <FilterBar
-        :filters="filters"
-        :all-matches="allMatches"
-        @update="(patch: any) => $emit('update', patch)"
-      />
+      <FilterBar />
     </div>
 
     <div v-if="activeN > 0" class="filter-rail-footer">
-      <button class="filter-rail-clear" type="button" @click="$emit('clearAll')">清除全部筛选</button>
+      <button class="filter-rail-clear" type="button" @click="filterStore.clearFilter('__all__')">清除全部筛选</button>
     </div>
   </aside>
 </template>
@@ -34,20 +30,31 @@ import FilterBar from './FilterBar.vue';
 import type { FilterState } from '../../utils/filters.ts';
 import { activeFilterCount } from '../../utils/filters.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
+import { useFilterStore } from '../../stores/filter.ts';
+import { useAccountStore } from '../../stores/account.ts';
 
-const props = defineProps<{
-  filters: FilterState;
-  allMatches: MatchRecord[];
-  scopeLabel: string;
-}>();
+const filterStore = useFilterStore();
+const account = useAccountStore();
 
-defineEmits<{
-  update: [patch: Partial<FilterState>];
+const emit = defineEmits<{
   close: [];
-  clearAll: [];
 }>();
 
-const activeN = computed(() => activeFilterCount(props.filters));
+const scopeLabel = computed(() => {
+  const labels = account.accountLabels;
+  const id = account.selectedAccountId;
+  if (!id || id === '__all__') return '全部账号';
+  return labels.get(id) ?? id;
+});
+
+const activeN = computed(() => activeFilterCount(filterStore.filters));
+
+const accountMatches = computed(() => {
+  const all = account.matches;
+  const openid = account.selectedAccountId;
+  if (!openid || openid === '__all__') return [...all].sort((a, b) => b.matches_time - a.matches_time);
+  return all.filter(m => m.openID === openid).sort((a, b) => b.matches_time - a.matches_time);
+});
 </script>
 
 <style scoped>

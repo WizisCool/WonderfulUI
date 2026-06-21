@@ -36,7 +36,7 @@
         aria-label="设置"
         data-tip="设置"
         type="button"
-        @click="router.push({ name: 'settings' })"
+        @click="settings.setOpen(true)"
       >
         <Settings :size="16" />
       </button>
@@ -46,7 +46,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRouter } from 'vue-router';
 import { RefreshCw, Settings } from 'lucide-vue-next';
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
@@ -57,8 +56,6 @@ const account = useAccountStore();
 const filter = useFilterStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
-
-const router = useRouter();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 

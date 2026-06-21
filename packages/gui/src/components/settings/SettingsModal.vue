@@ -325,6 +325,15 @@ watch(() => settings.isOpen, (open) => {
   }
 });
 
+onMounted(() => {
+  if (settings.activeTab === 'library' && !settings.statsData && !settings.statsLoading && !settings.statsError) {
+    settings.fetchLibraryStats();
+  }
+  if (settings.activeTab === 'logs') {
+    settings.fetchLogs();
+  }
+});
+
 watch(() => settings.activeTab, (tab) => {
   if (tab === 'logs') {
     settings.fetchLogs();
