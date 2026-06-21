@@ -554,14 +554,13 @@ onUnmounted(() => {
 }
 
 .settings-about {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 24px;
-  min-height: 380px;
+  margin: auto 0;
 }
 .settings-about-logo {
   width: 72px;
