@@ -18,7 +18,7 @@ import { join, resolve, isAbsolute } from 'node:path';
 import { readSnapshotDbFile, readWonderfulDbFile } from './src/reader-file.ts';
 import { WonderfulDbError, type MatchRecord } from './src/index.ts';
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const DEFAULT_WONDERFUL_DIR = join(process.env.USERPROFILE ?? process.env.HOME ?? '', 'AppData', 'Roaming', 'ACLOS', 'WonderfulDb');
 
 function die(msg: string, code = 1): never {
