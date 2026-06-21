@@ -395,7 +395,10 @@ function onTimeUpdate() {
 
   const buf = v.buffered;
   if (buf.length > 0) {
-    lastBufferedPct.value = dur > 0 ? (buf.end(buf.length - 1) / dur) * 100 : 0;
+    const next = dur > 0 ? (buf.end(buf.length - 1) / dur) * 100 : 0;
+    if (Math.abs(next - lastBufferedPct.value) > 0.5) {
+      lastBufferedPct.value = Math.round(next);
+    }
   }
 }
 

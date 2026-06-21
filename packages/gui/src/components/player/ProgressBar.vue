@@ -224,6 +224,7 @@ defineExpose({
   border-radius: 2px;
   transform-origin: left center;
   transform: scaleX(0);
+  transition: transform 200ms linear;
 }
 .player-progress-fill {
   position: absolute; top: 0; left: 0;
