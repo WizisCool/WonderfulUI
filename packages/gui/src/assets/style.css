@@ -131,6 +131,15 @@ img { display: block; max-width: 100%; }
 .brand-name { color: var(--ink); }
 .brand-name-accent { color: var(--accent); }
 
+/* ─── mode icon ───────────────────────────────────────────── */
+.mode-icon {
+  display: inline-block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.mode-icon-sm { width: 12px; height: 12px; }
+.mode-icon-md { width: 16px; height: 16px; vertical-align: -3px; }
+
 /* ─── app shell ────────────────────────────────────────────── */
 .app {
   display: grid;

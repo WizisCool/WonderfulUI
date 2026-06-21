@@ -339,13 +339,6 @@ function onModeIconError() { modeIconFailed.value = true; }
   font-family: var(--font-sans);
   letter-spacing: 0.02em;
 }
-.mode-icon {
-  display: inline-block;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-.mode-icon-sm { width: 12px; height: 12px; }
-.mode-icon-md { width: 16px; height: 16px; vertical-align: -3px; }
 .match-video-chip {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 10px;
