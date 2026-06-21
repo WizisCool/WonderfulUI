@@ -316,14 +316,6 @@ function onModeIconError() { modeIconFailed.value = true; }
 }
 .match-result.result-win  { color: var(--win); background: var(--win-soft); }
 .match-result.result-loss { color: var(--loss); background: var(--loss-soft); }
-.match-result-pill {
-  font-weight: 700; font-family: var(--font-sans); font-size: 11px;
-  padding: 1px 7px; border-radius: 3px;
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
-}
-.match-result-pill.result-win  { color: var(--win);  background: var(--win-soft); }
-.match-result-pill.result-loss { color: var(--loss); background: var(--loss-soft); }
 .match-agent { color: var(--ink); font-weight: var(--w-medium); }
 .match-map   { color: var(--ink-2); font-family: var(--font-sans); font-size: 12px; }
 .match-sep   { color: var(--ink-4); font-family: var(--font-mono); font-size: 12px; }

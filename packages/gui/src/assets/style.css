@@ -140,6 +140,16 @@ img { display: block; max-width: 100%; }
 .mode-icon-sm { width: 12px; height: 12px; }
 .mode-icon-md { width: 16px; height: 16px; vertical-align: -3px; }
 
+/* ─── match result pill ───────────────────────────────────── */
+.match-result-pill {
+  font-weight: 700; font-family: var(--font-sans); font-size: 11px;
+  padding: 1px 7px; border-radius: 3px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.match-result-pill.result-win  { color: var(--win);  background: var(--win-soft); }
+.match-result-pill.result-loss { color: var(--loss); background: var(--loss-soft); }
+
 /* ─── app shell ────────────────────────────────────────────── */
 .app {
   display: grid;
