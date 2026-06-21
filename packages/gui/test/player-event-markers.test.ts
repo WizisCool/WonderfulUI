@@ -116,7 +116,7 @@ describe('renderCanvasMarkers', () => {
 });
 
 describe('CANVAS_MARKER_THRESHOLD', () => {
-  test('is 20', () => {
-    expect(CANVAS_MARKER_THRESHOLD).toBe(20);
+  test('is Infinity (canvas mode disabled)', () => {
+    expect(CANVAS_MARKER_THRESHOLD).toBe(Infinity);
   });
 });

@@ -363,7 +363,8 @@ function measureFps(v: HTMLVideoElement) {
 let fpsMeasured = false;
 
 function onLoadedMeta() {
-  const v = videoRef.value!;
+  const v = videoRef.value;
+  if (!v) return;
   currentTime.value = 0;
   duration.value = v.duration || 0;
   if (player.seekMs !== undefined && !seeked) {
@@ -390,7 +391,7 @@ function onPlay() {
   state.value = 'playing';
   bufferingMode.value = 'hidden';
   scheduleHide();
-  if (!fpsMeasured) { fpsMeasured = true; measureFps(videoRef.value!); }
+  if (!fpsMeasured) { fpsMeasured = true; const v = videoRef.value; if (v) measureFps(v); }
 }
 
 function onPause() {
@@ -437,7 +438,8 @@ function clearBufferingTimer() {
 
 function onTimeUpdate() {
   if (isDragging.value) return;
-  const v = videoRef.value!;
+  const v = videoRef.value;
+  if (!v) return;
   const dur = v.duration || 0;
   const cur = v.currentTime || 0;
   currentTime.value = cur;

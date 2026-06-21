@@ -162,6 +162,8 @@ Account list uses a custom tooltip, not native `title=`.
 
 - Use `data-tip` attribute with `\n` for multi-line; CSS uses `white-space: pre-line`.
 - One shared `.tooltip` is mounted on `document.body`, positioned via `@floating-ui/dom` (`packages/gui/src/composables/useFloating.ts`).
+- **Wiring is in `App.vue`**: delegated `mouseover`/`mouseout`/`mousemove` listeners on `document` read `[data-tip]` attributes and invoke `useTooltip()`. Components only set `data-tip` on their DOM elements; no directive or per-component binding required.
+- `relatedTarget` checks prevent re-triggering when the mouse moves between descendants of the same `[data-tip]` element.
 - Show delay is `TOOLTIP_DELAY_MS`, currently 800 ms.
 - Hide on `mouseleave`, `blur`, or window scroll (repositions rather than hiding on scroll when visible).
 - **Smart placement**: floating-ui chooses the best side (top/bottom/left/right) based on viewport space.

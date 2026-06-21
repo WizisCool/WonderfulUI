@@ -12,17 +12,22 @@ export function positionFloating(
   floating: FloatingElement,
   opts: FloatingOptions = {},
 ): Promise<void> {
+  const arrowEl = floating.querySelector<HTMLElement>('.floating-arrow');
+  const middleware: Middleware[] = [
+    offset(opts.offset ?? 8),
+    flip(),
+    shift({ padding: 8 }),
+  ];
+  if (arrowEl) {
+    middleware.push(arrow({ element: arrowEl }));
+  }
+  middleware.push(...(opts.middleware ?? []));
+
   return computePosition(reference, floating, {
     placement: opts.placement ?? 'top',
-    middleware: [
-      offset(opts.offset ?? 8),
-      flip(),
-      shift({ padding: 8 }),
-      ...(opts.middleware ?? []),
-    ],
+    middleware,
   }).then(({ x, y, placement, middlewareData }) => {
     Object.assign(floating.style, { left: `${x}px`, top: `${y}px` });
-    const arrowEl = floating.querySelector<HTMLElement>('.floating-arrow');
     if (arrowEl) {
       const arrowData = middlewareData.arrow;
       const staticSide = { top: 'bottom', right: 'left', bottom: 'top', left: 'right' }[placement.split('-')[0]!];
@@ -32,6 +37,9 @@ export function positionFloating(
           top: arrowData.y != null ? `${arrowData.y}px` : '',
           [staticSide]: '-4px',
         });
+        arrowEl.setAttribute('data-side', staticSide);
+      } else {
+        arrowEl.removeAttribute('data-side');
       }
     }
   });

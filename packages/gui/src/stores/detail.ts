@@ -24,6 +24,7 @@ export const useDetailStore = defineStore('detail', () => {
       }
       roundsLoaded.value = true;
     } catch (e) {
+      console.error('[detail::fetchRounds] ERROR:', e);
       throw e;
     }
   }

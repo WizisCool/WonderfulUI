@@ -29,9 +29,10 @@ import FilterRail from './components/match/FilterRail.vue';
 import ToastHost from './components/common/ToastHost.vue';
 import DetailView from './views/DetailView.vue';
 import SettingsView from './views/SettingsView.vue';
-import { watch, onMounted, ref } from 'vue';
+import { watch, onMounted, onUnmounted, ref } from 'vue';
 import { useAccountStore } from './stores/account.ts';
 import { useSettingsStore } from './stores/settings.ts';
+import { useTooltip } from './composables/useTooltip.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -55,6 +56,42 @@ onMounted(async () => {
     booted.value = true;
     bootRef.value?.complete();
   }
+});
+
+const tooltip = useTooltip();
+
+function onDocMouseOver(e: MouseEvent) {
+  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  if (!el?.dataset.tip) return;
+  const related = e.relatedTarget as HTMLElement | null;
+  if (related && el.contains(related)) return;
+  tooltip.schedule(el, el.dataset.tip, e.clientX);
+}
+
+function onDocMouseMove(e: MouseEvent) {
+  if (!tooltip.visible.value) return;
+  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  if (el) tooltip.reposition(e.clientX);
+}
+
+function onDocMouseOut(e: MouseEvent) {
+  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  if (!el) return;
+  const related = e.relatedTarget as HTMLElement | null;
+  if (related && el.contains(related)) return;
+  tooltip.hide();
+}
+
+onMounted(() => {
+  document.addEventListener('mouseover', onDocMouseOver);
+  document.addEventListener('mousemove', onDocMouseMove, { passive: true });
+  document.addEventListener('mouseout', onDocMouseOut);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mouseover', onDocMouseOver);
+  document.removeEventListener('mousemove', onDocMouseMove);
+  document.removeEventListener('mouseout', onDocMouseOut);
 });
 </script>
 

@@ -42,7 +42,7 @@ const STEM_TRACK_OVERLAP_PX = 2;
 const DEFAULT_TRACK_HEIGHT_PX = 4;
 const GAP_BELOW_PX = 4;
 
-export const CANVAS_MARKER_THRESHOLD = 20;
+export const CANVAS_MARKER_THRESHOLD = Infinity;
 
 export const MARKER_OVERHEAD_PX = Math.abs(UPPER_TOP_PX) + COMPACT_MARKER_HEIGHT_PX + 4;
 
