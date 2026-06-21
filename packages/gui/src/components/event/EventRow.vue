@@ -24,7 +24,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Crosshair, Skull } from 'lucide-vue-next';
-import { weaponNameOnly } from '../../weapons.ts';
+import { weaponNameOnly } from '../../utils/weapons.ts';
 import type { NormalizedMatchEvent } from '../../utils/match-events.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
 

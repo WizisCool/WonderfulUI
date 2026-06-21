@@ -178,6 +178,15 @@
       <div class="empty-title">没有选中</div>
       <div class="empty-sub">从左侧账户选一个,再从中间选一场高光</div>
     </div>
+    <EventListModal
+      v-if="eventListVisible && match"
+      :events="eventListEvents"
+      :match-label="eventListLabel"
+      :kills="match.stats.kills"
+      :deaths="match.stats.deaths"
+      @close="onEventListClose"
+      @play="onEventListPlay"
+    />
   </aside>
 </template>
 
@@ -192,10 +201,9 @@ import { useAccountStore } from '../stores/account.ts';
 import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
 import { agentCn, mapCn, modeCn, fmtScore, kdaRatio, fmtMatchDuration } from '../utils/filters.ts';
-import { openPlayer } from '../player.ts';
-import { openEventListModal } from '../event-list-modal.ts';
-import { normalizeMatchEvents } from '../match-events.ts';
+import { normalizeMatchEvents, type NormalizedMatchEvent } from '../utils/match-events.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
+import EventListModal from '../components/event/EventListModal.vue';
 
 const account = useAccountStore();
 const detail = useDetailStore();
@@ -237,6 +245,11 @@ const kdaToneClass = computed(() => {
 });
 
 const eventCount = computed(() => match.value ? normalizeMatchEvents(match.value).length : 0);
+
+const eventListVisible = ref(false);
+const eventListEvents = ref<NormalizedMatchEvent[]>([]);
+const eventListLabel = ref('');
+
 const eventBtnDisabled = computed(() => {
   if (!match.value) return true;
   if (!detail.roundsLoaded) return true;
@@ -345,9 +358,18 @@ function openEventList() {
   if (!match.value || !detail.roundsLoaded) return;
   const events = normalizeMatchEvents(match.value);
   if (events.length === 0) return;
-  openEventListModal(events, `${agentName.value} · ${mapCn(match.value)}`, (v, seekMs) => {
-    player.open(v, match.value!, seekMs);
-  }, { kills: match.value.stats.kills, deaths: match.value.stats.deaths, assists: match.value.stats.assists });
+  eventListEvents.value = events;
+  eventListLabel.value = `${agentName.value} · ${mapCn(match.value)}`;
+  eventListVisible.value = true;
+}
+
+function onEventListClose() {
+  eventListVisible.value = false;
+}
+
+function onEventListPlay(video: VideoItem, seekMs: number) {
+  if (!match.value) return;
+  player.open(video, match.value, seekMs);
 }
 
 watch(() => route.params.id, (id) => {

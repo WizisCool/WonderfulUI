@@ -44,17 +44,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-  background: var(--color-bg);
-}
-
-.panes {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
 </style>

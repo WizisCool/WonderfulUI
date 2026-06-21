@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke, convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core';
 import { listen as tauriListen } from '@tauri-apps/api/event';
 import type { MatchRecord, RoundItem, VideoItem } from '@wonderful-ui/parser';
-import type { LibraryStats } from './library-stats.ts';
+import type { LibraryStats } from './utils/library-stats.ts';
 
 export type UnlistenFn = () => void;
 
