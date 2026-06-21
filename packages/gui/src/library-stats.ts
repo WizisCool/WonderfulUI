@@ -93,13 +93,33 @@ function truncateLegendName(name: string): string {
   return name.length > 12 ? `${name.slice(0, 11)}…` : name;
 }
 
+function shortOpenid(openid: string): string {
+  return openid.length > 6 ? openid.slice(-6) : openid;
+}
+
 function countFor(account: AccountStat, metric: ChartMetric): number {
   return metric === 'video' ? account.videoCount : account.matchCount;
 }
 
+function tooltipPosition(
+  _point: number[],
+  _params: unknown,
+  _dom: unknown,
+  _rect: unknown,
+  size: { contentSize: number[]; viewSize: number[] },
+): [number, number] {
+  const contentWidth = size.contentSize[0] ?? 0;
+  const contentHeight = size.contentSize[1] ?? 0;
+  const viewWidth = size.viewSize[0] ?? 0;
+  const viewHeight = size.viewSize[1] ?? 0;
+  const x = Math.min(viewWidth - contentWidth - 8, Math.round(viewWidth * 0.54));
+  const y = Math.round((viewHeight - contentHeight) / 2);
+  return [Math.max(8, x), Math.max(8, Math.min(viewHeight - contentHeight - 8, y))];
+}
+
 function chartSignature(stats: LibraryStats, metric: ChartMetric, reducedMotion: boolean): string {
   return `${metric}|motion:${reducedMotion ? 'reduced' : 'full'}|${stats.accounts
-    .map(a => `${a.openid}:${a.videoCount}:${a.matchCount}:${a.parseError ?? ''}`)
+    .map(a => `${a.openid}:${a.label}:${a.videoCount}:${a.matchCount}:${a.parseError ?? ''}`)
     .join(';')}`;
 }
 
@@ -108,14 +128,37 @@ let accountVideoResizeObserver: ResizeObserver | null = null;
 let accountVideoHost: HTMLElement | null = null;
 let accountVideoSignature: string | null = null;
 
+export interface AccountChartSlice {
+  name: string;
+  displayLabel: string;
+  value: number;
+}
+
+export function accountChartSlices(accounts: AccountStat[], metric: ChartMetric): AccountChartSlice[] {
+  const labelCounts = new Map<string, number>();
+  for (const account of accounts) {
+    labelCounts.set(account.label, (labelCounts.get(account.label) ?? 0) + 1);
+  }
+  return accounts.map(account => {
+    const label = account.label;
+    const duplicate = (labelCounts.get(label) ?? 0) > 1;
+    return {
+      name: duplicate ? `${label} · ${shortOpenid(account.openid)}` : label,
+      displayLabel: label,
+      value: countFor(account, metric),
+    };
+  });
+}
+
 function buildChartOption(
   accounts: AccountStat[],
   metric: ChartMetric,
   palette: string[],
   reducedMotion: boolean,
 ): echarts.EChartsOption {
-  const total = accounts.reduce((sum, account) => sum + countFor(account, metric), 0);
-  const valuesByName = new Map(accounts.map(account => [account.label, countFor(account, metric)]));
+  const slices = accountChartSlices(accounts, metric);
+  const total = slices.reduce((sum, account) => sum + account.value, 0);
+  const valuesByName = new Map(slices.map(account => [account.name, account.value]));
   const metricLabel = CHART_METRIC_LABELS[metric];
   const tooltipUnit = CHART_METRIC_TOOLTIP[metric];
   const hasData = total > 0;
@@ -125,8 +168,15 @@ function buildChartOption(
     animation: !reducedMotion,
     animationDuration: reducedMotion ? 0 : 360,
     animationEasing: 'cubicOut',
+    stateAnimation: {
+      duration: reducedMotion ? 0 : 100,
+      easing: 'cubicOut',
+    },
     tooltip: {
       trigger: 'item',
+      renderMode: 'richText',
+      confine: true,
+      position: tooltipPosition,
       borderColor: cssVar('--border', '#4a403a'),
       backgroundColor: cssVar('--surface-3', '#302923'),
       textStyle: {
@@ -135,8 +185,8 @@ function buildChartOption(
         fontSize: 12,
       },
       formatter: (params: unknown) => {
-        const item = params as { name?: string; value?: number; percent?: number };
-        return `${item.name ?? '账号'}<br/>${tooltipUnit} ${item.value ?? 0} · ${item.percent ?? 0}%`;
+        const item = params as { data?: { displayLabel?: string }; name?: string; value?: number; percent?: number };
+        return `${item.data?.displayLabel ?? item.name ?? '账号'}\n${tooltipUnit} ${item.value ?? 0} · ${item.percent ?? 0}%`;
       },
     },
     legend: {
@@ -177,26 +227,20 @@ function buildChartOption(
         borderRadius: 2,
       },
       emphasis: {
-        scale: true,
-        scaleSize: 6,
+        scale: !reducedMotion,
+        scaleSize: reducedMotion ? 0 : 4,
       },
       label: {
-        show: hasData,
-        position: 'center',
-        color: cssVar('--ink', '#efe9e1'),
-        fontFamily: cssVar('--font-mono', 'monospace'),
-        fontSize: 18,
-        fontWeight: 520,
-        formatter: () => `${total}\n${metricLabel}`,
-        lineHeight: 22,
+        show: false,
       },
       labelLine: {
         show: false,
       },
       data: hasData
-        ? accounts.map(account => ({
-            name: account.label,
-            value: countFor(account, metric),
+        ? slices.map(account => ({
+            name: account.name,
+            value: account.value,
+            displayLabel: account.displayLabel,
           }))
         : [{
             name: CHART_METRIC_EMPTY[metric],
@@ -207,10 +251,24 @@ function buildChartOption(
       animationDuration: reducedMotion ? 0 : 360,
       animationEasing: 'cubicOut',
     }],
-    graphic: hasData ? [] : [{
+    graphic: hasData ? [{
+      type: 'text',
+      left: '35%',
+      top: '51%',
+      silent: true,
+      style: {
+        text: `${total}\n${metricLabel}`,
+        fill: cssVar('--ink', '#efe9e1'),
+        font: `520 18px ${cssVar('--font-mono', 'monospace')}`,
+        align: 'center',
+        verticalAlign: 'middle',
+        lineHeight: 22,
+      },
+    }] : [{
       type: 'text',
       left: 'center',
       top: 'middle',
+      silent: true,
       style: {
         text: CHART_METRIC_EMPTY[metric],
         fill: cssVar('--ink-3', '#918982'),

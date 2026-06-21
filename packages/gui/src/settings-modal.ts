@@ -29,6 +29,10 @@ export interface LibraryStatsState {
 const REFRESH_SCAN_MODE_KEY = 'wui:library.refreshScanMode';
 export const ACCOUNT_VIDEO_CHART_HOST_ID = 'stats-account-video-chart';
 
+export function chartMetricAriaLabel(metric: ChartMetric): string {
+  return `按账号展示${CHART_METRIC_LABELS[metric]}数量占比的饼图`;
+}
+
 export function scanModeLabel(mode: ScrapeMode): string {
   return mode === 'full' ? '全量扫描' : '增量扫描';
 }
@@ -174,7 +178,7 @@ function videoOverviewContent(stats: LibraryStatsState, activeMetric: ChartMetri
         class: 'stats-video-chart',
         id: ACCOUNT_VIDEO_CHART_HOST_ID,
         role: 'img',
-        'aria-label': '按账号展示视频数量占比的饼图',
+        'aria-label': chartMetricAriaLabel(activeMetric),
       }),
     ]),
     ...(noticeChildren.length > 0

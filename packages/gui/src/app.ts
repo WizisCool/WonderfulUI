@@ -31,7 +31,7 @@ import { createFilterRail, buildAppliedChips } from './filter-bar.ts';
 import { positionFloating, createArrow, referenceAtX } from './floating.ts';
 import { mountScanProgress, type ScanProgressHandle } from './scan-progress.ts';
 import { el } from './dom.ts';
-import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, ACCOUNT_VIDEO_CHART_HOST_ID, type LibraryStatsState, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
+import { chartMetricAriaLabel, loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, ACCOUNT_VIDEO_CHART_HOST_ID, type LibraryStatsState, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
 import type { ChartMetric, LibraryStats } from './library-stats.ts';
 import { disposeAccountVideoChart, mountAccountVideoChart } from './library-stats.ts';
 import { pulseRendererForMotion } from './render-pulse.ts';
@@ -1503,6 +1503,8 @@ export async function renderApp(root: HTMLElement) {
       btn.classList.toggle('is-active', isActive);
       btn.setAttribute('aria-pressed', String(isActive));
     }
+    const host = document.getElementById(ACCOUNT_VIDEO_CHART_HOST_ID);
+    host?.setAttribute('aria-label', chartMetricAriaLabel(chartMetric));
   }
 
   function setChartMetric(metric: ChartMetric) {
