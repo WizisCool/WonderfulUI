@@ -405,6 +405,7 @@ function onPause() {
 
 function onWaiting() {
   if (state.value !== 'playing') return;
+  stateBeforeSeek = state.value;
   clearBufferingTimer();
   bufferingTimer = setTimeout(() => {
     state.value = 'buffering';
