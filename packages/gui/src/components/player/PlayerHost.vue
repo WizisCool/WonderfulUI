@@ -371,9 +371,9 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
+  showLoading.value = false;
   if (isInitialLoad) {
     isInitialLoad = false;
-    showLoading.value = false;
     videoRef.value?.play().catch(() => {});
     return;
   }
