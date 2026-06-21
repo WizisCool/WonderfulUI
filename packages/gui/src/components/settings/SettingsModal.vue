@@ -258,20 +258,31 @@
 
       <!-- About tab -->
       <template v-else-if="settings.activeTab === 'about'">
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h3>关于 WonderfulUI</h3>
+        <div class="settings-about">
+          <img class="settings-about-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="64" height="64" />
+          <h3 class="settings-about-name">WonderfulUI</h3>
+          <span class="settings-about-version">v{{ APP_VERSION }}</span>
+          <div class="settings-about-links">
+            <a
+              class="settings-about-link"
+              href="https://github.com/WizisCool/WonderfulUI"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <WIcon icon="ph:github-logo" :size="15" />
+              <span>GitHub</span>
+            </a>
+            <a
+              class="settings-about-link"
+              href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <WIcon icon="ph:scales" :size="15" />
+              <span>GPL-3.0</span>
+            </a>
           </div>
-          <div class="settings-row settings-row-stack">
-            <div class="settings-row-main">
-              <div class="settings-row-title">版本</div>
-              <div class="settings-row-sub">v{{ APP_VERSION }}</div>
-            </div>
-            <div class="settings-row-main">
-              <div class="settings-row-sub is-muted">无畏时刻高光离线浏览器。无需启动游戏即可浏览 VALORANT 高光时刻的元数据与本地录像。</div>
-            </div>
-          </div>
-        </section>
+        </div>
       </template>
     </main>
   </div>
@@ -293,6 +304,8 @@ const account = useAccountStore();
 const filter = useFilterStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
+
+const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 
 const chartRef = ref<HTMLElement | null>(null);
 
@@ -553,6 +566,62 @@ onUnmounted(() => {
   color: var(--ink-3);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.settings-about {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+}
+.settings-about-logo {
+  width: 64px;
+  height: 64px;
+  pointer-events: none;
+  user-select: none;
+}
+.settings-about-name {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: var(--w-semibold);
+}
+.settings-about-version {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.settings-about-links {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.settings-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  transition: color 100ms ease-out, border-color 100ms ease-out, background 100ms ease-out;
+}
+.settings-about-link:hover {
+  color: var(--ink);
+  border-color: var(--ink-4);
+  background: var(--surface-2);
+}
+.settings-about-link svg {
+  color: var(--ink-3);
+  transition: color 100ms ease-out;
+}
+.settings-about-link:hover svg {
+  color: var(--ink);
 }
 .settings-sub-line {
   display: inline-flex; align-items: center; gap: 4px;
