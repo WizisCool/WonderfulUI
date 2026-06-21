@@ -77,7 +77,7 @@ export async function mountScanProgress(parent: HTMLElement, opts: ScanProgressO
   const skipAssetPreWarm = opts.skipAssetPreWarm ?? false;
 
   const statusNode = el('div', { class: 'boot-status' }, [initialLabel]);
-  const fillNode = el('div', { class: 'boot-progress-fill', style: `width:${initialPct}%` });
+  const fillNode = el('div', { class: 'boot-progress-fill', style: `transform:scaleX(${initialPct / 100})` });
   const panel = el('div', { class: 'boot-panel' }, [
     el('div', { class: 'boot-brand' }, [brandLockup()]),
     el('div', { class: 'boot-progress' }, [fillNode]),
