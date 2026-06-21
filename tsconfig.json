@@ -19,5 +19,5 @@
       "@wonderful-ui/parser": ["./packages/parser/src/index.ts"]
     }
   },
-  "include": ["packages/**/*", "tools/**/*"]
+  "include": ["packages/**/*"]
 }

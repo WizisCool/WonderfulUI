@@ -59,7 +59,28 @@ if (existsSync(parserPkgPath)) {
   console.log(`  packages/parser/package.json  ${current} -> ${next}`);
 }
 
-// 6. update versions.json if it exists
+// 6. update packages/gui/package.json
+const guiPkgPath = join(ROOT, 'packages', 'gui', 'package.json');
+if (existsSync(guiPkgPath)) {
+  const guiPkg = readJson(guiPkgPath);
+  guiPkg.version = next;
+  writeJson(guiPkgPath, guiPkg);
+  console.log(`  packages/gui/package.json  ${current} -> ${next}`);
+}
+
+// 7. update packages/parser/cli.ts VERSION constant
+const cliPath = join(ROOT, 'packages', 'parser', 'cli.ts');
+if (existsSync(cliPath)) {
+  let cliText = readFileSync(cliPath, 'utf8');
+  cliText = cliText.replace(
+    /const VERSION = ['"][^'"]+['"];/,
+    `const VERSION = '${next}';`,
+  );
+  writeFileSync(cliPath, cliText);
+  console.log(`  packages/parser/cli.ts VERSION  ${current} -> ${next}`);
+}
+
+// 8. update versions.json if it exists
 const versionsJsonPath = join(ROOT, 'versions.json');
 if (existsSync(versionsJsonPath)) {
   const versions = readJson(versionsJsonPath);
@@ -76,7 +97,7 @@ if (existsSync(versionsJsonPath)) {
   console.log(`  versions.json  ${current} -> ${next}`);
 }
 
-// 7. git commit + tag
+// 9. git commit + tag
 execSync('git add -A', { cwd: ROOT, stdio: 'inherit' });
 execSync(`git commit -m "chore(release): v${next}"`, { cwd: ROOT, stdio: 'inherit' });
 execSync(`git tag v${next}`, { cwd: ROOT, stdio: 'inherit' });

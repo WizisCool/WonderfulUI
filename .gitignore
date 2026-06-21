@@ -20,7 +20,7 @@ src-tauri/gen/
 
 # ── TypeScript ────────────────────────────────────────
 *.tsbuildinfo
-*.d.ts
+/dist/**/*.d.ts
 
 # ── OS ────────────────────────────────────────────────
 .DS_Store
@@ -52,6 +52,6 @@ docs/*
 !docs/FRONTEND_CONVENTIONS.md
 !docs/AGENT_WORKFLOW.md
 !docs/superpowers/
-tools/
+tools/extract-schema
 .github/BFG_GUIDE.md
 .github/RELEASE_TEMPLATE.md

@@ -196,7 +196,7 @@ Account list uses a custom tooltip, not native `title=`.
 
 ## Date Range Picker
 
-- Date-range picker UI lives in `packages/gui/src/date-picker.ts` and is styled by the `.dr-*` block in `packages/gui/src/style.css`.
+- Date-range picker UI lives in `packages/gui/src/utils/date-picker.ts` (pure logic) with a Vue wrapper in `packages/gui/src/components/match/DateRangePicker.vue`, styled by the `.dr-*` block in `packages/gui/src/assets/style.css`.
 - It is a filter-rail control, not a modal or standalone calendar card. Keep it visually aligned with filter chips and numeric inputs: low elevation, token colors, no decorative shadow, no red top border.
 - Date clicks update an internal draft only. The applied filter must change only when the user clicks `完成`.
 - The trigger clear button may clear the already-applied date filter immediately. The popover `清除` button clears only the draft until `完成` is clicked.
@@ -215,7 +215,7 @@ Known scrollable surfaces:
 - `.detail-videos`
 - `.settings-content`
 
-If a new scrollable surface is added, include it in the same scrollbar selector block in `style.css`.
+If a new scrollable surface is added, include it in the same scrollbar selector block in `assets/style.css`.
 
 ## Text, Fonts, and Icons
 
@@ -270,9 +270,9 @@ Preferred shadow tint: hue around 30, chroma around 0.01.
 
 The built-in video player lives in `#player-host`, not inside `#app`.
 
-- `player.ts` exports `openPlayer(video, onClose, seekMs?)` and `closePlayer()`. The optional `seekMs` is a millisecond offset into the video used when jumping to a specific event from the event list.
+- Player state is managed by `stores/player.ts` (Pinia store) and rendered by `components/player/PlayerHost.vue`. The store exposes `openPlayer(video, onClose, seekMs?)` and `closePlayer()` actions. The optional `seekMs` is a millisecond offset into the video used when jumping to a specific event from the event list.
 - `#player-host` is a sibling of `#app` in `index.html`.
-- `app.ts` tracks `selectedVideo`.
+- The player store (`stores/player.ts`) tracks `selectedVideo`.
 - Targeted refresh helpers return early while a video is selected.
 - Do not manage player state inside the normal app refresh flow.
 - The player `.player-backdrop` sits at z-index 1200, above the event-list modal (1100) — so jumping from the list leaves the list visible behind the player and re-shows when the player closes.
@@ -366,7 +366,7 @@ it opens the per-match event list. The flow is **3 steps**, layered:
   used for dedup is missing, `normalizeMatchEvents` falls back to a
   conservative composite key rather than merging every event in the same
   second.
-- **Player** (`player.ts`): clicking a list row calls
+- **Player** (`stores/player.ts` + `PlayerHost.vue`): clicking a list row calls
   `playVideoWithRounds(video, match, seekMs)` which ensures rounds are
   loaded and seeks the video to the accepted event state's millisecond
   offset. Montage videos use `event_sTime` directly; moment videos use

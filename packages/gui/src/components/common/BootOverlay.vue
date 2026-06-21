@@ -21,11 +21,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { listen, type UnlistenFn } from '../../tauri-adapter.ts';
 import { pulseRendererForMotion } from '../../utils/render-pulse.ts';
 import { useUiStore } from '../../stores/ui.ts';
-import { watch } from 'vue';
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 const ui = useUiStore();

@@ -27,9 +27,7 @@
 import { computed } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import FilterBar from './FilterBar.vue';
-import type { FilterState } from '../../utils/filters.ts';
 import { activeFilterCount } from '../../utils/filters.ts';
-import type { MatchRecord } from '@wonderful-ui/parser';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useAccountStore } from '../../stores/account.ts';
 
@@ -48,13 +46,6 @@ const scopeLabel = computed(() => {
 });
 
 const activeN = computed(() => activeFilterCount(filterStore.filters));
-
-const accountMatches = computed(() => {
-  const all = account.matches;
-  const openid = account.selectedAccountId;
-  if (!openid || openid === '__all__') return [...all].sort((a, b) => b.matches_time - a.matches_time);
-  return all.filter(m => m.openID === openid).sort((a, b) => b.matches_time - a.matches_time);
-});
 </script>
 
 <style scoped>

@@ -89,6 +89,7 @@ Production code must not hard-code user-specific paths.
 - Rust parser runs in-process inside Tauri.
 - **Frontend is Vue 3** (`<script setup lang="ts">` + `<style scoped>`) with **Pinia** state management and **vue-router** (`createMemoryHistory`).
 - TS parser remains for CLI and Bun tests.
+- **Vue component smoke tests** use **vitest** + `@vue/test-utils` + `happy-dom` (`.component.test.ts`), kept separate from the bun:test runner. Bun cannot process `.vue` SFC imports natively; vitest handles them through `@vitejs/plugin-vue`. Stores are injected via `createTestingPinia` with initial state — no separate store tests.
 - SQLite library lives at `%LOCALAPPDATA%\wonderful-ui\library.db` with **WAL mode** for concurrent reads during writes.
 - WonderfulDb is read only by `src-tauri/src/library/scraper.rs` as a source adapter; Tauri commands must not directly parse WonderfulDb files.
 - The scraper also writes a deduped normalized event index into SQLite `events`. Keep raw match JSON as the replay/audit source; the SQL event index is for fast lookup, migration, and future library features.
@@ -170,11 +171,17 @@ Run the smallest relevant set:
 # TS parser unit tests
 bun test packages/parser
 
+# GUI pure-logic tests (utils/*, excludes component tests)
+bun test packages/gui
+
+# All non-component tests
+bun run test
+
 # Rust parser unit tests
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 
-# GUI unit tests (all)
-bun test packages/gui
+# Vue component smoke tests (requires vitest)
+bun run --cwd packages/gui test:components
 
 # Player state machine tests (subset)
 bun test packages/gui/test/player-state.test.ts

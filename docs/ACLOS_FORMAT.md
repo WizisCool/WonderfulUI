@@ -16,7 +16,7 @@ This document holds ACLOS/WonderfulDb facts that are useful for parser and GUI w
 - Highlight file: `WonderfulDb\<account_id>`.
 - Snapshot file: `WonderfulDb\snapshot<account_id>`.
 - Locked ACLOS version: `2.15.3.449`.
-- Schema file: `packages/parser/src/schema/v2_15_3.ts`.
+- Schema file: `packages/parser/src/schema/_acl-source/eventDefine.js` (also `packages/parser/src/model.ts` for the parsed subset).
 - Out of scope for this iteration: `WeGameWonderfulDb`, IndexedDB, `blob_storage`, and video export.
 - Future ACLOS schemas should add a new `schema/vX_Y_Z.ts`; do not rewrite the locked schema in place.
 

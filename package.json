@@ -10,7 +10,7 @@
     "dev": "bunx tauri dev",
     "dev:browser": "bun run --cwd packages/gui dev -- --host 127.0.0.1",
     "build": "bunx tauri build",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns \"**/*.component*\"",
     "typecheck": "bunx tsc --noEmit",
     "version:patch": "bun run scripts/version-bump.ts patch",
     "version:minor": "bun run scripts/version-bump.ts minor",

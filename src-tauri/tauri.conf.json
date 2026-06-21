@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../packages/gui/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cd packages/gui && bun install --silent && bun run dev",
-    "beforeBuildCommand": "cd packages/gui && bun install --silent && bun run build"
+    "beforeDevCommand": "bun run --cwd packages/gui dev",
+    "beforeBuildCommand": "bun run --cwd packages/gui build"
   },
   "app": {
     "windows": [

@@ -8,7 +8,7 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 
 - Runtime: Bun 1.3.14 for CLI and tests, WebView2 V8 for GUI.
 - Shell: Tauri 2.
-- Frontend: Vite + native TypeScript / DOM APIs, no framework.
+- Frontend: Vue 3 (`<script setup lang="ts">`) with Pinia state management, vue-router (`createMemoryHistory`), and Vite HMR.
 - Browser debug runtime: `bun run dev:browser` starts the GUI Vite app only,
   letting agents open `http://localhost:1420/?debug=1` in a normal browser.
   The frontend falls back to mock Tauri commands through
@@ -18,6 +18,9 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**.
 - App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
 - TS parser: retained for CLI and Bun unit tests.
+- **Test infrastructure**: two runners.
+  - `bun:test` for pure-logic utility tests (118 cases, `packages/gui/test/*.test.ts` and `packages/parser/tests/*.test.ts`).
+  - `vitest` + `@vue/test-utils` + `happy-dom` for Vue component smoke tests (42 cases, `packages/gui/test/*.component.test.ts`). vitest handles `.vue` SFC compilation via `@vitejs/plugin-vue`; Bun cannot process `.vue` imports natively. Pinia stores are injected via `createTestingPinia` with initial state.
 - Build: `cargo tauri build` / `bunx tauri build`, no sidecar parser executable.
 - Git: single repository, main branch, no pre-commit hook.
 - **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
@@ -325,21 +328,29 @@ WonderfulUI/
 │   │   ├── tests/
 │   │   ├── cli.ts
 │   │   └── package.json
-│   └── gui/          # Tauri frontend
+│   └── gui/          # Tauri frontend (Vue 3)
 │       ├── public/
 │       │   └── fonts/misans/
 │       └── src/
+│           ├── assets/
+│           │   ├── style.css
+│           │   └── logo.svg
 │           ├── fonts.css
-│           ├── style.css
+│           ├── App.vue
 │           ├── main.ts
-│           ├── app.ts
-│           ├── player.ts
-│           ├── event-list-modal.ts
-│           ├── weapons.ts
-│           ├── filters.ts
-│           ├── filter-engine.ts
-│           ├── filter-bar.ts
-│           └── date-picker.ts
+│           ├── tauri-adapter.ts
+│           ├── components/
+│           │   ├── common/    # WIcon, AccountSidebar, BootOverlay, ToastHost
+│           │   ├── event/     # EventRow, EventListModal
+│           │   ├── layout/    # TopBar
+│           │   ├── match/     # FilterBar, FilterRail, DateRangePicker, MatchCard
+│           │   ├── player/    # PlayerHost, PlayerControls, ProgressBar
+│           │   └── settings/  # SettingsModal
+│           ├── composables/   # useVirtualScroll, useFloating
+│           ├── router/
+│           ├── stores/        # 6 Pinia stores: account, filter, detail, player, settings, ui
+│           ├── utils/         # Pure logic: filters, event-state-machine, weapons, etc.
+│           └── views/         # HomeView, DetailView, SettingsView
 ├── docs/
 └── tools/
     └── extract-schema/
