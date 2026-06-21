@@ -279,7 +279,7 @@ function matchRow(m: MatchRecord, accountLabel: string, isSelected: boolean, ass
   const cover = el('div', { class: 'match-cover', 'aria-hidden': 'true' });
   if (mapUrl) {
     const src = mapLocal ? convertFileSrc(mapLocal) : mapUrl;
-    const bg = el('img', { class: 'cover-bg', src, alt: '', loading: 'lazy' });
+    const bg = el('img', { class: 'cover-bg', src, alt: '', loading: 'lazy', decoding: 'async', fetchpriority: 'low' });
     bg.addEventListener('error', () => { if (bg.isConnected) bg.remove(); });
     cover.append(bg);
   } else {
@@ -341,7 +341,7 @@ function matchRow(m: MatchRecord, accountLabel: string, isSelected: boolean, ass
 
 /** Build a cover <img> with an onerror fallback to the agent-initial placeholder. */
 function coverImg(src: string, initial: string): HTMLElement {
-  const img = el('img', { class: 'cover-img', src, alt: '', loading: 'lazy' });
+  const img = el('img', { class: 'cover-img', src, alt: '', loading: 'lazy', decoding: 'async' });
   img.addEventListener('error', () => {
     img.replaceWith(el('span', { class: 'cover-placeholder' }, [initial]));
   });
@@ -499,6 +499,7 @@ function heroImg(cnName: string, heroUrl: string | undefined, assetPathCache: Ma
     src: convertFileSrc(localPath),
     alt: cnName,
     loading: 'lazy',
+    decoding: 'async',
   });
   img.addEventListener('error', () => {
     if (img.isConnected) img.replaceWith(heroPlaceholder(cnName));
@@ -577,6 +578,7 @@ function modeIconFor(m: MatchRecord, size: 'sm' | 'md', assetPathCache: Map<stri
     src,
     alt: '',
     loading: 'lazy',
+    decoding: 'async',
   });
   img.addEventListener('error', () => { img.remove(); });
   return img;
