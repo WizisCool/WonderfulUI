@@ -211,6 +211,7 @@
               <h3>最近内容</h3>
             </div>
             <pre
+              ref="logPreviewRef"
               class="settings-log-preview"
               :class="{ 'is-error': settings.logError }"
             >{{ logPreviewText }}</pre>
@@ -222,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import {
   X, Database, Bug, RefreshCw, FolderOpen, FileText,
 } from 'lucide-vue-next';
@@ -296,6 +297,15 @@ const logPreviewText = computed(() => {
     ? settings.logStatus.latestText
     : (settings.logLoading ? '正在读取日志...' : (settings.logError ?? settings.logStatus?.latestText ?? '暂无日志内容'));
   return fmtLogPreview(raw);
+});
+
+const logPreviewRef = ref<HTMLPreElement | null>(null);
+
+watch(logPreviewText, () => {
+  nextTick(() => {
+    const el = logPreviewRef.value;
+    if (el) el.scrollTop = el.scrollHeight;
+  });
 });
 
 async function onFullScan() {
