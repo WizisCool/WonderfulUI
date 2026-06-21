@@ -1,7 +1,9 @@
 <template>
   <div class="app" :class="{ 'is-filter-open': filter.filterBarOpen }">
     <TopBar />
-    <BootOverlay ref="bootRef" />
+    <Teleport to="body">
+      <BootOverlay ref="bootRef" />
+    </Teleport>
     <div class="panes">
       <AccountSidebar />
       <FilterRail v-if="filter.filterBarOpen" />
