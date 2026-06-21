@@ -86,4 +86,79 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.event-list-modal-backdrop {
+  position: fixed; inset: 0;
+  z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  background: oklch(0 0 0 / 0.7);
+}
+.event-list-modal {
+  position: relative;
+  width: min(640px, 92vw);
+  max-height: 80vh;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.event-list-modal-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 28px; height: 28px;
+  z-index: 2;
+}
+.event-list-modal-header {
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+.event-list-modal-title {
+  font-size: 14px;
+  font-weight: var(--w-semibold);
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.event-list-modal-sub {
+  display: flex; align-items: center;
+  font-size: 12px;
+  color: var(--ink-3);
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.event-list-meta-kill  { color: var(--win);  font-family: var(--font-mono); }
+.event-list-meta-death { color: var(--loss); font-family: var(--font-mono); }
+.event-list-meta-sep   { color: var(--ink-4); }
+
+.event-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+.event-list-row-head {
+  display: grid;
+  grid-template-columns: 56px 76px 1fr 130px 80px;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--ink-3);
+  background: var(--surface);
+  cursor: default;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 16px;
+  font-weight: var(--w-medium);
+  letter-spacing: 0.04em;
+}
+.event-list-row-head:hover { background: var(--surface); }
+.event-list-row-head::before { display: none; }
+
+.event-list-modal-footer {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 20px;
+  font-size: 11px;
+  color: var(--ink-3);
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+}
+</style>

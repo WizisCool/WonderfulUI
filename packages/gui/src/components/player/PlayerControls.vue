@@ -149,4 +149,74 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.player-controls {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 5;
+  padding: 24px 14px 12px;
+  background: linear-gradient(to top, oklch(0.08 0.01 30 / 0.85) 0%, transparent);
+  transition: opacity 200ms ease-out;
+}
+.player-controls.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.player-ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ctrl-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.ctrl-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.ctrl-btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.ctrl-btn[disabled]:hover {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.player-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 80px;
+  text-align: center;
+}
+
+.player-vol-wrap {
+  display: flex; align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.player-vol-track {
+  width: 60px; height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.player-vol-fill {
+  height: 100%;
+  background: var(--ink-2);
+  border-radius: 2px;
+}
+</style>

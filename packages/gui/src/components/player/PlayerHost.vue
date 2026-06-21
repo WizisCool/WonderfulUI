@@ -525,4 +525,294 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.player-backdrop {
+  position: fixed; inset: 0;
+  z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  background: oklch(0 0 0 / 0.7);
+  animation: player-backdrop-in 240ms ease-out both;
+}
+.player-backdrop.is-closing {
+  animation: player-backdrop-out 160ms ease-in both;
+}
+.player-modal {
+  position: relative;
+  display: flex; flex-direction: column;
+  max-width: 80vw; max-height: 80vh;
+  aspect-ratio: 16 / 9;
+  width: min(80vw, calc(80vh * 16 / 9));
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: player-modal-in 260ms ease-out both;
+}
+.player-modal.is-closing {
+  animation: player-modal-out 140ms ease-in both;
+}
+.player-modal:fullscreen {
+  width: 100vw;
+  max-width: 100vw;
+  max-height: 100vh;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+  background: #000;
+  animation: fullscreen-in 280ms ease-out;
+}
+
+.player-modal:fullscreen :deep(.ctrl-btn) {
+  width: 40px;
+  height: 40px;
+}
+.player-modal:fullscreen :deep(.player-progress-wrap) {
+  padding: 14px 0;
+}
+.player-modal:fullscreen :deep(.player-progress-track) {
+  height: 5px;
+}
+.player-modal:fullscreen :deep(.player-time) {
+  font-size: 14px;
+  min-width: 100px;
+}
+.player-modal:fullscreen :deep(.player-vol-track) {
+  width: 76px;
+  height: 5px;
+}
+.player-modal:fullscreen :deep(.player-controls) {
+  padding: 28px 16px 14px;
+}
+.player-modal:fullscreen .player-close-top {
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+}
+@keyframes fullscreen-in {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+@keyframes player-backdrop-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes player-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes player-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes player-modal-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.96); }
+}
+
+.player-stage {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  background: #000;
+}
+.player-video {
+  width: 100%; height: 100%;
+  object-fit: fill;
+  display: block;
+  border-radius: 0;
+}
+
+.player-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.player-loading.is-hidden { display: none; }
+.player-loading-poster {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: brightness(0.4);
+}
+.player-loading-darken {
+  position: absolute; inset: 0;
+  background: oklch(0 0 0 / 0.3);
+}
+.player-spinner {
+  position: relative;
+  width: 32px; height: 32px;
+  border: 3px solid var(--surface-3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: player-spin 0.8s linear infinite;
+}
+@keyframes player-spin { to { transform: rotate(360deg); } }
+
+.player-error {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: var(--surface-2);
+}
+.player-error.is-hidden { display: none; }
+.player-error-icon { font-size: 48px; color: var(--warn); line-height: 1; }
+.player-error-title { font-size: 15px; font-weight: var(--w-semibold); color: var(--ink); }
+.player-error-path {
+  max-width: 100%;
+  overflow: hidden;
+}
+.player-error-path code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  word-break: break-all;
+  line-height: 1.6;
+}
+.player-error-actions {
+  display: flex; gap: 8px; margin-top: 4px;
+}
+.player-error-actions .btn {
+  padding: 5px 14px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 80ms ease-out;
+}
+.player-error-actions .btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.player-replay-btn {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: oklch(0 0 0 / 0.35);
+  border: 0;
+  cursor: pointer;
+  color: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease-out, background 200ms ease-out;
+}
+.player-replay-btn.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.player-replay-btn:hover { background: oklch(0 0 0 / 0.45); }
+.player-replay-btn svg {
+  width: 56px; height: 56px;
+  color: var(--accent);
+  filter: drop-shadow(0 2px 8px oklch(0 0 0 / 0.5));
+}
+
+.player-frame-stepper {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out;
+}
+.player-frame-stepper.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.frame-stepper-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  background: oklch(0 0 0 / 0.4);
+  color: var(--ink-2);
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.frame-stepper-btn:hover {
+  background: oklch(0 0 0 / 0.6);
+  color: var(--ink);
+}
+
+.player-close-top {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 10;
+  background: oklch(0 0 0 / 0.45);
+}
+.player-close-top:hover {
+  background: oklch(0 0 0 / 0.65);
+  color: var(--ink);
+}
+
+.player-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 4px;
+  min-width: 180px;
+}
+.player-context-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 80ms ease-out;
+}
+.player-context-item:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+</style>
+
+<style scoped>
+.player-backdrop {
+  position: fixed; inset: 0;
+  z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  background: oklch(0 0 0 / 0.7);
+  animation: player-backdrop-in 240ms ease-out both;
+}
+.player-backdrop.is-closing {
+  animation: player-backdrop-out 160ms ease-in both;
+}
+.player-modal {
+  position: relative;
+  display: flex; flex-direction: column;
+  max-width: 80vw; max-height: 80vh;
+  aspect-ratio: 16 / 9;
+  width: min(80vw, calc(80vh * 16 / 9));
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: player-modal-in 260ms ease-out both;
+}
+.player-modal.is-closing {
+  animation: player-modal-out 140ms ease-in both;
+}
+.player-modal:fullscreen {
+  width: 100vw;
+  max-width: 100vw;
+  max-height: 100vh;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+  background: #000;
+  animation: fullscreen-in 280ms ease-out;
+}
+
+.player-modal:fullscreen .ctrl-btn {
+  width: 40px;
+  height: 40px;
+}
+</style>

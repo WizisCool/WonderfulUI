@@ -61,4 +61,61 @@ function openPlay() {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+.event-list-row {
+  display: grid;
+  grid-template-columns: 56px 76px 1fr 130px 80px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 13px;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--ink);
+  position: relative;
+  transition: background 80ms ease-out;
+}
+.event-list-row::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.event-list-row.type-kill::before  { background: var(--win); }
+.event-list-row.type-death::before { background: var(--loss); }
+.event-list-row:hover { background: var(--surface-3); }
+.event-list-row:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.event-list-col-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.event-list-col-type {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px;
+  font-weight: var(--w-medium);
+  color: var(--ink-2);
+}
+.event-list-col-type.event-list-type-kill  { color: var(--win); }
+.event-list-col-type.event-list-type-death { color: var(--loss); }
+.event-list-col-player {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink);
+}
+.event-list-col-weapon {
+  color: var(--ink-3);
+  font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event-list-col-extra {
+  color: var(--ink-3);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+.event-list-row.headshot .event-list-col-extra {
+  color: var(--ink-2);
+}
+</style>

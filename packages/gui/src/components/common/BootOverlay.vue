@@ -201,4 +201,136 @@ defineExpose({ start, update, complete, dispose });
 .scan-progress-root.overlay .scan-progress {
   opacity: 1;
 }
+
+.boot-panel {
+  max-width: 540px;
+  margin: auto;
+  padding: 24px 32px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+}
+.boot-brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: var(--w-bold);
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+.boot-brand .brand-logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+.boot-brand .brand-name-base,
+.boot-brand .brand-name-accent {
+  font-size: 22px;
+  font-weight: var(--w-bold);
+}
+.boot-progress {
+  width: 100%; height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.boot-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 0.18) 50%,
+    transparent 100%
+  );
+  animation: boot-shimmer 1.6s linear infinite;
+  pointer-events: none;
+}
+.boot-progress-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+  position: relative;
+}
+@keyframes boot-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+.boot-status {
+  color: var(--ink-3);
+  font-size: 13px;
+  text-align: center;
+  min-height: 18px;
+}
+.boot-openid {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.boot-stepper {
+  display: flex; gap: 8px; justify-content: center;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border-soft);
+  margin-top: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-progress-fill {
+    transition-duration: 1ms;
+  }
+}
+
+.app.scan-progress {
+  opacity: 0;
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.app.scan-progress.is-mounted {
+  opacity: 1;
+}
+.app.scan-progress.is-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scan-progress:not(.app) {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  pointer-events: auto;
+}
+.scan-progress:not(.app).is-mounted {
+  opacity: 1;
+}
+.scan-progress:not(.app).is-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+.scan-progress:not(.app) {
+  opacity: 0;
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-progress,
+  .scan-progress.is-closing {
+    transition-duration: 1ms;
+  }
+  .boot-progress-fill {
+    transition-duration: 1ms;
+  }
+}
 </style>

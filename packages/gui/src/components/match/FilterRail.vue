@@ -50,4 +50,70 @@ defineEmits<{
 const activeN = computed(() => activeFilterCount(props.filters));
 </script>
 
-<style scoped></style>
+<style scoped>
+.filter-rail {
+  display: flex; flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+.filter-rail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px var(--pad);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.filter-rail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px var(--pad) var(--pad);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.filter-rail-body .filter-section {
+  opacity: 1;
+  transform: none;
+}
+.filter-rail-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.filter-rail-close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.filter-rail-footer {
+  border-top: 1px solid var(--border-soft);
+  padding: 8px var(--pad);
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+.filter-rail-clear {
+  font-size: 11px; color: var(--ink-3);
+  background: transparent; border: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  transition: color 100ms ease-out, background 100ms ease-out;
+}
+.filter-rail-clear:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.app.is-filter-open .filter-rail {
+  animation: filter-rail-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes filter-rail-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+</style>

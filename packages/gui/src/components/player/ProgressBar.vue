@@ -203,4 +203,222 @@ defineExpose({
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.player-progress-wrap {
+  flex: 1;
+  padding: 12px 0;
+  cursor: pointer;
+  position: relative;
+}
+.player-progress-track {
+  position: relative;
+  height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: visible;
+}
+
+.player-progress-buffered {
+  position: absolute; top: 0; left: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--ink-4);
+  border-radius: 2px;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.player-progress-fill {
+  position: absolute; top: 0; left: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+.player-progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px; height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  display: none;
+  transform: translate(-50%, -50%);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+.player-progress-wrap:hover .player-progress-thumb,
+.player-progress-wrap.is-dragging .player-progress-thumb,
+.player-progress-wrap.is-marker-seek .player-progress-thumb {
+  display: block;
+}
+.player-progress-wrap.is-dragging .player-progress-fill,
+.player-progress-wrap.is-dragging .player-progress-thumb {
+  transition: none;
+}
+
+.player-event-markers {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+.player-event-marker {
+  --event-marker-color: var(--ink-2);
+  --event-marker-bg: oklch(0.055 0.006 30 / 0.42);
+  --event-marker-bg-hover: oklch(0.055 0.006 30 / 0.86);
+  --event-marker-border: oklch(0.42 0.012 30 / 0.7);
+  --event-marker-top: -28px;
+  --event-marker-stem: 9px;
+  --event-marker-dot-size: 16px;
+  --event-marker-dot-radius: 8px;
+  --event-marker-dot-overlap: 1px;
+  position: absolute;
+  top: var(--event-marker-top);
+  transform: translateX(-50%);
+  width: 20px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+  color: var(--event-marker-color);
+  opacity: 0.92;
+  transition: opacity 100ms ease, transform 120ms ease, width 120ms ease;
+}
+.player-event-marker::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(50% + var(--event-marker-dot-radius) - var(--event-marker-dot-overlap));
+  width: 1px;
+  height: var(--event-marker-stem);
+  transform: translateX(-50%);
+  background: color-mix(in oklch, var(--event-marker-color), transparent 44%);
+  border-radius: 999px;
+}
+.player-event-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--event-marker-dot-size);
+  height: var(--event-marker-dot-size);
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--event-marker-bg);
+  border: 1px solid var(--event-marker-border);
+  box-sizing: border-box;
+}
+.player-event-marker.lane-upper {
+  --event-marker-top: -32px;
+  transform: translateX(-50%);
+}
+.player-event-marker.lane-lower {
+  --event-marker-top: -26px;
+  transform: translateX(-50%);
+}
+.player-event-marker svg {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.8;
+  filter: drop-shadow(0 1px 1px oklch(0 0 0 / 0.6));
+  opacity: 0.96;
+  transform: scale(1);
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+.player-event-marker.is-compact {
+  --event-marker-dot-size: 7px;
+  --event-marker-dot-radius: 3.5px;
+  width: 14px;
+  height: 22px;
+  opacity: 0.86;
+}
+.player-event-marker.is-compact::before {
+  width: 1.5px;
+  background: color-mix(in oklch, var(--event-marker-color), transparent 38%);
+}
+.player-event-marker.is-compact::after {
+  background: color-mix(in oklch, var(--event-marker-color), transparent 8%);
+  border: 1px solid color-mix(in oklch, var(--event-marker-color), transparent 28%);
+}
+.player-event-marker.is-compact svg {
+  opacity: 0;
+  transform: scale(0.72);
+}
+.player-event-marker.is-compact.headshot::after {
+  outline: 1px solid color-mix(in oklch, var(--event-marker-color), transparent 32%);
+  outline-offset: 1px;
+}
+.player-event-marker:hover,
+.player-event-marker:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+.player-event-marker.lane-upper:hover,
+.player-event-marker.lane-upper:focus-visible {
+  width: 22px;
+  transform: translateX(-50%) translateY(-2px) scale(1.05);
+}
+.player-event-marker.lane-lower:hover,
+.player-event-marker.lane-lower:focus-visible {
+  width: 22px;
+  transform: translateX(-50%) translateY(-2px) scale(1.05);
+}
+.player-event-marker:hover::after,
+.player-event-marker:focus-visible::after {
+  background: var(--event-marker-bg-hover);
+}
+.player-event-marker.is-compact:hover::after,
+.player-event-marker.is-compact:focus-visible::after {
+  width: 16px;
+  height: 16px;
+  background: var(--event-marker-bg-hover);
+  border: 1px solid var(--event-marker-border);
+}
+.player-event-marker:hover svg,
+.player-event-marker:focus-visible svg {
+  opacity: 1;
+  transform: scale(1.08);
+}
+.player-event-marker:focus-visible::after {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.player-event-marker.tone-attack,
+.player-event-marker.tone-headshot {
+  --event-marker-color: var(--marker-kill);
+  --event-marker-border: color-mix(in oklch, var(--marker-kill), transparent 28%);
+  --event-marker-bg: var(--marker-kill-bg);
+  --event-marker-bg-hover: var(--marker-kill-hover);
+}
+.player-event-marker.tone-death {
+  --event-marker-color: var(--marker-death);
+  --event-marker-border: color-mix(in oklch, var(--marker-death), transparent 28%);
+  --event-marker-bg: var(--marker-death-bg);
+  --event-marker-bg-hover: var(--marker-death-hover);
+}
+.player-event-marker.headshot::after {
+  outline: 1px solid var(--event-marker-color);
+  outline-offset: 1px;
+}
+.player-event-marker[data-placement="bottom"]::before {
+  top: auto;
+  bottom: calc(50% + var(--event-marker-dot-radius) - var(--event-marker-dot-overlap));
+}
+.player-event-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.player-event-markers.is-canvas {
+  pointer-events: auto;
+}
+.player-event-markers.is-canvas .player-event-canvas {
+  pointer-events: none;
+}
+</style>

@@ -312,4 +312,299 @@ function onNumClear(key: string) {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+.filter-section {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-top: 8px;
+}
+.filter-section + .filter-section {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+.filter-section-title {
+  font-size: 11px; font-weight: var(--w-semibold);
+  color: var(--ink-3); font-family: var(--font-sans);
+}
+.filter-chips {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.filter-chip {
+  font-size: 11px; padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-soft);
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition:
+    background 100ms ease-out,
+    border-color 100ms ease-out,
+    color 100ms ease-out,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: filter-chip-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes filter-chip-in {
+  from { opacity: 0.55; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.filter-chip:hover {
+  color: var(--ink);
+  border-color: var(--ink-4);
+  transform: translateY(-1px);
+}
+.filter-chip:active { transform: translateY(0) scale(0.96); }
+.filter-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.filter-chip.is-active:hover {
+  background: var(--accent-soft);
+  color: var(--accent-hi);
+  border-color: var(--accent-hi);
+}
+.filter-section--date {
+  gap: 6px;
+}
+.date-filter-presets {
+  gap: 5px;
+}
+.date-filter-custom {
+  padding-top: 2px;
+}
+
+/* numeric filters */
+.filter-numerics {
+  display: flex; flex-direction: column; gap: 8px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+}
+.filter-num-row {
+  display: flex; align-items: center;
+  gap: 5px;
+  min-width: 0;
+  position: relative;
+}
+.filter-num-row--date {
+  display: block;
+}
+.filter-num-label {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+}
+.filter-num-input {
+  flex: 1; min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 3px 5px;
+  color: var(--ink-3);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: center;
+  outline: none;
+  transition: border-color 100ms ease-out, color 100ms ease-out, background 100ms ease-out;
+  -moz-appearance: textfield;
+}
+.filter-num-input::-webkit-outer-spin-button,
+.filter-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.filter-num-input::placeholder {
+  color: var(--ink-4);
+  font-weight: 400;
+}
+.filter-num-input:hover {
+  border-color: var(--ink-4);
+  color: var(--ink-2);
+}
+.filter-num-input:focus {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--surface-3);
+}
+.filter-num-row.is-active .filter-num-input {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.filter-num-row.is-active .filter-num-input:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+.filter-num-sep {
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.filter-num-clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--ink-3);
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: background 100ms ease-out, color 100ms ease-out, opacity 120ms ease-out;
+}
+.filter-num-row.is-active .filter-num-clear {
+  opacity: 1;
+  pointer-events: auto;
+}
+.filter-num-clear:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.filter-num-group {
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 6px;
+  margin-top: 4px;
+}
+.filter-num-group-header {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 6px 0 6px;
+  cursor: pointer;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11px;
+  font-weight: var(--w-semibold);
+  text-align: left;
+  border-radius: 4px;
+  transition: color 100ms ease-out, background 100ms ease-out;
+}
+.filter-num-group-header:hover { color: var(--ink-2); }
+.filter-num-group-header:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.filter-num-group-chevron {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  width: 10px;
+  display: inline-block;
+  transition: color 100ms ease-out;
+}
+.filter-num-group-header:hover .filter-num-group-chevron { color: var(--ink-2); }
+.filter-num-group-title {
+  flex: 1;
+}
+.filter-num-group-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 0 5px;
+  min-width: 14px;
+  text-align: center;
+  line-height: 14px;
+}
+.filter-num-group-header.is-active .filter-num-group-count {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.filter-num-group-body {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  max-height: 160px;
+  overflow: hidden;
+  transition: max-height 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease-out;
+  opacity: 1;
+}
+.filter-num-group-body.is-collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+}
+
+.filter-empty {
+  text-align: center; padding: 8px;
+  color: var(--ink-3); font-size: 12px;
+}
+
+/* filter applied chips */
+.filter-applied {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px;
+  padding: 8px var(--pad);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  animation: filter-applied-in 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes filter-applied-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.filter-applied-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 2px 6px 2px 9px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background 100ms ease-out, border-color 100ms ease-out, color 100ms ease-out;
+}
+.filter-applied-chip:hover {
+  background: var(--surface-3);
+  border-color: var(--ink-4);
+  color: var(--ink);
+}
+.filter-applied-clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 0;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.filter-applied-clear:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.filter-applied-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.filter-applied-chip.is-active .filter-applied-clear {
+  color: var(--accent);
+}
+.filter-applied-chip.is-active .filter-applied-clear:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.filter-applied-clear-all {
+  font-size: 11px; color: var(--ink-3);
+  background: transparent; border: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  padding: 2px 6px;
+  transition: color 100ms ease-out;
+}
+.filter-applied-clear-all:hover { color: var(--accent); }
+</style>

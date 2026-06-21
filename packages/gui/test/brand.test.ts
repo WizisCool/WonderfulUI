@@ -21,7 +21,7 @@ describe('brand assets', () => {
   });
 
   test('sizes the brand logo as an app mark instead of a favicon', () => {
-    const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+    const css = readFileSync(new URL('../src/components/layout/TopBar.vue', import.meta.url), 'utf8');
     const svg = readFileSync(new URL('../src/assets/logo.svg', import.meta.url), 'utf8');
 
     expect(css).toMatch(/\.brand\s*{[^}]*gap:\s*8px;/);

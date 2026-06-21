@@ -90,3 +90,42 @@ function playFirst(m: MatchRecord) {
   player.open(video, m);
 }
 </script>
+
+<style scoped>
+.scope-filter-toggle {
+  font-size: 11px; color: var(--ink-3);
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color 100ms ease-out, color 100ms ease-out, background 100ms ease-out;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.scope-filter-toggle:hover { color: var(--ink); border-color: var(--ink-4); }
+.scope-filter-toggle.is-open {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.scope-filter-toggle-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 0 5px;
+  min-width: 14px;
+  text-align: center;
+  line-height: 14px;
+}
+.scope-filter-toggle.is-open .scope-filter-toggle-count {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+</style>

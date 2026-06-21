@@ -189,4 +189,149 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.account-list {
+  list-style: none; padding: 6px 0; margin: 0;
+  overflow-y: auto; flex: 1;
+  min-height: 0;
+}
+.account-sortable-list {
+  min-height: 0;
+}
+.account {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px;
+  padding: 8px var(--pad);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition: background 80ms ease-out, border-color 80ms ease-out, opacity 80ms ease-out;
+}
+.account:hover { background: var(--surface-2); }
+.account.is-selected {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+.account-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.account-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-right: 1px;
+  color: var(--ink-4);
+  cursor: grab;
+  flex: 0 0 auto;
+  touch-action: none;
+  user-select: none;
+}
+.account-sortable-chosen .account-grip,
+.account-sortable-drag .account-grip,
+.account:active .account-grip { cursor: grabbing; }
+.account-name { font-family: var(--font-sans); font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--ink-3);
+  opacity: 0;
+  flex: 0 0 auto;
+  transition: opacity 80ms ease-out, background 80ms ease-out, color 80ms ease-out;
+}
+.account:hover .account-edit-btn,
+.account.is-editing .account-edit-btn,
+.account-edit-btn:focus-visible {
+  opacity: 1;
+}
+.account-edit-btn:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.account-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.account-rename-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.account-sortable-chosen {
+  position: relative;
+  z-index: 1;
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+.account-sortable-ghost {
+  opacity: 0.36;
+  background: var(--surface-3);
+  border-left-color: var(--accent);
+}
+.account-sortable-ghost .account-main,
+.account-sortable-ghost .account-count,
+.account-sortable-ghost .account-edit-btn {
+  opacity: 0.42;
+}
+.account-sortable-drag {
+  box-sizing: border-box;
+  background: var(--surface-3);
+  border-left-color: var(--accent);
+  opacity: 0.98;
+  cursor: grabbing;
+}
+.account-sortable-fallback {
+  box-sizing: border-box;
+  background: var(--surface-3);
+  border-left-color: var(--accent);
+  opacity: 0.98;
+  cursor: grabbing;
+  pointer-events: none;
+}
+.accounts.is-account-sorting .account {
+  transition:
+    background 80ms ease-out,
+    border-color 80ms ease-out,
+    opacity 80ms ease-out,
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.account-count {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+.account.is-error .account-name { color: var(--ink-3); text-decoration: line-through; }
+.account.is-error .account-count { color: var(--warn); }
+.account.is-filter-empty:not(.is-selected) .account-name {
+  color: var(--ink-3);
+}
+.account.is-filter-empty:not(.is-selected) .account-count {
+  color: var(--ink-4);
+}
+.account.is-all {
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 2px;
+  cursor: pointer;
+}
+.account.is-all .account-name { font-weight: var(--w-semibold); }
+.account.is-all .account-main { gap: 0; }
+</style>

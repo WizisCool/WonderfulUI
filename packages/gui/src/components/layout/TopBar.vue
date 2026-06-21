@@ -73,3 +73,59 @@ async function onScrape() {
   (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
 }
 </script>
+
+<style scoped>
+.topbar {
+  display: grid;
+  grid-template-columns: var(--pane-l) 1fr var(--pane-r);
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0 var(--pad);
+  min-width: 0;
+}
+.topbar > * { min-width: 0; }
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: var(--w-bold); font-size: 18px; letter-spacing: 0.01em;
+}
+.brand-logo {
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+}
+.brand-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+}
+.brand-name { color: var(--ink); }
+.brand-name-accent { color: var(--accent); }
+.topbar-center { padding: 0 24px; }
+.search {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 80ms ease-out;
+}
+.search::placeholder { color: var(--ink-3); }
+.search:focus { border-color: var(--accent); outline: none; }
+.topbar-right { display: flex; justify-content: flex-end; gap: 6px; }
+.scrape-btn.is-loading svg {
+  animation: spin 900ms linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrape-btn.is-loading svg {
+    animation-duration: 1600ms;
+  }
+}
+</style>
