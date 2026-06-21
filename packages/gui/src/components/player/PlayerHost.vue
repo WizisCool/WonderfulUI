@@ -23,7 +23,7 @@
           @error="onError"
         />
 
-        <div class="player-loading" :class="{ 'is-hidden': !showLoading }">
+        <div ref="loadingRef" class="player-loading" :class="{ 'is-hidden': !showLoading }">
           <img v-if="posterSrc" class="player-loading-poster" :src="posterSrc" alt="" />
           <div v-else class="player-loading-poster" />
           <div class="player-loading-darken" />
@@ -111,9 +111,11 @@ const ui = useUiStore();
 
 const closing = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
+const stageRef = ref<HTMLElement | null>(null);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
 const progressWrapRef = ref<HTMLElement | null>(null);
+const loadingRef = ref<HTMLElement | null>(null);
 
 const isPlaying = ref(false);
 const currentTime = ref(0);
@@ -330,6 +332,11 @@ function stepFrame(delta: number) {
 function onControlsSeek(pct: number) {
   const v = videoRef.value;
   if (!v || !v.duration) return;
+  if (!isInitialLoad) {
+    pendingSeekCount++;
+    showLoading.value = true;
+    loadingRef.value?.classList.remove('is-hidden');
+  }
   const t = pct * v.duration;
   v.currentTime = t;
 }
@@ -671,8 +678,9 @@ onUnmounted(() => {
 .player-loading {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
+  background: #000;
 }
-.player-loading.is-hidden { display: none; }
+.player-loading.is-hidden { opacity: 0; pointer-events: none; }
 .player-loading-poster {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
