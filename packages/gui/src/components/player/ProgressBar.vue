@@ -14,6 +14,7 @@
         :data-raw-markers="rawMarkersJson"
         :data-canvas-layouts="canvasLayoutsJson"
         ref="markersEl"
+        @mousedown.stop
         @click.stop="onMarkerDomClick"
         @keydown.enter.prevent.stop="onMarkerDomKeydown"
         @keydown.space.prevent.stop="onMarkerDomKeydown"

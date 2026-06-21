@@ -523,6 +523,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown, true);
+  document.removeEventListener('click', onCtxMenuDocClick);
+  document.removeEventListener('keydown', onCtxMenuEsc);
   clearHideTimer();
 });
 </script>

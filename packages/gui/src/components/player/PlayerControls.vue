@@ -1,5 +1,5 @@
 <template>
-  <div class="player-controls" ref="controlsEl" @mouseenter="show" @mouseleave="scheduleHide">
+  <div class="player-controls" ref="controlsEl" @mouseenter="show" @mouseleave="scheduleHide" @click.stop>
     <div class="player-ctrl-row">
       <button class="ctrl-btn player-ctrl-play" :aria-label="playing ? '暂停' : '播放'" @click.stop="$emit('playPause')">
         <WIcon v-if="playing" icon="ph:pause" :size="16" />
