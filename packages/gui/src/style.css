@@ -1958,7 +1958,6 @@ button {
   display: flex; align-items: center; justify-content: center;
   font-size: 13px;
   padding: 0;
-  backdrop-filter: blur(4px);
 }
 .montage-card .btn-play:hover,
 .moment-card .btn-play:hover { background: var(--accent); }
@@ -1976,7 +1975,6 @@ button {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  backdrop-filter: blur(4px);
   pointer-events: none;
 }
 .montage-info, .moment-info {
