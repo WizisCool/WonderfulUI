@@ -9,12 +9,12 @@ export interface AccountLike {
   tag?: string;
 }
 
-export function accountDisplayLabel(a: AccountLike, unknownIndex?: number): string {
+export function accountDisplayLabel(a: AccountLike, _unknownIndex?: number): string {
   const custom = a.customName?.trim();
   if (custom) return custom;
   if (a.nick && a.tag) return `${a.nick}#${a.tag}`;
   if (a.nick) return a.nick;
-  return `未知账户#${unknownIndex ?? '?'}`;
+  return a.openid;
 }
 
 export function applyAccountOrder<T extends { openid: string }>(accounts: T[], order: string[]): T[] {

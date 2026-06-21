@@ -11,7 +11,24 @@
       </div>
     </div>
     <div v-else class="account-list" role="listbox">
-      <div v-for="a in allRow" :key="a.openid"
+      <div
+        v-if="allRow.some(a => a.openid === ALL_ACCOUNTS)"
+        class="account is-all"
+        :class="rowClass(allRow.find(a => a.openid === ALL_ACCOUNTS)!)"
+        role="option"
+        aria-selected="false"
+        tabindex="0"
+        :data-account-id="ALL_ACCOUNTS"
+        :data-tip="rowTip(allRow.find(a => a.openid === ALL_ACCOUNTS)!)"
+        @click="onSelect(ALL_ACCOUNTS)"
+      >
+        <span class="account-main">
+          <span class="account-name">全部</span>
+        </span>
+        <span class="account-count">{{ countText(allRow.find(a => a.openid === ALL_ACCOUNTS)!) }}</span>
+      </div>
+      <div class="account-sortable-list" role="presentation">
+        <div v-for="a in allRow.filter(x => x.openid !== ALL_ACCOUNTS)" :key="a.openid"
         class="account"
         :class="rowClass(a)"
         role="option"
@@ -30,11 +47,12 @@
             ref="renameInputRef"
             class="account-rename-input"
             type="text"
-            :value="a.customName ?? ''"
-            :placeholder="accountLabel(a)"
+            :value="renameValue"
+            placeholder="昵称#编号"
             aria-label="账户显示名"
             @blur="commitRename(a)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
+            @keydown.escape.stop="cancelRename()"
           />
           <span v-else class="account-name">{{ a.openid === ALL_ACCOUNTS ? '全部' : accountLabel(a) }}</span>
         </span>
@@ -51,6 +69,7 @@
         </button>
         <span class="account-count">{{ countText(a) }}</span>
       </div>
+      </div>
     </div>
   </aside>
 </template>
@@ -61,13 +80,12 @@ import { GripVertical, Pencil } from 'lucide-vue-next';
 import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
-import { accountDisplayLabel } from '../../utils/account-preferences.ts';
 
 const account = useAccountStore();
 const filterStore = useFilterStore();
 
 const editingOpenid = ref<string | null>(null);
-const renameInputRef = ref<HTMLInputElement | null>(null);
+const renameValue = ref('');
 let sortable: Sortable | null = null;
 
 const realCount = computed(() =>
@@ -82,18 +100,8 @@ const hasActiveFilters = computed(() => filterStore.activeCount > 0);
 
 const allRow = computed(() => account.accountsForRender);
 
-function unknownIndices(accounts: Account[]): Map<string, number> {
-  const m = new Map<string, number>();
-  let n = 0;
-  for (const a of accounts) {
-    if (a.openid === ALL_ACCOUNTS) continue;
-    if (!a.nick && !a.customName?.trim()) { n++; m.set(a.openid, n); }
-  }
-  return m;
-}
-
 function accountLabel(a: Account): string {
-  return accountDisplayLabel(a, unknownIndices(account.realAccounts).get(a.openid));
+  return account.accountLabels.get(a.openid) ?? a.openid;
 }
 
 function countText(a: Account): string {
@@ -137,11 +145,16 @@ function onSelect(openid: string) {
 
 function startRename(a: Account) {
   editingOpenid.value = a.openid;
+  renameValue.value = a.customName ?? '';
   nextTick(() => {
     const inp = document.querySelector(`[data-account-rename-input="${a.openid}"]`) as HTMLInputElement | null;
     inp?.focus();
     inp?.select();
   });
+}
+
+function cancelRename() {
+  editingOpenid.value = null;
 }
 
 function commitRename(a: Account) {
@@ -151,36 +164,48 @@ function commitRename(a: Account) {
   editingOpenid.value = null;
 }
 
-const sortableListSelector = '.account-list';
-
-onMounted(() => {
-  nextTick(() => {
-    const list = document.querySelector<HTMLElement>(`.pane.accounts ${sortableListSelector}`);
-    if (!list) return;
-    sortable = new Sortable(list, {
-      draggable: '.account:not(.is-all)',
-      handle: '.account-grip',
-      animation: 150,
-      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-      ghostClass: 'account-sortable-ghost',
-      chosenClass: 'account-sortable-chosen',
-      dragClass: 'account-sortable-drag',
-      fallbackClass: 'account-sortable-fallback',
-      forceFallback: false,
-      onStart: () => {
-        document.querySelector('.pane.accounts')?.classList.add('is-account-sorting');
-      },
-      onEnd: () => {
-        document.querySelector('.pane.accounts')?.classList.remove('is-account-sorting');
-      },
-      onUpdate: () => {
-        const order = Array.from(list.querySelectorAll<HTMLElement>('.account[data-account-id]'))
+function initSortable() {
+  const list = document.querySelector<HTMLElement>(`.pane.accounts ${sortableListSelector}`);
+  if (!list) return;
+  sortable = new Sortable(list, {
+    draggable: '.account:not(.is-all):not(.is-editing)',
+    handle: '.account-grip',
+    animation: 150,
+    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    direction: 'vertical',
+    ghostClass: 'account-sortable-ghost',
+    chosenClass: 'account-sortable-chosen',
+    dragClass: 'account-sortable-drag',
+    fallbackClass: 'account-sortable-fallback',
+    forceFallback: true,
+    fallbackOnBody: true,
+    onStart: () => {
+      document.querySelector('.pane.accounts')?.classList.add('is-account-sorting');
+    },
+    onEnd: () => {
+      document.querySelector('.pane.accounts')?.classList.remove('is-account-sorting');
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLElement>(`.pane.accounts ${sortableListSelector}`);
+        if (!el) return;
+        const order = Array.from(el.querySelectorAll<HTMLElement>('.account[data-account-id]'))
           .map(el => el.dataset.accountId!)
           .filter(id => id !== ALL_ACCOUNTS);
-        account.saveAccountOrder(order).catch(() => {});
-      },
-    });
+        if (order.length > 0) {
+          sortable?.destroy();
+          sortable = null;
+          account.saveAccountOrder(order).then(() => {
+            nextTick(() => initSortable());
+          }).catch(() => { nextTick(() => initSortable()); });
+        }
+      });
+    },
   });
+}
+
+const sortableListSelector = '.account-sortable-list';
+
+onMounted(() => {
+  nextTick(() => initSortable());
 });
 
 onUnmounted(() => {

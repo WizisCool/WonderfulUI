@@ -33,8 +33,17 @@ export const useAccountStore = defineStore('account', () => {
   const scraping = ref(false);
   const assetPathCache = ref(new Map<string, string>());
   const loadedMatchIds = ref(new Set<string>());
+  const accountLabels = ref(new Map<string, string>());
 
   const realAccounts = computed(() => accounts.value);
+
+  function assignAccountLabels() {
+    const labels = new Map<string, string>();
+    for (const a of accounts.value) {
+      labels.set(a.openid, accountDisplayLabel(a));
+    }
+    accountLabels.value = labels;
+  }
 
   const accountsForRender = computed(() => {
     if (realAccounts.value.length === 0) return [];
@@ -42,19 +51,6 @@ export const useAccountStore = defineStore('account', () => {
       { openid: ALL_ACCOUNTS, path: '', matchCount: matches.value.length },
       ...realAccounts.value,
     ] as Account[];
-  });
-
-  const accountLabels = computed(() => {
-    const unknownIdx = new Map<string, number>();
-    let n = 0;
-    for (const a of realAccounts.value) {
-      if (!a.nick && !a.customName?.trim()) { n++; unknownIdx.set(a.openid, n); }
-    }
-    const labels = new Map<string, string>();
-    for (const a of realAccounts.value) {
-      labels.set(a.openid, accountDisplayLabel(a, unknownIdx.get(a.openid)));
-    }
-    return labels;
   });
 
   const accountOrder = computed(() => realAccounts.value.map(a => a.openid));
@@ -78,6 +74,7 @@ export const useAccountStore = defineStore('account', () => {
     accounts.value = shell.accounts;
     dir.value = shell.dir;
     totalErrors.value = shell.totalErrors;
+    assignAccountLabels();
   }
 
   async function loadLibrary(): Promise<void> {
@@ -86,6 +83,7 @@ export const useAccountStore = defineStore('account', () => {
     matches.value = data.matches;
     dir.value = data.dir;
     totalErrors.value = data.totalErrors;
+    assignAccountLabels();
   }
 
   async function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
@@ -100,6 +98,7 @@ export const useAccountStore = defineStore('account', () => {
       dir.value = fresh.dir;
       totalErrors.value = fresh.totalErrors;
       loadedMatchIds.value.clear();
+      assignAccountLabels();
       return fresh;
     } finally {
       scraping.value = false;

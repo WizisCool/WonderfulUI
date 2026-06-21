@@ -1,5 +1,5 @@
 <template>
-  <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }">
+   <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }" @click.self="doClose">
     <div class="player-modal" ref="modalRef" :class="{ 'is-closing': closing }">
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
         <X :size="16" />
@@ -519,14 +519,6 @@ onMounted(() => {
     applyVolumeToVideo();
   });
   document.addEventListener('keydown', onKeydown, true);
-
-  // close on backdrop click
-  const backdrop = document.querySelector('.player-backdrop');
-  if (backdrop) {
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) doClose();
-    });
-  }
 });
 
 onUnmounted(() => {
