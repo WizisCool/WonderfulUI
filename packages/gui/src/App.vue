@@ -1,9 +1,9 @@
 <template>
-  <div class="app" :class="{ 'is-filter-open': filter.filterBarOpen }">
+  <Teleport to="body">
+    <BootOverlay ref="bootRef" />
+  </Teleport>
+  <div v-if="booted" class="app" :class="{ 'is-filter-open': filter.filterBarOpen }">
     <TopBar />
-    <Teleport to="body">
-      <BootOverlay ref="bootRef" />
-    </Teleport>
     <div class="panes">
       <AccountSidebar />
       <FilterRail v-if="filter.filterBarOpen" />
@@ -37,6 +37,7 @@ const filter = useFilterStore();
 const account = useAccountStore();
 const settings = useSettingsStore();
 const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
+const booted = ref(false);
 
 onMounted(async () => {
   try {
@@ -44,12 +45,14 @@ onMounted(async () => {
     await account.scanShell();
     await account.loadLibrary();
     await account.cacheAssets();
+    booted.value = true;
     bootRef.value?.complete();
     if (account.realAccounts.length > 0) {
       account.selectAccount('__all__');
     }
   } catch (e) {
     console.error('Boot failed:', e);
+    booted.value = true;
     bootRef.value?.complete();
   }
 });

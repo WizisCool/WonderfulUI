@@ -114,6 +114,23 @@ img { display: block; max-width: 100%; }
   transform: translate3d(0, 0, 0);
 }
 
+/* ─── brand lockup ─────────────────────────────────────────── */
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: var(--w-bold); font-size: 18px; letter-spacing: 0.01em;
+}
+.brand-logo {
+  display: block;
+  width: 36px; height: 36px;
+  flex: 0 0 auto;
+}
+.brand-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+}
+.brand-name { color: var(--ink); }
+.brand-name-accent { color: var(--accent); }
+
 /* ─── app shell ────────────────────────────────────────────── */
 .app {
   display: grid;

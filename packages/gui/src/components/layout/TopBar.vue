@@ -88,22 +88,6 @@ async function onScrape() {
   min-width: 0;
 }
 .topbar > * { min-width: 0; }
-.brand {
-  display: flex; align-items: center; gap: 8px;
-  font-weight: var(--w-bold); font-size: 18px; letter-spacing: 0.01em;
-}
-.brand-logo {
-  display: block;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-}
-.brand-wordmark {
-  display: inline-flex;
-  align-items: baseline;
-}
-.brand-name { color: var(--ink); }
-.brand-name-accent { color: var(--accent); }
 .topbar-center { padding: 0 24px; }
 .search {
   width: 100%;

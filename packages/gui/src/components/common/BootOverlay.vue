@@ -1,8 +1,7 @@
 <template>
   <Transition name="boot-fade">
     <div v-if="visible" class="scan-progress-root" :class="mode" role="status" aria-live="polite">
-      <!-- Overlay mode: fixed fullscreen panel -->
-      <div v-if="mode === 'overlay'" class="scan-progress">
+      <div class="scan-progress">
         <div class="boot-panel">
           <div class="boot-brand">
             <img class="brand-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="36" height="36" decoding="async" />
@@ -15,35 +14,6 @@
             <div class="boot-progress-fill" :style="{ transform: `scaleX(${pct / 100})` }" />
           </div>
           <div class="boot-status">{{ label }}</div>
-        </div>
-      </div>
-      <!-- Boot mode: full app skeleton -->
-      <div v-else class="app scan-progress">
-        <header class="topbar">
-          <div class="brand">
-            <img class="brand-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="36" height="36" decoding="async" />
-            <span class="brand-wordmark">
-              <span class="brand-name brand-name-base">Wonderful</span>
-              <span class="brand-name brand-name-accent">UI</span>
-            </span>
-          </div>
-        </header>
-        <div class="panes">
-          <main class="pane list full" aria-label="启动中">
-            <div class="boot-panel">
-              <div class="boot-brand">
-                <img class="brand-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="36" height="36" decoding="async" />
-                <span class="brand-wordmark">
-                  <span class="brand-name brand-name-base">Wonderful</span>
-                  <span class="brand-name brand-name-accent">UI</span>
-                </span>
-              </div>
-              <div class="boot-progress">
-                <div class="boot-progress-fill" :style="{ transform: `scaleX(${pct / 100})` }" />
-              </div>
-              <div class="boot-status">{{ label }}</div>
-            </div>
-          </main>
         </div>
       </div>
     </div>
@@ -187,7 +157,7 @@ defineExpose({ start, update, complete, dispose });
   opacity: 0;
 }
 
-.scan-progress-root.overlay {
+.scan-progress-root {
   position: fixed;
   inset: 0;
   z-index: 1600;
@@ -198,8 +168,8 @@ defineExpose({ start, update, complete, dispose });
   pointer-events: auto;
 }
 
-.scan-progress-root.overlay .scan-progress {
-  opacity: 1;
+.scan-progress {
+  width: 100%;
 }
 
 .boot-panel {
@@ -285,50 +255,6 @@ defineExpose({ start, update, complete, dispose });
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boot-progress-fill {
-    transition-duration: 1ms;
-  }
-}
-
-.app.scan-progress {
-  opacity: 0;
-  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.app.scan-progress.is-mounted {
-  opacity: 1;
-}
-.app.scan-progress.is-closing {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.scan-progress:not(.app) {
-  position: fixed;
-  inset: 0;
-  z-index: 1600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  pointer-events: auto;
-}
-.scan-progress:not(.app).is-mounted {
-  opacity: 1;
-}
-.scan-progress:not(.app).is-closing {
-  opacity: 0;
-  pointer-events: none;
-}
-.scan-progress:not(.app) {
-  opacity: 0;
-  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .scan-progress,
-  .scan-progress.is-closing {
-    transition-duration: 1ms;
-  }
   .boot-progress-fill {
     transition-duration: 1ms;
   }
