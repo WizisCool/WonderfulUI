@@ -46,7 +46,7 @@
           <WIcon icon="ph:play" :size="28" />
         </button>
 
-        <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }" @click.stop>
+        <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }">
           <button class="frame-stepper-btn" aria-label="上一帧" @click.stop="stepFrame(-1)">
             <WIcon icon="ph:caret-left" :size="24" />
           </button>
