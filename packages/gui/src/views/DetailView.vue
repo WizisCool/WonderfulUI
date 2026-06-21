@@ -183,6 +183,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   Play, Crosshair, Skull, HeartHandshake, TrendingUp, Star, Zap, Loader2,
 } from 'lucide-vue-next';
@@ -199,6 +200,8 @@ import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 const account = useAccountStore();
 const detail = useDetailStore();
 const player = usePlayerStore();
+
+const route = useRoute();
 
 const heroFailed = ref(false);
 const modeIconFailed = ref(false);
@@ -346,6 +349,15 @@ function openEventList() {
     player.open(v, match.value!, seekMs);
   }, { kills: match.value.stats.kills, deaths: match.value.stats.deaths, assists: match.value.stats.assists });
 }
+
+watch(() => route.params.id, (id) => {
+  if (id && typeof id === 'string') {
+    const m = account.matches.find(m => m.matches_id === id);
+    if (m && m.matches_id !== detail.selectedMatch?.matches_id) {
+      detail.selectMatch(m);
+    }
+  }
+}, { immediate: true });
 
 watch(() => detail.selectedMatch, (m) => {
   if (m && m.videos.length > 0 && !detail.roundsLoaded) {

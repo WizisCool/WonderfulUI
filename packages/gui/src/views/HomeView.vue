@@ -34,7 +34,7 @@
         :style="{ position: 'absolute', top: '0', left: '0', right: '0', transform: 'translateY(' + item.y + 'px)' }"
         :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
         :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
-        @click="detail.selectMatch(item.match)"
+        @click="router.push({ name: 'detail', params: { id: item.match.matches_id } })"
         @dblclick="playFirst(item.match)"
       />
     </div>
@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { SlidersHorizontal } from 'lucide-vue-next';
 import { useAccountStore } from '../stores/account.ts';
 import { useFilterStore } from '../stores/filter.ts';
@@ -66,6 +67,7 @@ import { useVirtualScroll } from '../composables/useVirtualScroll.ts';
 import MatchCard from '../components/match/MatchCard.vue';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
+const router = useRouter();
 const account = useAccountStore();
 const filter = useFilterStore();
 const detail = useDetailStore();

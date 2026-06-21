@@ -15,10 +15,28 @@
 </template>
 
 <script setup lang="ts">
+import { watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useSettingsStore } from '../stores/settings.ts';
 import SettingsModal from '../components/settings/SettingsModal.vue';
 
+const route = useRoute();
+const router = useRouter();
 const settings = useSettingsStore();
+
+watch(() => route.name, (name) => {
+  if (name === 'settings') {
+    settings.setOpen(true);
+  } else if (settings.isOpen) {
+    settings.setOpen(false);
+  }
+});
+
+watch(() => settings.isOpen, (open) => {
+  if (!open && route.name === 'settings') {
+    router.push({ name: 'home' });
+  }
+});
 </script>
 
 <style scoped>
