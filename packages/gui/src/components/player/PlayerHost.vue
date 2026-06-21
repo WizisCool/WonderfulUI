@@ -5,7 +5,7 @@
         <WIcon icon="ph:x" :size="16" />
       </button>
 
-      <div class="player-stage" ref="stageRef" @click.stop="togglePlay" @contextmenu.prevent="openContextMenu">
+      <div class="player-stage" @click.stop="togglePlay" @contextmenu.prevent="openContextMenu">
         <video
           ref="videoRef"
           class="player-video"
@@ -22,7 +22,7 @@
           @error="onError"
         />
 
-        <div ref="loadingRef" class="player-loading" :class="{ 'is-hidden': !showLoading }">
+        <div class="player-loading" :class="{ 'is-hidden': !showLoading }">
           <img v-if="posterSrc" class="player-loading-poster" :src="posterSrc" alt="" />
           <div v-else class="player-loading-poster" />
           <div v-if="!isDimOverlay" class="player-loading-darken" />
@@ -102,7 +102,7 @@ import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
-import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS } from '../../utils/player-state.ts';
+import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import type { VideoItem } from '@wonderful-ui/parser';
 
@@ -111,11 +111,9 @@ const ui = useUiStore();
 
 const closing = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
-const stageRef = ref<HTMLElement | null>(null);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
 const progressWrapRef = ref<HTMLElement | null>(null);
-const loadingRef = ref<HTMLElement | null>(null);
 
 const state = ref<PlayerState>('loading');
 const bufferingMode = ref<BufferingMode>('hidden');
@@ -123,13 +121,14 @@ let stateBeforeSeek: PlayerState | null = null;
 let lastSeekTime = 0;
 let bufferingTimer: ReturnType<typeof setTimeout> | null = null;
 
-const showLoading = computed(() => state.value === 'loading' || state.value === 'buffering');
-const showSpinner = computed(() => state.value === 'loading' || bufferingMode.value === 'spinner');
+const playerUi = computed(() => deriveUI(state.value));
+const showLoading = computed(() => playerUi.value.showLoading);
+const showSpinner = computed(() => playerUi.value.showSpinner || bufferingMode.value === 'spinner');
 const isDimOverlay = computed(() => bufferingMode.value === 'dim-overlay');
-const showReplay = computed(() => state.value === 'ended');
-const showFrameStepper = computed(() => state.value === 'paused');
-const showError = ref(false);
-const controlsPlaying = computed(() => state.value === 'playing' || state.value === 'buffering');
+const showReplay = computed(() => playerUi.value.showReplay);
+const showFrameStepper = computed(() => playerUi.value.showFrameStepper);
+const showError = computed(() => playerUi.value.showError);
+const controlsPlaying = computed(() => playerUi.value.controlsPlaying);
 const currentTime = ref(0);
 const duration = ref(0);
 
@@ -143,7 +142,6 @@ watch(() => player.isOpen, (open) => {
     currentTime.value = 0;
     duration.value = 0;
     lastBufferedPct.value = 0;
-    showError.value = false;
     seeked = false;
   }
 });
@@ -311,6 +309,7 @@ function doClose() {
   closing.value = true;
   setTimeout(() => {
     clearHideTimer();
+    clearBufferingTimer();
     player.close();
     closing.value = false;
   }, 200);
@@ -375,22 +374,19 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
-  if (state.value === 'loading') {
-    state.value = 'playing';
-    videoRef.value?.play().catch(() => {});
-    return;
-  }
-  if (state.value === 'buffering') {
+  const transition = canPlayTransition(state.value, stateBeforeSeek);
+  if (transition.clearPendingBuffering) {
     clearBufferingTimer();
     bufferingMode.value = 'hidden';
-    state.value = stateBeforeSeek ?? 'paused';
-    if (stateBeforeSeek === 'playing') {
-      videoRef.value?.play().catch(() => {});
-    }
+  }
+  state.value = transition.nextState;
+  if (transition.shouldPlay) {
+    videoRef.value?.play().catch(() => {});
   }
 }
 
 function onPlay() {
+  clearBufferingTimer();
   state.value = 'playing';
   bufferingMode.value = 'hidden';
   scheduleHide();
@@ -399,6 +395,8 @@ function onPlay() {
 
 function onPause() {
   if (state.value === 'buffering') return;
+  clearBufferingTimer();
+  bufferingMode.value = 'hidden';
   state.value = 'paused';
   showControls();
 }
@@ -420,13 +418,16 @@ function onSeeking() {
 }
 
 function onEnded() {
+  clearBufferingTimer();
+  bufferingMode.value = 'hidden';
   state.value = 'ended';
   showControls();
 }
 
 function onError() {
+  clearBufferingTimer();
+  bufferingMode.value = 'hidden';
   state.value = 'error';
-  showError.value = true;
   showControls();
 }
 

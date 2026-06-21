@@ -294,6 +294,16 @@ Player controls:
 - Fullscreen is requested on `.player-modal`, not on the `<video>` element.
 - Exit fullscreen before removing the player from DOM.
 
+Player state machine:
+
+- Player runtime state is a single `PlayerState` (`loading` / `playing` / `paused` / `buffering` / `ended` / `error`) in `PlayerHost.vue`; avoid reintroducing overlapping booleans such as `isBuffering` or `isInitialLoad`.
+- Visual flags (`showLoading`, `showSpinner`, `showFrameStepper`, `showReplay`, `controlsPlaying`) are derived from state plus `bufferingMode`.
+- `waiting` while `playing` starts a 300 ms debounce before entering `buffering`; `canplay`, `play`, `pause`, `ended`, `error`, close, and reopening must clear that pending timer.
+- If `canplay` arrives before the debounce fires, keep the current state and cancel pending buffering. Do not let a stale timer switch the player into `buffering` afterward.
+- `seeking` records `lastSeekTime` and the pre-seek state but does not directly show loading. Fast local/NAS seeks should not flash a spinner or overlay.
+- `bufferingMode` is `dim-overlay` for seek-triggered waits and `spinner` for natural playback stalls.
+- Reset `lastBufferedPct` and `bufferingMode` whenever a new video opens so a previous video's buffered bar or loading mode cannot animate into the next video.
+
 Context menu:
 
 - Fixed-position custom `.player-context-menu`.
