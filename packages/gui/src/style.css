@@ -587,6 +587,8 @@ button {
   flex: 1; overflow-y: auto;
   padding: var(--gap);
   display: flex; flex-direction: column; gap: var(--gap);
+  contain: strict;
+  will-change: scroll-position;
 }
 .match-row {
   display: grid;
@@ -3382,4 +3384,14 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
   }
+}
+
+/* Virtual scroll for match list */
+.vlist-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+.vlist-rows {
+  position: relative;
+  contain: layout style;
 }

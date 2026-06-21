@@ -43,6 +43,9 @@ export const BRAND_LOGO_URL = new URL('./assets/logo.svg', import.meta.url).href
 
 const ALL_ACCOUNTS = '__all__';
 
+const ROW_HEIGHT = 100;
+const ROW_BUFFER = 5;
+
 interface Account {
   openid: string;
   path: string;
@@ -418,12 +421,65 @@ function listPane(
     emptyDiv.append(clearBtn);
     list.append(emptyDiv);
   } else {
-    for (const m of filteredMatches) {
-      list.append(matchRow(m, accountLabels.get(m.openID) ?? m.openID, m.matches_id === selectedId, assetPathCache, matchAchievements));
-    }
+    // Virtual scroll: spacer + visible rows container
+    const vlistSpacer = el('div', { class: 'vlist-spacer' });
+    vlistSpacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
+    const vlistRows = el('div', { class: 'vlist-rows' });
+
+    renderVisibleSlice(vlistRows, vlistSpacer, filteredMatches, 0,
+      list.clientHeight || 600, accountLabels, selectedId, assetPathCache, matchAchievements);
+
+    list.append(vlistSpacer, vlistRows);
+
+    // Scroll handler with rAF batching
+    let lastStart = 0;
+    let rafId = 0;
+    list.addEventListener('scroll', () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        const newStart = Math.floor(list.scrollTop / ROW_HEIGHT);
+        if (newStart !== lastStart) {
+          lastStart = newStart;
+          renderVisibleSlice(vlistRows, vlistSpacer, filteredMatches,
+            list.scrollTop, list.clientHeight, accountLabels, selectedId, assetPathCache, matchAchievements);
+        }
+      });
+    }, { passive: true });
   }
   pane.append(list);
   return pane;
+}
+
+function renderVisibleSlice(
+  vlistRows: HTMLElement,
+  _vlistSpacer: HTMLElement,
+  filteredMatches: MatchRecord[],
+  scrollTop: number,
+  viewportHeight: number,
+  accountLabels: Map<string, string>,
+  selectedId: string | null,
+  assetPathCache: Map<string, string>,
+  matchAchievements: Map<string, { type: 'mvp' | 'svp'; typeStr: string }>,
+): void {
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_BUFFER);
+  const endIdx = Math.min(
+    filteredMatches.length,
+    Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + ROW_BUFFER,
+  );
+
+  vlistRows.replaceChildren();
+  for (let i = startIdx; i < endIdx; i++) {
+    const m = filteredMatches[i]!;
+    const label = accountLabels.get(m.openID) ?? m.openID;
+    const row = matchRow(m, label, m.matches_id === selectedId, assetPathCache, matchAchievements);
+    row.style.position = 'absolute';
+    row.style.left = '0';
+    row.style.right = '0';
+    row.style.transform = `translateY(${i * ROW_HEIGHT}px)`;
+    row.style.willChange = 'transform';
+    vlistRows.appendChild(row);
+  }
 }
 
 function fmtSize(bytes: number): string {
@@ -1747,8 +1803,52 @@ export async function renderApp(root: HTMLElement) {
     if (selectedMatch && !accountMatches.find(m => m.matches_id === selectedMatch!.matches_id)) {
       selectedMatch = null;
     }
-    const listEl = listSlot.querySelector<HTMLElement>('.match-list');
-    const prevListScroll = listEl?.scrollTop ?? 0;
+
+    const existingRows = listSlot.querySelector<HTMLElement>('.vlist-rows');
+    if (existingRows) {
+      // Virtual scroll already initialized — only update data
+      const spacer = listSlot.querySelector<HTMLElement>('.vlist-spacer');
+      if (spacer) spacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
+      const listEl = listSlot.querySelector<HTMLElement>('.match-list');
+      renderVisibleSlice(
+        existingRows,
+        spacer!,
+        filteredMatches,
+        listEl?.scrollTop ?? 0,
+        listEl?.clientHeight ?? 600,
+        accountLabels(),
+        selectedMatch?.matches_id ?? null,
+        assetPathCache,
+        matchAchievements,
+      );
+      // Update applied chips when filters change
+      const existingChips = listSlot.querySelector<HTMLElement>('.match-list > .filter-applied');
+      const newChips = buildAppliedChips(filters, onClearFilter, onFocusSection);
+      if (existingChips && newChips) {
+        existingChips.replaceWith(newChips);
+      } else if (existingChips && !newChips) {
+        existingChips.remove();
+      } else if (!existingChips && newChips) {
+        const ml = listSlot.querySelector<HTMLElement>('.match-list');
+        if (ml) ml.insertBefore(newChips, ml.firstChild);
+      }
+      // Update pane-sub text
+      const subEl = listSlot.querySelector<HTMLElement>('.pane-sub');
+      if (subEl) {
+        const activeCount = activeFilterCount(filters);
+        subEl.textContent = activeCount > 0 || filters.query.trim()
+          ? `${filteredMatches.length} / ${accountMatches.length} 条`
+          : `${accountMatches.length} 条 · 时间倒序`;
+      }
+      // Force re-render on filter change
+      const listEl2 = listSlot.querySelector<HTMLElement>('.match-list');
+      if (listEl2) {
+        listEl2.dispatchEvent(new Event('scroll', { bubbles: false }));
+      }
+      return;
+    }
+
+    // First render: build the virtual scroll container
     const pane = listPane(
       accountLabels(),
       accountMatches,
@@ -1766,8 +1866,6 @@ export async function renderApp(root: HTMLElement) {
     listSlot.className = pane.className;
     listSlot.setAttribute('aria-label', pane.getAttribute('aria-label') ?? '高光列表');
     listSlot.replaceChildren(...Array.from(pane.childNodes));
-    const newList = listSlot.querySelector<HTMLElement>('.match-list');
-    if (newList) newList.scrollTop = prevListScroll;
   }
 
   function openEventListForMatch(m: MatchRecord) {
