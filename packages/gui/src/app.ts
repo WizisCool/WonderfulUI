@@ -43,8 +43,10 @@ export const BRAND_LOGO_URL = new URL('./assets/logo.svg', import.meta.url).href
 
 const ALL_ACCOUNTS = '__all__';
 
-// ROW_HEIGHT = --row-h (96px) + gap (4px). Match rows use text-overflow:ellipsis so height is fixed.
-const ROW_HEIGHT = 100;
+// ROW_HEIGHT = --row-h (96px) + 8px visual gap between cards. Match rows use
+// text-overflow:ellipsis so height is fixed. The absolute positioning needs slightly
+// more spacing than flex gap to avoid border clipping between adjacent rows.
+const ROW_HEIGHT = 104;
 const ROW_BUFFER = 5;
 
 interface VScrollState {
