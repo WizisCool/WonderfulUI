@@ -7,6 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use tauri::Emitter;
+use rayon::prelude::*;
 use uuid::Uuid;
 
 const ACLOS_SOURCE_ID: &str = "aclos_wonderfuldb";
@@ -499,9 +500,11 @@ pub fn scrape_wonderful_dir_with_mode(
         });
     }
 
-    for (idx, (openid, path, source_meta)) in account_files.iter().enumerate() {
+    // Phase A: identify accounts to parse vs skip
+    let mut to_parse: Vec<(usize, &(String, std::path::PathBuf, Option<SourceFileMeta>))> = Vec::new();
+    for (idx, item) in account_files.iter().enumerate() {
+        let (openid, _path, source_meta) = item;
         let snapshot_meta = snapshot_file_meta(dir, openid);
-        let current = idx + 1;
 
         if matches!(mode, ScrapeMode::Incremental)
             && source_meta
@@ -510,6 +513,56 @@ pub fn scrape_wonderful_dir_with_mode(
                 .map_err(|e| e.to_string())?
                 .unwrap_or(false)
         {
+            // skip — handled in Phase C
+        } else {
+            to_parse.push((idx, item));
+        }
+    }
+
+    // Phase B: parallel parsing
+    struct ParsedAccount {
+        idx: usize,
+        openid: String,
+        path: std::path::PathBuf,
+        source_meta: Option<SourceFileMeta>,
+        result: Result<crate::parser::model::WonderfulDbFile, String>,
+        nick: Option<String>,
+        tag: Option<String>,
+        achievements: Vec<SnapshotAchievement>,
+        snapshot_meta: Option<SourceFileMeta>,
+    }
+
+    let parsed: Vec<ParsedAccount> = to_parse
+        .par_iter()
+        .map(|&(idx, (openid, path, source_meta))| {
+            let snapshot_meta = snapshot_file_meta(dir, openid);
+            let (nick, tag, achievements) = read_snapshot_for_account(dir, openid);
+            let result = parser::parse_wonderful_db(path, openid)
+                .map_err(|e| format!("parse {}: {}", path.display(), e));
+            ParsedAccount {
+                idx,
+                openid: openid.clone(),
+                path: path.clone(),
+                source_meta: *source_meta,
+                result,
+                nick,
+                tag,
+                achievements,
+                snapshot_meta,
+            }
+        })
+        .collect();
+
+    let mut parsed = parsed;
+    parsed.sort_by_key(|p| p.idx);
+
+    // Phase C: sequential processing in original index order
+    let mut pi = 0;
+    for (idx, (openid, _path, _source_meta)) in account_files.iter().enumerate() {
+        let current = idx + 1;
+
+        if pi >= parsed.len() || parsed[pi].idx != idx {
+            // Account was skipped (incremental freshness)
             summary.skipped_accounts += 1;
             if let Some(a) = app {
                 let _ = a.emit("wui://account_finished", AccountFinishedEvent {
@@ -525,9 +578,12 @@ pub fn scrape_wonderful_dir_with_mode(
             continue;
         }
 
+        let pa = &parsed[pi];
+        pi += 1;
+
         if let Some(a) = app {
             let _ = a.emit("wui://account_started", AccountStartedEvent {
-                openid: openid.clone(),
+                openid: pa.openid.clone(),
                 current,
                 total: total_accounts,
                 size_bytes_done: size_done,
@@ -536,22 +592,21 @@ pub fn scrape_wonderful_dir_with_mode(
         }
         let account_start = now_ms();
 
-        let (nick, tag, achievements) = read_snapshot_for_account(dir, openid);
         let mut acc_matches = 0usize;
         let mut acc_videos = 0usize;
         let mut acc_events = 0usize;
-        match parser::parse_wonderful_db(path, openid) {
+        match &pa.result {
             Ok(file) => {
                 conn.execute("BEGIN IMMEDIATE", []).map_err(|e| e.to_string())?;
                 upsert_account(
                     conn,
-                    openid,
-                    path,
-                    *source_meta,
-                    snapshot_meta,
-                    nick,
-                    tag,
-                    &achievements,
+                    &pa.openid,
+                    &pa.path,
+                    pa.source_meta,
+                    pa.snapshot_meta,
+                    pa.nick.clone(),
+                    pa.tag.clone(),
+                    &pa.achievements,
                     None,
                     now,
                 )
@@ -570,7 +625,7 @@ pub fn scrape_wonderful_dir_with_mode(
                 let acc_duration = now_ms() - account_start;
                 if let Some(a) = app {
                     let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                        openid: openid.clone(),
+                        openid: pa.openid.clone(),
                         status: "ok".into(),
                         current,
                         total: total_accounts,
@@ -579,7 +634,7 @@ pub fn scrape_wonderful_dir_with_mode(
                         error: None,
                     });
                     let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                        openid: openid.clone(),
+                        openid: pa.openid.clone(),
                         matches_count: acc_matches,
                         videos_count: acc_videos,
                         events_count: acc_events,
@@ -593,17 +648,16 @@ pub fn scrape_wonderful_dir_with_mode(
             }
             Err(e) => {
                 let _ = conn.execute("ROLLBACK", []);
-                let message = format!("parse {}: {}", path.display(), e);
                 upsert_account(
                     conn,
-                    openid,
-                    path,
-                    *source_meta,
-                    snapshot_meta,
-                    nick,
-                    tag,
-                    &achievements,
-                    Some(&message),
+                    &pa.openid,
+                    &pa.path,
+                    pa.source_meta,
+                    pa.snapshot_meta,
+                    pa.nick.clone(),
+                    pa.tag.clone(),
+                    &pa.achievements,
+                    Some(e.as_str()),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -611,21 +665,21 @@ pub fn scrape_wonderful_dir_with_mode(
                 let acc_duration = now_ms() - account_start;
                 if let Some(a) = app {
                     let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                        openid: openid.clone(),
+                        openid: pa.openid.clone(),
                         status: "error".into(),
                         current,
                         total: total_accounts,
                         size_bytes_done: size_done,
                         size_bytes_total: total_size,
-                        error: Some(message.clone()),
+                        error: Some(e.clone()),
                     });
                     let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                        openid: openid.clone(),
+                        openid: pa.openid.clone(),
                         matches_count: 0,
                         videos_count: 0,
                         events_count: 0,
                         status: "error".into(),
-                        error: Some(message),
+                        error: Some(e.clone()),
                         duration_ms: acc_duration,
                         current,
                         total: total_accounts,
@@ -633,7 +687,7 @@ pub fn scrape_wonderful_dir_with_mode(
                 }
             }
         }
-        if let Some(m) = source_meta {
+        if let Some(m) = pa.source_meta {
             size_done += m.size_bytes;
         }
     }

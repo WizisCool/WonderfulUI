@@ -32,4 +32,5 @@ thiserror = "1"
 ureq = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
+rayon = "1"
 tauri-plugin-updater = { version = "2", optional = true }
