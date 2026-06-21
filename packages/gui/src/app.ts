@@ -432,15 +432,13 @@ function listPane(
     emptyDiv.append(clearBtn);
     list.append(emptyDiv);
   } else {
-    // Virtual scroll: spacer + visible rows container
+    // Virtual scroll: spacer sets scrollable height, rows are siblings positioned absolutely
     const vlistSpacer = el('div', { class: 'vlist-spacer' });
     vlistSpacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
-    const vlistRows = el('div', { class: 'vlist-rows' });
+    list.append(vlistSpacer);
 
-    renderVisibleSlice(vlistRows, vlistSpacer, filteredMatches, 0,
+    renderVisibleSlice(list, filteredMatches, 0,
       list.clientHeight || 600, accountLabels, selectedId, assetPathCache, matchAchievements);
-
-    list.append(vlistSpacer, vlistRows);
 
     // Scroll handler with rAF batching
     let lastStart = 0;
@@ -453,7 +451,7 @@ function listPane(
         const newStart = Math.floor(list.scrollTop / ROW_HEIGHT);
         if (newStart !== lastStart) {
           lastStart = newStart;
-          renderVisibleSlice(vlistRows, vlistSpacer, vscrollState.matches,
+          renderVisibleSlice(list, vscrollState.matches,
             list.scrollTop, list.clientHeight, vscrollState.accountLabels,
             vscrollState.selectedId, vscrollState.assetPathCache, vscrollState.achievements);
         }
@@ -465,8 +463,7 @@ function listPane(
 }
 
 function renderVisibleSlice(
-  vlistRows: HTMLElement,
-  _vlistSpacer: HTMLElement,
+  container: HTMLElement,
   filteredMatches: MatchRecord[],
   scrollTop: number,
   viewportHeight: number,
@@ -481,17 +478,21 @@ function renderVisibleSlice(
     Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + ROW_BUFFER,
   );
 
-  vlistRows.replaceChildren();
+  // Remove old rows (identified by class, leave spacer intact)
+  for (const old of container.querySelectorAll('.match-row')) {
+    old.remove();
+  }
+
   for (let i = startIdx; i < endIdx; i++) {
     const m = filteredMatches[i]!;
     const label = accountLabels.get(m.openID) ?? m.openID;
     const row = matchRow(m, label, m.matches_id === selectedId, assetPathCache, matchAchievements);
     row.style.position = 'absolute';
+    row.style.top = '0';
     row.style.left = '0';
     row.style.right = '0';
     row.style.transform = `translateY(${i * ROW_HEIGHT}px)`;
-    row.style.willChange = 'transform';
-    vlistRows.appendChild(row);
+    container.appendChild(row);
   }
 }
 
@@ -1817,8 +1818,8 @@ export async function renderApp(root: HTMLElement) {
       selectedMatch = null;
     }
 
-    const existingRows = listSlot.querySelector<HTMLElement>('.vlist-rows');
-    if (existingRows && filteredMatches.length > 0) {
+    const existingSpacer = listSlot.querySelector<HTMLElement>('.vlist-spacer');
+    if (existingSpacer && filteredMatches.length > 0) {
       // Virtual scroll already initialized with data — only update
       vscrollState = {
         matches: filteredMatches,
@@ -1827,15 +1828,13 @@ export async function renderApp(root: HTMLElement) {
         assetPathCache,
         achievements: matchAchievements,
       };
-      const spacer = listSlot.querySelector<HTMLElement>('.vlist-spacer');
-      if (spacer) spacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
-      const listEl = listSlot.querySelector<HTMLElement>('.match-list');
+      existingSpacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
+      const listEl = listSlot.querySelector<HTMLElement>('.match-list')!;
       renderVisibleSlice(
-        existingRows,
-        spacer!,
+        listEl,
         filteredMatches,
-        listEl?.scrollTop ?? 0,
-        listEl?.clientHeight ?? 600,
+        listEl.scrollTop,
+        listEl.clientHeight || 600,
         accountLabels(),
         selectedMatch?.matches_id ?? null,
         assetPathCache,
