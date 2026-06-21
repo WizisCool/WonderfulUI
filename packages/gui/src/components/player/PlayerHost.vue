@@ -1,6 +1,6 @@
 <template>
    <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }" @click.self="doClose">
-    <div class="player-modal" ref="modalRef" :class="{ 'is-closing': closing }">
+    <div class="player-modal" ref="modalRef" :class="{ 'is-closing': closing }" @mousemove="onModalMouseMove">
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
         <WIcon icon="ph:x" :size="16" />
       </button>
@@ -276,8 +276,8 @@ function toggleMute() {
 }
 
 function showControls() {
-  const ctrl = document.querySelector('.player-controls');
-  if (ctrl) ctrl.classList.remove('is-hidden');
+  const ctrl = controlsRef.value?.$el as HTMLElement | undefined;
+  ctrl?.classList.remove('is-hidden');
   clearHideTimer();
 }
 
@@ -285,8 +285,8 @@ function scheduleHide() {
   clearHideTimer();
   if (!isPlaying.value) return;
   hideTimer = setTimeout(() => {
-    const ctrl = document.querySelector('.player-controls');
-    if (ctrl) ctrl.classList.add('is-hidden');
+    const ctrl = controlsRef.value?.$el as HTMLElement | undefined;
+    ctrl?.classList.add('is-hidden');
   }, 3000);
 }
 
