@@ -114,4 +114,10 @@ execSync('git add -A', { cwd: ROOT, stdio: 'inherit' });
 execSync(`git commit -m "chore(release): v${next}"`, { cwd: ROOT, stdio: 'inherit' });
 execSync(`git tag v${next}`, { cwd: ROOT, stdio: 'inherit' });
 
-console.log(`\n✔ Bumped to v${next} and tagged. Run: git push && git push --tags`);
+// 11. git push — CI release workflow (release.yml) auto-builds, creates
+//     release with generate_release_notes, and attaches MSI/NSIS artifacts.
+console.log('  pushing to remote (CI will build & release)...');
+execSync('git push origin main', { cwd: ROOT, stdio: 'inherit' });
+execSync(`git push origin v${next}`, { cwd: ROOT, stdio: 'inherit' });
+
+console.log(`\n✔ Bumped to v${next}, pushed. CI will build and release.`);
