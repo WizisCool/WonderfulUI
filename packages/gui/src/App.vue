@@ -31,12 +31,10 @@ import DetailView from './views/DetailView.vue';
 import SettingsView from './views/SettingsView.vue';
 import { watch, onMounted, onUnmounted, ref } from 'vue';
 import { useAccountStore } from './stores/account.ts';
-import { useSettingsStore } from './stores/settings.ts';
 import { useTooltip } from './composables/useTooltip.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
-const settings = useSettingsStore();
 const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
 const booted = ref(false);
 
@@ -60,8 +58,12 @@ onMounted(async () => {
 
 const tooltip = useTooltip();
 
+function tipTarget(e: MouseEvent): HTMLElement | null {
+  return (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+}
+
 function onDocMouseOver(e: MouseEvent) {
-  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  const el = tipTarget(e);
   if (!el?.dataset.tip) return;
   const related = e.relatedTarget as HTMLElement | null;
   if (related && el.contains(related)) return;
@@ -70,12 +72,12 @@ function onDocMouseOver(e: MouseEvent) {
 
 function onDocMouseMove(e: MouseEvent) {
   if (!tooltip.visible.value) return;
-  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  const el = tipTarget(e);
   if (el) tooltip.reposition(e.clientX);
 }
 
 function onDocMouseOut(e: MouseEvent) {
-  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  const el = tipTarget(e);
   if (!el) return;
   const related = e.relatedTarget as HTMLElement | null;
   if (related && el.contains(related)) return;
@@ -83,9 +85,9 @@ function onDocMouseOut(e: MouseEvent) {
 }
 
 onMounted(() => {
-  document.addEventListener('mouseover', onDocMouseOver);
+  document.addEventListener('mouseover', onDocMouseOver, { passive: true });
   document.addEventListener('mousemove', onDocMouseMove, { passive: true });
-  document.addEventListener('mouseout', onDocMouseOut);
+  document.addEventListener('mouseout', onDocMouseOut, { passive: true });
 });
 
 onUnmounted(() => {
