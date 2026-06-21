@@ -53,7 +53,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { listen, type UnlistenFn } from '../../tauri-adapter.ts';
-import { pulseRendererForMotion } from '../../render-pulse.ts';
+import { pulseRendererForMotion } from '../../utils/render-pulse.ts';
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 

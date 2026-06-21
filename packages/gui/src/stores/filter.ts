@@ -4,7 +4,7 @@ import {
   FilterState, EMPTY_FILTERS, activeFilterCount, activeFilterSummary,
   loadFilters, saveFilters, loadOpen, saveOpen,
   normalizeVisibleFilters,
-  CATEGORY_KEYS, RANGE_KEYS, ADVANCED_RANGE_KEYS,
+  CATEGORY_KEYS, RANGE_KEYS,
 } from '../utils/filters.ts';
 import { applyFilters, pruneUnavailableCategories } from '../utils/filter-engine.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';

@@ -47,7 +47,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from
 import { Skull, Crosshair } from 'lucide-vue-next';
 import { useEventMarkers } from '../../composables/useEventMarkers.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
-import type { EventMarkerLayout } from '../../player-event-markers.ts';
+import type { EventMarkerLayout } from '../../utils/player-event-markers.ts';
 import type { EventMarker } from '../../utils/match-events.ts';
 
 const props = defineProps<{

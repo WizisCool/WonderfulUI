@@ -56,7 +56,7 @@ import {
   FolderOpen, Share2, Maximize2, Minimize2,
 } from 'lucide-vue-next';
 import ProgressBar from './ProgressBar.vue';
-import { EVENT_PREROLL_MS } from '../../event-time.ts';
+import { EVENT_PREROLL_MS } from '../../utils/event-time.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 
 const props = defineProps<{

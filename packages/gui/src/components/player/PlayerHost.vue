@@ -99,7 +99,7 @@ import { X, Play, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
-import { clampSeekMsForDuration } from '../../event-time.ts';
+import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import PlayerControls from './PlayerControls.vue';
 import type { VideoItem } from '@wonderful-ui/parser';
 
@@ -771,48 +771,5 @@ onUnmounted(() => {
 .player-context-item:hover {
   background: var(--surface-3);
   color: var(--ink);
-}
-</style>
-
-<style scoped>
-.player-backdrop {
-  position: fixed; inset: 0;
-  z-index: 1200;
-  display: flex; align-items: center; justify-content: center;
-  background: oklch(0 0 0 / 0.7);
-  animation: player-backdrop-in 240ms ease-out both;
-}
-.player-backdrop.is-closing {
-  animation: player-backdrop-out 160ms ease-in both;
-}
-.player-modal {
-  position: relative;
-  display: flex; flex-direction: column;
-  max-width: 80vw; max-height: 80vh;
-  aspect-ratio: 16 / 9;
-  width: min(80vw, calc(80vh * 16 / 9));
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  animation: player-modal-in 260ms ease-out both;
-}
-.player-modal.is-closing {
-  animation: player-modal-out 140ms ease-in both;
-}
-.player-modal:fullscreen {
-  width: 100vw;
-  max-width: 100vw;
-  max-height: 100vh;
-  aspect-ratio: auto;
-  border: none;
-  border-radius: 0;
-  background: #000;
-  animation: fullscreen-in 280ms ease-out;
-}
-
-.player-modal:fullscreen .ctrl-btn {
-  width: 40px;
-  height: 40px;
 }
 </style>

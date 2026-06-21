@@ -11,7 +11,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
+import { useUiStore } from '../../stores/ui.ts';
 
 interface Toast {
   id: number;
@@ -19,6 +20,7 @@ interface Toast {
   kind: 'ok' | 'error';
 }
 
+const ui = useUiStore();
 const toasts = ref<Toast[]>([]);
 let nextId = 0;
 
@@ -30,6 +32,10 @@ function show(message: string, kind: 'ok' | 'error' = 'ok') {
     toasts.value = toasts.value.filter(t => t.id !== id);
   }, duration);
 }
+
+watch(() => ui.toastVisible, (visible) => {
+  if (visible) show(ui.toastMessage, ui.toastKind);
+});
 
 // Expose for use by other components
 (window as unknown as Record<string, unknown>).__wuiToast = show;
