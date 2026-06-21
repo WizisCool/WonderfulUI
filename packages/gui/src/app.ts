@@ -43,8 +43,19 @@ export const BRAND_LOGO_URL = new URL('./assets/logo.svg', import.meta.url).href
 
 const ALL_ACCOUNTS = '__all__';
 
+// ROW_HEIGHT = --row-h (96px) + gap (4px). Match rows use text-overflow:ellipsis so height is fixed.
 const ROW_HEIGHT = 100;
 const ROW_BUFFER = 5;
+
+interface VScrollState {
+  matches: MatchRecord[];
+  selectedId: string | null;
+  accountLabels: Map<string, string>;
+  assetPathCache: Map<string, string>;
+  achievements: Map<string, { type: 'mvp' | 'svp'; typeStr: string }>;
+}
+
+let vscrollState: VScrollState | null = null;
 
 interface Account {
   openid: string;
@@ -438,11 +449,13 @@ function listPane(
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
         rafId = 0;
+        if (!vscrollState) return;
         const newStart = Math.floor(list.scrollTop / ROW_HEIGHT);
         if (newStart !== lastStart) {
           lastStart = newStart;
-          renderVisibleSlice(vlistRows, vlistSpacer, filteredMatches,
-            list.scrollTop, list.clientHeight, accountLabels, selectedId, assetPathCache, matchAchievements);
+          renderVisibleSlice(vlistRows, vlistSpacer, vscrollState.matches,
+            list.scrollTop, list.clientHeight, vscrollState.accountLabels,
+            vscrollState.selectedId, vscrollState.assetPathCache, vscrollState.achievements);
         }
       });
     }, { passive: true });
@@ -1805,8 +1818,15 @@ export async function renderApp(root: HTMLElement) {
     }
 
     const existingRows = listSlot.querySelector<HTMLElement>('.vlist-rows');
-    if (existingRows) {
-      // Virtual scroll already initialized — only update data
+    if (existingRows && filteredMatches.length > 0) {
+      // Virtual scroll already initialized with data — only update
+      vscrollState = {
+        matches: filteredMatches,
+        selectedId: selectedMatch?.matches_id ?? null,
+        accountLabels: accountLabels(),
+        assetPathCache,
+        achievements: matchAchievements,
+      };
       const spacer = listSlot.querySelector<HTMLElement>('.vlist-spacer');
       if (spacer) spacer.style.height = `${filteredMatches.length * ROW_HEIGHT}px`;
       const listEl = listSlot.querySelector<HTMLElement>('.match-list');
@@ -1840,15 +1860,17 @@ export async function renderApp(root: HTMLElement) {
           ? `${filteredMatches.length} / ${accountMatches.length} 条`
           : `${accountMatches.length} 条 · 时间倒序`;
       }
-      // Force re-render on filter change
-      const listEl2 = listSlot.querySelector<HTMLElement>('.match-list');
-      if (listEl2) {
-        listEl2.dispatchEvent(new Event('scroll', { bubbles: false }));
-      }
       return;
     }
 
-    // First render: build the virtual scroll container
+    // First render or transition to empty: rebuild the full pane
+    vscrollState = {
+      matches: filteredMatches,
+      selectedId: selectedMatch?.matches_id ?? null,
+      accountLabels: accountLabels(),
+      assetPathCache,
+      achievements: matchAchievements,
+    };
     const pane = listPane(
       accountLabels(),
       accountMatches,
