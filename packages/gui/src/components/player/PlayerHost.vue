@@ -140,7 +140,7 @@ const isMuted = ref(false);
 let preMuteVol = 100;
 
 const isDragging = ref(false);
-let lastBufferedPct = 0;
+const lastBufferedPct = ref(0);
 
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -175,7 +175,7 @@ const progressThumbStyle = computed(() => ({
 }));
 
 const bufferedStyle = computed(() => ({
-  transform: `scaleX(${lastBufferedPct / 100})`,
+  transform: `scaleX(${lastBufferedPct.value / 100})`,
 }));
 
 // context menu
@@ -395,7 +395,7 @@ function onTimeUpdate() {
 
   const buf = v.buffered;
   if (buf.length > 0) {
-    lastBufferedPct = dur > 0 ? (buf.end(buf.length - 1) / dur) * 100 : 0;
+    lastBufferedPct.value = dur > 0 ? (buf.end(buf.length - 1) / dur) * 100 : 0;
   }
 }
 

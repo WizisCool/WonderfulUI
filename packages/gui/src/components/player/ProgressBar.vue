@@ -14,7 +14,6 @@
         :data-raw-markers="rawMarkersJson"
         :data-canvas-layouts="canvasLayoutsJson"
         ref="markersEl"
-        @mousedown.stop
         @click.stop="onMarkerDomClick"
         @keydown.enter.prevent.stop="onMarkerDomKeydown"
         @keydown.space.prevent.stop="onMarkerDomKeydown"
@@ -87,9 +86,7 @@ const fillPct = computed(() =>
   props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0
 );
 const fillStyle = computed(() => ({ transform: `scaleX(${fillPct.value / 100})` }));
-const thumbStyle = computed(() => ({
-  transform: `translate(calc(${fillPct.value}% - 50%), -50%)`,
-}));
+const thumbStyle = computed(() => ({ left: `${fillPct.value}%` }));
 
 watch(() => props.duration, () => {
   if (props.duration > 0) renderLayouts(props.duration * 1000);
@@ -112,7 +109,7 @@ function clientToPct(clientX: number): number {
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return;
-  if ((e.target as HTMLElement).closest('.player-event-marker')) return;
+  if ((e.target as HTMLElement).closest('.player-event-marker, .player-event-markers.is-canvas')) return;
   isDragging.value = true;
   emit('seek', clientToPct(e.clientX));
 
@@ -247,7 +244,7 @@ defineExpose({
   border-radius: 50%;
   display: none;
   transform: translate(-50%, -50%);
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  transition: left 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 .player-progress-wrap:hover .player-progress-thumb,
 .player-progress-wrap.is-dragging .player-progress-thumb,
