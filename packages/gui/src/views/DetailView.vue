@@ -1,0 +1,355 @@
+<template>
+  <aside class="pane detail detail-scroll" aria-label="高光详情">
+    <template v-if="match">
+      <!-- header: hero + (agent | W 13:10 pill) + (mode·map·duration) -->
+      <div class="detail-header">
+        <div class="hero-avatar">
+          <img
+            v-if="heroSrc"
+            class="hero-img"
+            :src="heroSrc"
+            :alt="agentName"
+            loading="lazy"
+            decoding="async"
+            @error="heroFailed = true"
+          />
+          <div v-else class="hero-placeholder" :style="{ '--hue': heroHue }">{{ agentInitial }}</div>
+        </div>
+        <div class="detail-header-meta">
+          <div class="detail-agent-row">
+            <div class="detail-agent">{{ agentName }}</div>
+            <span
+              class="match-result-pill is-detail"
+              :class="resultClass"
+              :aria-label="resultAriaLabel"
+            >{{ resultText }} {{ matchScore }}</span>
+          </div>
+          <div class="detail-sub">
+            <img
+              v-if="modeIconSrc"
+              class="mode-icon mode-icon-md"
+              :src="modeIconSrc"
+              alt=""
+              loading="lazy"
+              decoding="async"
+              @error="modeIconFailed = true"
+            />
+            {{ detailSubText }}
+          </div>
+        </div>
+      </div>
+
+      <!-- stats: 3x2 card grid -->
+      <div class="detail-stats-row">
+        <div class="stat-cell is-win">
+          <div class="stat-icon"><Crosshair :size="14" /></div>
+          <div class="stat-value">{{ match.stats.kills }}</div>
+          <div class="stat-label">击杀</div>
+        </div>
+        <div class="stat-cell is-loss">
+          <div class="stat-icon"><Skull :size="14" /></div>
+          <div class="stat-value">{{ match.stats.deaths }}</div>
+          <div class="stat-label">死亡</div>
+        </div>
+        <div class="stat-cell is-assist">
+          <div class="stat-icon"><HeartHandshake :size="14" /></div>
+          <div class="stat-value">{{ match.stats.assists }}</div>
+          <div class="stat-label">助攻</div>
+        </div>
+        <div class="stat-row2">
+          <div class="stat-cell" :class="kdaToneClass">
+            <div class="stat-icon"><TrendingUp :size="14" /></div>
+            <div class="stat-value">{{ kdaRatioText }}</div>
+            <div class="stat-label">KDA</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-icon"><Star :size="14" /></div>
+            <div class="stat-value">{{ match.stats.score }}</div>
+            <div class="stat-label">得分</div>
+          </div>
+          <button
+            class="stat-cell event-stat-cell"
+            type="button"
+            aria-label="打开本局事件列表"
+            :disabled="eventBtnDisabled"
+            :title="eventBtnDisabled ? (detail.roundsLoaded && eventCount === 0 ? '这场高光未携带事件数据' : '') : undefined"
+            @click="openEventList()"
+          >
+            <template v-if="!detail.roundsLoaded">
+              <div class="event-stat-spinner"><Loader2 :size="14" class="spin" /></div>
+              <div class="stat-value">—</div>
+              <div class="stat-label">加载中…</div>
+            </template>
+            <template v-else>
+              <div class="stat-icon"><Zap :size="14" /></div>
+              <div class="stat-value">{{ eventCount }}</div>
+              <div class="stat-label">事件</div>
+            </template>
+          </button>
+        </div>
+      </div>
+
+      <!-- 集锦 section -->
+      <section v-if="montages.length > 0" class="detail-section">
+        <div class="section-title">集锦</div>
+        <div class="montage-grid">
+          <div v-for="v in montages" :key="v.video_id" class="montage-card">
+            <div class="montage-cover">
+              <img
+                v-if="v.video_poster && !videoPosterFailed(v.video_id)"
+                class="cover-img"
+                :src="fileUrl(v.video_poster)"
+                :alt="videoInitialText(v)"
+                loading="lazy"
+                decoding="async"
+                @error="onVideoPosterError(v.video_id)"
+              />
+              <span v-else class="cover-placeholder">{{ videoInitialText(v) }}</span>
+              <span v-if="qualityBadge(v)" class="resolution-chip">{{ qualityBadge(v) }}</span>
+            </div>
+            <div class="montage-info">
+              <div class="montage-title">{{ v.video_name }}</div>
+              <div class="montage-meta">{{ fmtVideoMeta(v) }}</div>
+            </div>
+            <button
+              class="btn btn-play"
+              :aria-label="'播放 ' + v.video_name"
+              @click="playVideo(v)"
+            >
+              <Play :size="14" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 高光时刻 section: filter chips + grid -->
+      <section v-if="moments.length > 0" class="detail-section">
+        <div class="section-title">高光时刻</div>
+        <div class="moment-chips">
+          <button
+            v-for="type in momentTypeOrder"
+            :key="type"
+            class="moment-chip"
+            :class="{ 'is-active': detail.momentFilter === type }"
+            type="button"
+            :data-type="type"
+            @click="detail.setMomentFilter(type)"
+          >{{ type }} × {{ momentsByType.get(type)!.length }}</button>
+        </div>
+        <div class="moment-grid">
+          <template v-if="visibleMoments.length > 0">
+            <div v-for="v in visibleMoments" :key="v.video_id" class="moment-card">
+              <div class="moment-cover">
+                <img
+                  v-if="v.video_poster && !videoPosterFailed(v.video_id)"
+                  class="cover-img"
+                  :src="fileUrl(v.video_poster)"
+                  :alt="videoInitialText(v)"
+                  loading="lazy"
+                  decoding="async"
+                  @error="onVideoPosterError(v.video_id)"
+                />
+                <span v-else class="cover-placeholder">{{ videoInitialText(v) }}</span>
+                <span v-if="qualityBadge(v)" class="resolution-chip">{{ qualityBadge(v) }}</span>
+              </div>
+              <div class="moment-info">
+                <div class="moment-name">{{ v.video_name }}</div>
+                <div class="moment-duration">{{ fmtVideoMeta(v) }}</div>
+              </div>
+              <button
+                class="btn btn-play"
+                :aria-label="'播放 ' + v.video_name"
+                @click="playVideo(v)"
+              >
+                <Play :size="14" />
+              </button>
+            </div>
+          </template>
+          <div v-else class="empty-inline">这场没有「{{ detail.momentFilter }}」</div>
+        </div>
+      </section>
+
+      <div v-if="montages.length === 0 && moments.length === 0" class="empty">
+        <div class="empty-title">这场高光没有视频</div>
+      </div>
+    </template>
+
+    <div v-else class="empty">
+      <div class="empty-title">没有选中</div>
+      <div class="empty-sub">从左侧账户选一个,再从中间选一场高光</div>
+    </div>
+  </aside>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch, onMounted } from 'vue';
+import {
+  Play, Crosshair, Skull, HeartHandshake, TrendingUp, Star, Zap, Loader2,
+} from 'lucide-vue-next';
+import { convertFileSrc } from '../tauri-adapter.ts';
+import { useAccountStore } from '../stores/account.ts';
+import { useDetailStore } from '../stores/detail.ts';
+import { usePlayerStore } from '../stores/player.ts';
+import { agentCn, mapCn, modeCn, fmtScore, kdaRatio, fmtMatchDuration } from '../utils/filters.ts';
+import { openPlayer } from '../player.ts';
+import { openEventListModal } from '../event-list-modal.ts';
+import { normalizeMatchEvents } from '../match-events.ts';
+import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
+
+const account = useAccountStore();
+const detail = useDetailStore();
+const player = usePlayerStore();
+
+const heroFailed = ref(false);
+const modeIconFailed = ref(false);
+const videoPosterErrors = ref(new Set<string>());
+
+const MONTAGE_TYPES = new Set(['击杀集锦', '死亡集锦']);
+const MOMENT_TYPE_ORDER_REF = ['三杀时刻', '四杀时刻', '五杀时刻', '进阶剪辑'];
+
+const match = computed(() => detail.selectedMatch);
+const agentName = computed(() => match.value ? agentCn(match.value) : '');
+const agentInitial = computed(() => agentName.value[0]?.toUpperCase() ?? '?');
+const matchScore = computed(() => match.value ? fmtScore(match.value) : '');
+const resultText = computed(() => match.value?.stats.has_won ? '胜' : '败');
+const resultClass = computed(() => match.value?.stats.has_won ? 'result-win' : 'result-loss');
+const resultAriaLabel = computed(() =>
+  match.value ? (match.value.stats.has_won ? `胜利 ${matchScore.value}` : `失败 ${matchScore.value}`) : ''
+);
+const detailSubText = computed(() => {
+  if (!match.value) return '';
+  const mode = modeCn(match.value);
+  const map = mapCn(match.value);
+  const dur = fmtMatchDuration(match.value);
+  return [mode ? `${mode} · ${map}` : map, dur].filter(Boolean).join(' · ');
+});
+
+const kdaRatioText = computed(() => match.value ? kdaRatio(match.value) : '0.00');
+const kdaToneClass = computed(() => {
+  if (!match.value) return '';
+  const v = (match.value.stats.kills + match.value.stats.assists) / Math.max(match.value.stats.deaths, 1);
+  if (v >= 1.5) return 'is-win';
+  if (v <= 0.8) return 'is-loss';
+  return '';
+});
+
+const eventCount = computed(() => match.value ? normalizeMatchEvents(match.value).length : 0);
+const eventBtnDisabled = computed(() => {
+  if (!match.value) return true;
+  if (!detail.roundsLoaded) return true;
+  return eventCount.value === 0;
+});
+
+const heroHue = computed(() => {
+  let hue = 0;
+  for (const c of agentName.value) hue = (hue * 31 + c.charCodeAt(0)) % 360;
+  return String(hue);
+});
+
+const heroSrc = computed(() => {
+  if (!match.value || heroFailed.value) return null;
+  const url = match.value.career?.hero_image as string | undefined;
+  if (!url) return null;
+  const local = account.assetPathCache.get(url);
+  return local ? convertFileSrc(local) : null;
+});
+
+const modeIconSrc = computed(() => {
+  if (!match.value || modeIconFailed.value) return null;
+  const url = match.value.career?.game_mode_icon;
+  if (typeof url !== 'string' || !url) return null;
+  const local = account.assetPathCache.get(url);
+  return local ? convertFileSrc(local) : url;
+});
+
+const montages = computed(() =>
+  match.value ? match.value.videos.filter(v => MONTAGE_TYPES.has(v.video_type)) : []
+);
+const moments = computed(() =>
+  match.value ? match.value.videos.filter(v => !MONTAGE_TYPES.has(v.video_type)) : []
+);
+const momentsByType = computed(() => {
+  const map = new Map<string, VideoItem[]>();
+  for (const v of moments.value) {
+    if (!map.has(v.video_type)) map.set(v.video_type, []);
+    map.get(v.video_type)!.push(v);
+  }
+  return map;
+});
+const momentTypeOrder = computed(() => {
+  const existing = momentsByType.value;
+  const ordered = MOMENT_TYPE_ORDER_REF.filter(t => existing.has(t));
+  for (const t of existing.keys()) {
+    if (!MOMENT_TYPE_ORDER_REF.includes(t)) ordered.push(t);
+  }
+  return ordered;
+});
+const visibleMoments = computed(() => {
+  if (!detail.momentFilter) return moments.value;
+  return momentsByType.value.get(detail.momentFilter) ?? [];
+});
+
+function fileUrl(p: string): string { return convertFileSrc(p); }
+
+function fmtDuration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function fmtResolution(v: VideoItem): string {
+  if (v.video_level === '1') return '720p';
+  if (v.video_level === '3') return '1080p';
+  const raw = v.video_resolution.replace(/\r/g, '').trim();
+  const m = /^(\d+)\s*x\s*(\d+)$/.exec(raw);
+  if (m) return `${m[1]}×${m[2]}`;
+  return raw || '—';
+}
+
+function qualityBadge(v: VideoItem): string {
+  const res = fmtResolution(v);
+  const fps = v.video_fps;
+  if (res && fps) return `${res} · ${fps}`;
+  if (res) return res;
+  if (fps) return `${fps}fps`;
+  return '';
+}
+
+function fmtVideoMeta(v: VideoItem): string {
+  const parts: string[] = [fmtDuration(v.video_duration)];
+  if (v.video_size) parts.push(fmtSize(v.video_size));
+  return parts.join(' · ');
+}
+
+function videoInitialText(v: VideoItem): string { return v.video_name[0] ?? '?'; }
+function videoPosterFailed(id: string): boolean { return videoPosterErrors.value.has(id); }
+function onVideoPosterError(id: string) { videoPosterErrors.value.add(id); }
+
+function playVideo(v: VideoItem) {
+  if (!match.value) return;
+  player.open(v, match.value);
+}
+
+function openEventList() {
+  if (!match.value || !detail.roundsLoaded) return;
+  const events = normalizeMatchEvents(match.value);
+  if (events.length === 0) return;
+  openEventListModal(events, `${agentName.value} · ${mapCn(match.value)}`, (v, seekMs) => {
+    player.open(v, match.value!, seekMs);
+  }, { kills: match.value.stats.kills, deaths: match.value.stats.deaths, assists: match.value.stats.assists });
+}
+
+watch(() => detail.selectedMatch, (m) => {
+  if (m && m.videos.length > 0 && !detail.roundsLoaded) {
+    detail.fetchRounds();
+  }
+}, { immediate: true });
+</script>

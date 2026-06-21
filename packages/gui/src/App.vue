@@ -5,8 +5,10 @@
       <AccountSidebar />
       <FilterRail v-if="filter.filterBarOpen" />
       <RouterView />
+      <DetailView />
     </div>
     <ToastHost />
+    <SettingsView />
   </div>
 </template>
 
@@ -17,6 +19,8 @@ import TopBar from './components/layout/TopBar.vue';
 import AccountSidebar from './components/common/AccountSidebar.vue';
 import FilterRail from './components/match/FilterRail.vue';
 import ToastHost from './components/common/ToastHost.vue';
+import DetailView from './views/DetailView.vue';
+import SettingsView from './views/SettingsView.vue';
 import { watch, onMounted } from 'vue';
 import { useAccountStore } from './stores/account.ts';
 import { useSettingsStore } from './stores/settings.ts';
@@ -35,14 +39,6 @@ onMounted(async () => {
     }
   } catch (e) {
     console.error('Boot failed:', e);
-  }
-});
-
-watch(() => settings.isOpen, (open) => {
-  if (open) {
-    if (!settings.statsData && !settings.statsLoading && !settings.statsError) {
-      void settings.fetchLibraryStats();
-    }
   }
 });
 </script>
