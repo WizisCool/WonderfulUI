@@ -87,6 +87,21 @@ body {
   user-select: none;
 }
 
+.wui-render-pulse {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147483647;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  contain: strict;
+  will-change: opacity, transform;
+  background: var(--accent);
+  opacity: 0.001;
+  transform: translate3d(0, 0, 0);
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -1584,6 +1599,39 @@ button {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: color-mix(in oklch, var(--surface-2), transparent 48%);
+}
+.stats-video-metric--toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.stats-video-metric--toggle:hover {
+  background: color-mix(in oklch, var(--surface-2), var(--ink) 10%);
+  border-color: color-mix(in oklch, var(--border-soft), var(--ink-3) 55%);
+}
+.stats-video-metric--toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.stats-video-metric--toggle.is-active {
+  background: color-mix(in oklch, var(--accent), transparent 55%);
+  border-color: var(--accent);
+}
+.stats-video-metric--toggle.is-active:hover {
+  background: color-mix(in oklch, var(--accent), transparent 38%);
+}
+.stats-video-metric--toggle.is-active .stats-video-value {
+  color: var(--ink);
+}
+.stats-video-metric--toggle.is-active .stats-video-label {
+  color: var(--ink-2);
 }
 .stats-video-value {
   display: block;

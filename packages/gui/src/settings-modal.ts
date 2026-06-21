@@ -1,7 +1,6 @@
 import { createElement, Bug, Database, FileText, FolderOpen, RefreshCw, X } from 'lucide';
 import { el } from './dom.ts';
-import type { LibraryStats } from './library-stats.ts';
-import { fmtBytes } from './library-stats.ts';
+import { type ChartMetric, CHART_METRIC_LABELS, fmtBytes, type LibraryStats } from './library-stats.ts';
 
 export type ScrapeMode = 'incremental' | 'full';
 export type SettingsTab = 'library' | 'logs';
@@ -77,7 +76,26 @@ function navButton(tab: SettingsTab, activeTab: SettingsTab, icon: SVGElement, l
 
 /* ─── Video Overview ───────────────────────────── */
 
-function videoOverviewContent(stats: LibraryStatsState): HTMLElement[] {
+function metricToggleButton(
+  metric: ChartMetric,
+  activeMetric: ChartMetric,
+  value: string,
+): HTMLElement {
+  const isActive = metric === activeMetric;
+  return el('button', {
+    class: `stats-video-metric stats-video-metric--toggle ${isActive ? 'is-active' : ''}`,
+    type: 'button',
+    'data-action': 'set-chart-metric',
+    'data-metric': metric,
+    'aria-pressed': String(isActive),
+    'aria-label': `按${CHART_METRIC_LABELS[metric]}查看占比`,
+  }, [
+    el('span', { class: 'stats-video-value' }, [value]),
+    el('span', { class: 'stats-video-label' }, [CHART_METRIC_LABELS[metric]]),
+  ]);
+}
+
+function videoOverviewContent(stats: LibraryStatsState, activeMetric: ChartMetric): HTMLElement[] {
   if (stats.error && !stats.data) {
     return [el('section', { class: 'settings-section' }, [
       el('div', { class: 'settings-section-head' }, [
@@ -137,14 +155,8 @@ function videoOverviewContent(stats: LibraryStatsState): HTMLElement[] {
   }
 
   const summary = el('div', { class: 'stats-video-summary' }, [
-    el('div', { class: 'stats-video-metric' }, [
-      el('span', { class: 'stats-video-value' }, [String(d.totalVideos)]),
-      el('span', { class: 'stats-video-label' }, ['视频']),
-    ]),
-    el('div', { class: 'stats-video-metric' }, [
-      el('span', { class: 'stats-video-value' }, [String(totalMatches)]),
-      el('span', { class: 'stats-video-label' }, ['对局']),
-    ]),
+    metricToggleButton('video', activeMetric, String(d.totalVideos)),
+    metricToggleButton('match', activeMetric, String(totalMatches)),
     el('div', { class: 'stats-video-metric' }, [
       el('span', { class: 'stats-video-value' }, [String(d.totalAccounts)]),
       el('span', { class: 'stats-video-label' }, ['账户']),
@@ -238,9 +250,10 @@ function librarySettingsContent(
   scraping: boolean,
   scanMode: ScrapeMode,
   stats: LibraryStatsState,
+  chartMetric: ChartMetric,
 ): HTMLElement[] {
   return [
-    ...videoOverviewContent(stats),
+    ...videoOverviewContent(stats, chartMetric),
     ...scanSettingsContent(scraping, scanMode),
   ];
 }
@@ -307,11 +320,12 @@ export function settingsModal(
   activeTab: SettingsTab,
   logs: LogPanelState,
   libraryStats: LibraryStatsState,
+  chartMetric: ChartMetric,
   closing = false,
 ): HTMLElement {
   const content = activeTab === 'logs'
     ? logSettingsContent(logs)
-    : librarySettingsContent(scraping, scanMode, libraryStats);
+    : librarySettingsContent(scraping, scanMode, libraryStats, chartMetric);
 
   return el('div', { class: `settings-modal-backdrop ${closing ? 'is-closing' : ''}` }, [
     el('section', {

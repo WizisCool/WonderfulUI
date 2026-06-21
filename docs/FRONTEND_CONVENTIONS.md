@@ -1,6 +1,6 @@
 # Frontend Conventions
 
-Last organized: 2026-06-20.
+Last organized: 2026-06-21.
 
 This document holds GUI implementation conventions that are too detailed for `AGENTS.md`. Follow `DESIGN.md` and `PRODUCT.md` first for product and visual intent.
 
@@ -13,6 +13,30 @@ This document holds GUI implementation conventions that are too detailed for `AG
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
+
+## Tauri Adapter and Browser Debug
+
+- Frontend code must import `invoke`, `convertFileSrc`, and `listen` from
+  `packages/gui/src/tauri-adapter.ts`, not directly from `@tauri-apps/api/*`.
+- In the Tauri shell, the adapter delegates to real Tauri APIs.
+- In a normal browser, or when the URL includes `?debug=1`, the adapter serves
+  a fixed browser-debug fixture for accounts, matches, library stats, logs,
+  asset cache calls, and safe fake video paths.
+- Use `bun run dev:browser` and open `http://localhost:1420/?debug=1` for
+  Browser Skill UI debugging. This path is for DOM/CSS/canvas/motion bugs; it
+  does not validate parser behavior, SQLite scraping, or real ACLOS data.
+- If a new Tauri command is consumed by the GUI, add a mock branch to the
+  adapter or make the caller degrade gracefully in browser debug mode.
+
+## Animation Compatibility
+
+- Use `packages/gui/src/render-pulse.ts` when a user-triggered CSS animation
+  or transition must run next to a static canvas surface. This keeps WebView2
+  painting for the short duration of the motion without leaving a permanent
+  animation loop active.
+- Keep calls at interaction boundaries such as opening/closing overlays,
+  changing chart modes, and restarting filtered-list motion. Do not scatter
+  ad hoc `requestAnimationFrame` loops through component code.
 
 ## Component Listeners
 

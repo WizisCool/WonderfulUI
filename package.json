@@ -6,6 +6,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "bunx tauri dev",
+    "dev:browser": "bun run --cwd packages/gui dev -- --host 127.0.0.1",
     "build": "bunx tauri build",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",

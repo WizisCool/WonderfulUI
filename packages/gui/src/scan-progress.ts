@@ -1,4 +1,5 @@
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { pulseRendererForMotion } from './render-pulse.ts';
+import { listen, type UnlistenFn } from './tauri-adapter.ts';
 
 const BRAND_LOGO_URL = new URL('./assets/logo.svg', import.meta.url).href;
 const BRAND_NAME_BASE = 'Wonderful';
@@ -110,6 +111,7 @@ export async function mountScanProgress(parent: HTMLElement, opts: ScanProgressO
   // appears instantly with no transition.
   requestAnimationFrame(() => {
     if (disposed) return;
+    pulseRendererForMotion(320);
     root.classList.add('is-mounted');
   });
   let currentPct = initialPct;
@@ -147,6 +149,7 @@ export async function mountScanProgress(parent: HTMLElement, opts: ScanProgressO
       }
       await new Promise<void>(r => window.setTimeout(r, HOLD_MS));
       if (disposed) return;
+      pulseRendererForMotion(340);
       root.classList.add('is-closing');
       await new Promise<void>((resolve) => {
         let done = false;

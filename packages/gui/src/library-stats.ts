@@ -1,5 +1,22 @@
 import * as echarts from 'echarts';
 
+export type ChartMetric = 'video' | 'match';
+
+export const CHART_METRIC_LABELS: Record<ChartMetric, string> = {
+  video: '视频',
+  match: '对局',
+};
+
+const CHART_METRIC_EMPTY: Record<ChartMetric, string> = {
+  video: '暂无视频',
+  match: '暂无对局',
+};
+
+const CHART_METRIC_TOOLTIP: Record<ChartMetric, string> = {
+  video: '视频',
+  match: '对局',
+};
+
 /** Mirrors the Rust `LibraryStats` struct (camelCase via serde). */
 export interface LibraryStats {
   sourceBytes: number;
@@ -76,24 +93,38 @@ function truncateLegendName(name: string): string {
   return name.length > 12 ? `${name.slice(0, 11)}…` : name;
 }
 
+function countFor(account: AccountStat, metric: ChartMetric): number {
+  return metric === 'video' ? account.videoCount : account.matchCount;
+}
+
+function chartSignature(stats: LibraryStats, metric: ChartMetric, reducedMotion: boolean): string {
+  return `${metric}|motion:${reducedMotion ? 'reduced' : 'full'}|${stats.accounts
+    .map(a => `${a.openid}:${a.videoCount}:${a.matchCount}:${a.parseError ?? ''}`)
+    .join(';')}`;
+}
+
 let accountVideoChart: echarts.ECharts | null = null;
 let accountVideoResizeObserver: ResizeObserver | null = null;
+let accountVideoHost: HTMLElement | null = null;
+let accountVideoSignature: string | null = null;
 
-export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): void {
-  disposeAccountVideoChart();
-  if (!host.isConnected) return;
+function buildChartOption(
+  accounts: AccountStat[],
+  metric: ChartMetric,
+  palette: string[],
+  reducedMotion: boolean,
+): echarts.EChartsOption {
+  const total = accounts.reduce((sum, account) => sum + countFor(account, metric), 0);
+  const valuesByName = new Map(accounts.map(account => [account.label, countFor(account, metric)]));
+  const metricLabel = CHART_METRIC_LABELS[metric];
+  const tooltipUnit = CHART_METRIC_TOOLTIP[metric];
+  const hasData = total > 0;
 
-  const accounts = [...stats.accounts]
-    .filter(account => account.videoCount > 0)
-    .sort((a, b) => b.videoCount - a.videoCount);
-  const totalVideos = accounts.reduce((sum, account) => sum + account.videoCount, 0);
-  const videosByName = new Map(accounts.map(account => [account.label, account.videoCount]));
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const palette = chartPalette();
-
-  accountVideoChart = echarts.init(host, undefined, { renderer: 'canvas' });
-  accountVideoChart.setOption({
+  return {
     color: palette,
+    animation: !reducedMotion,
+    animationDuration: reducedMotion ? 0 : 360,
+    animationEasing: 'cubicOut',
     tooltip: {
       trigger: 'item',
       borderColor: cssVar('--border', '#4a403a'),
@@ -105,7 +136,7 @@ export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): 
       },
       formatter: (params: unknown) => {
         const item = params as { name?: string; value?: number; percent?: number };
-        return `${item.name ?? '账号'}<br/>视频 ${item.value ?? 0} · ${item.percent ?? 0}%`;
+        return `${item.name ?? '账号'}<br/>${tooltipUnit} ${item.value ?? 0} · ${item.percent ?? 0}%`;
       },
     },
     legend: {
@@ -118,7 +149,7 @@ export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): 
       itemHeight: 8,
       icon: 'circle',
       formatter: (name: string) => {
-        const count = videosByName.get(name);
+        const count = valuesByName.get(name);
         return count === undefined ? truncateLegendName(name) : `${truncateLegendName(name)}  ${count}`;
       },
       textStyle: {
@@ -133,7 +164,7 @@ export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): 
       },
     },
     series: [{
-      name: '账号视频',
+      name: `账号${metricLabel}`,
       type: 'pie',
       radius: ['54%', '78%'],
       center: ['35%', '51%'],
@@ -145,26 +176,30 @@ export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): 
         borderWidth: 2,
         borderRadius: 2,
       },
+      emphasis: {
+        scale: true,
+        scaleSize: 6,
+      },
       label: {
-        show: totalVideos > 0,
+        show: hasData,
         position: 'center',
         color: cssVar('--ink', '#efe9e1'),
         fontFamily: cssVar('--font-mono', 'monospace'),
         fontSize: 18,
-        fontWeight: 600,
-        formatter: () => `${totalVideos}\n视频`,
+        fontWeight: 520,
+        formatter: () => `${total}\n${metricLabel}`,
         lineHeight: 22,
       },
       labelLine: {
         show: false,
       },
-      data: totalVideos > 0
+      data: hasData
         ? accounts.map(account => ({
             name: account.label,
-            value: account.videoCount,
+            value: countFor(account, metric),
           }))
         : [{
-            name: '暂无视频',
+            name: CHART_METRIC_EMPTY[metric],
             value: 1,
             itemStyle: { color: cssVar('--ink-4', '#665e59') },
           }],
@@ -172,20 +207,54 @@ export function mountAccountVideoChart(host: HTMLElement, stats: LibraryStats): 
       animationDuration: reducedMotion ? 0 : 360,
       animationEasing: 'cubicOut',
     }],
-    graphic: totalVideos > 0 ? [] : [{
+    graphic: hasData ? [] : [{
       type: 'text',
       left: 'center',
       top: 'middle',
       style: {
-        text: '暂无视频',
+        text: CHART_METRIC_EMPTY[metric],
         fill: cssVar('--ink-3', '#918982'),
         font: `12px ${cssVar('--font-sans', 'sans-serif')}`,
       },
     }],
+  };
+}
+
+export function mountAccountVideoChart(
+  host: HTMLElement,
+  stats: LibraryStats,
+  metric: ChartMetric = 'video',
+): void {
+  if (!host.isConnected) {
+    disposeAccountVideoChart();
+    return;
+  }
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const sig = chartSignature(stats, metric, reducedMotion);
+  if (accountVideoChart && accountVideoHost === host && accountVideoSignature === sig) return;
+
+  if (!accountVideoChart || accountVideoHost !== host) {
+    disposeAccountVideoChart();
+    accountVideoChart = echarts.init(host, undefined, {
+      renderer: 'canvas',
+      useDirtyRect: false,
+    });
+    accountVideoHost = host;
+  }
+
+  const accounts = [...stats.accounts]
+    .filter(account => countFor(account, metric) > 0)
+    .sort((a, b) => countFor(b, metric) - countFor(a, metric));
+  const option = buildChartOption(accounts, metric, chartPalette(), reducedMotion);
+  accountVideoChart.setOption(option, {
+    notMerge: true,
+    lazyUpdate: false,
   });
+  accountVideoSignature = sig;
 
   const instance = accountVideoChart;
-  if ('ResizeObserver' in window) {
+  if (!accountVideoResizeObserver && 'ResizeObserver' in window) {
     accountVideoResizeObserver = new ResizeObserver(() => {
       if (accountVideoChart === instance) instance.resize();
     });
@@ -203,4 +272,6 @@ export function disposeAccountVideoChart(): void {
     accountVideoChart.dispose();
     accountVideoChart = null;
   }
+  accountVideoHost = null;
+  accountVideoSignature = null;
 }

@@ -2,9 +2,11 @@
  * WonderfulUI main app — 3-pane layout wired to the local library.
  *
  * Data flow (SQLite library):
- *   tauri::scan_all  ->  Rust refreshes the SQLite library through the
- *                        WonderfulDb source adapter, then returns a flat
- *                        matches array plus per-account metadata.
+ *   tauri::scan_shell -> returns the existing account shell immediately,
+ *                        then refreshes SQLite from WonderfulDb in the
+ *                        background while progress events stream in.
+ *   tauri::load_library -> returns the current flat matches array plus
+ *                          per-account metadata after startup progress.
  *   tauri::get_match_rounds -> reads one full match from SQLite raw_json.
  *   frontend stores accounts + matches, applies search/filter in memory.
  *
@@ -15,7 +17,7 @@
  *            ~500x cheaper over the wire and ~10x faster to parse.
  */
 
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from './tauri-adapter.ts';
 import type { MatchRecord, VideoItem, EventItem, RoundItem } from '@wonderful-ui/parser';
 import { createElement, Play, Settings, Crosshair, Skull, HeartHandshake, TrendingUp, Star, SlidersHorizontal, Zap, Loader2, Crown, Medal, Video, RefreshCw, GripVertical, Pencil } from 'lucide';
 import Sortable from 'sortablejs';
@@ -30,8 +32,9 @@ import { positionFloating, createArrow, referenceAtX } from './floating.ts';
 import { mountScanProgress, type ScanProgressHandle } from './scan-progress.ts';
 import { el } from './dom.ts';
 import { loadRefreshScanMode, saveRefreshScanMode, scanModeLabel, settingsModal, ACCOUNT_VIDEO_CHART_HOST_ID, type LibraryStatsState, type LogPanelState, type LogStatus, type ScrapeMode, type SettingsTab } from './settings-modal.ts';
-import type { LibraryStats } from './library-stats.ts';
+import type { ChartMetric, LibraryStats } from './library-stats.ts';
 import { disposeAccountVideoChart, mountAccountVideoChart } from './library-stats.ts';
+import { pulseRendererForMotion } from './render-pulse.ts';
 
 export const BRAND_NAME = 'WonderfulUI';
 export const BRAND_NAME_BASE = 'Wonderful';
@@ -794,6 +797,7 @@ function renderError(message: string): HTMLElement {
 // ─── toast ─────────────────────────────────────────────────
 let toastTimer: number | null = null;
 function showToast(message: string, kind: 'ok' | 'error' = 'ok') {
+  pulseRendererForMotion(260);
   let host = document.getElementById('toast-host');
   if (!host) {
     host = el('div', { id: 'toast-host' });
@@ -899,6 +903,7 @@ export async function renderApp(root: HTMLElement) {
   let settingsTab: SettingsTab = 'library';
   let logPanel: LogPanelState = { loading: false, status: null, error: null };
   let libraryStats: LibraryStatsState = { loading: false, data: null, error: null };
+  let chartMetric: ChartMetric = 'video';
   let refreshScanMode: ScrapeMode = loadRefreshScanMode();
   let editingAccount: string | null = null;
   let suppressAccountClick = false;
@@ -1271,6 +1276,7 @@ export async function renderApp(root: HTMLElement) {
 
   function beginFilterMotion() {
     if (selectedVideo) return;
+    pulseRendererForMotion(240);
     app.classList.remove('is-filtering');
     void app.offsetWidth;
     app.classList.add('is-filtering');
@@ -1365,7 +1371,7 @@ export async function renderApp(root: HTMLElement) {
     const current = settingsSlot.firstElementChild as HTMLElement | null;
     const currentClosing = current?.classList.contains('is-closing') ?? false;
     if (current && currentClosing === settingsClosing) {
-      const next = settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, settingsClosing);
+      const next = settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, chartMetric, settingsClosing);
       const currentModal = current.querySelector<HTMLElement>('.settings-modal');
       const nextModal = next.querySelector<HTMLElement>('.settings-modal');
       const currentNav = current.querySelector<HTMLElement>('.settings-nav');
@@ -1386,7 +1392,7 @@ export async function renderApp(root: HTMLElement) {
       mountAccountVideoChartIfReady();
       return;
     }
-    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, settingsClosing));
+    settingsSlot.replaceChildren(settingsModal(scraping, refreshScanMode, settingsTab, logPanel, libraryStats, chartMetric, settingsClosing));
     mountAccountVideoChartIfReady();
     pinLogPreviewToLatest();
   }
@@ -1415,6 +1421,11 @@ export async function renderApp(root: HTMLElement) {
       const active = btn.dataset.tab === settingsTab;
       btn.classList.toggle('is-active', active);
       btn.setAttribute('aria-current', active ? 'page' : 'false');
+    }
+    for (const btn of settingsSlot.querySelectorAll<HTMLElement>('[data-action="set-chart-metric"]')) {
+      const active = btn.dataset.metric === chartMetric;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
     }
   }
 
@@ -1473,17 +1484,34 @@ export async function renderApp(root: HTMLElement) {
     refreshSettingsModal();
   }
 
-  function mountAccountVideoChartIfReady() {
+  function mountAccountVideoChartIfReady(metric: ChartMetric = chartMetric) {
     if (settingsTab !== 'library' || !libraryStats.data) {
       disposeAccountVideoChart();
       return;
     }
     const host = document.getElementById(ACCOUNT_VIDEO_CHART_HOST_ID);
     if (host) {
-      mountAccountVideoChart(host, libraryStats.data);
+      mountAccountVideoChart(host, libraryStats.data, metric);
     } else {
       disposeAccountVideoChart();
     }
+  }
+
+  function refreshChartMetricCards() {
+    for (const btn of settingsSlot.querySelectorAll<HTMLElement>('[data-action="set-chart-metric"]')) {
+      const isActive = btn.dataset.metric === chartMetric;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    }
+  }
+
+  function setChartMetric(metric: ChartMetric) {
+    if (metric === chartMetric) return;
+    chartMetric = metric;
+    pulseRendererForMotion(380);
+    mountAccountVideoChartIfReady(metric);
+    refreshChartMetricCards();
+    hideTooltip();
   }
 
   function setSettingsTab(tab: SettingsTab) {
@@ -1515,6 +1543,7 @@ export async function renderApp(root: HTMLElement) {
         refreshSettingsModal();
       }, 150);
     }
+    pulseRendererForMotion(open ? 220 : 180);
     refreshTopbarChrome();
     refreshSettingsModal();
     hideTooltip();
@@ -1821,6 +1850,12 @@ export async function renderApp(root: HTMLElement) {
       if (tabButton) {
         const nextTab: SettingsTab = tabButton.dataset.tab === 'logs' ? 'logs' : 'library';
         setSettingsTab(nextTab);
+        return;
+      }
+      const metricButton = target.closest<HTMLElement>('[data-action="set-chart-metric"]');
+      if (metricButton) {
+        const nextMetric: ChartMetric = metricButton.dataset.metric === 'match' ? 'match' : 'video';
+        setChartMetric(nextMetric);
         return;
       }
       if (target.closest<HTMLElement>('[data-action="refresh-logs"]')) {

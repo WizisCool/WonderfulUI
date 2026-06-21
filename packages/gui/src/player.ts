@@ -9,7 +9,7 @@
  * no box-shadow on the modal). Controls use the Icon Button pattern
  * (32×32, Panel Raised on hover).
  */
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from './tauri-adapter.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 import { createElement, Play, Pause, Volume2, Volume1, VolumeX, FolderOpen, Share2, Maximize2, Minimize2, ChevronLeft, ChevronRight, X, Crosshair, Skull } from 'lucide';
 import { clampSeekMsForDuration, EVENT_PREROLL_MS } from './event-time.ts';

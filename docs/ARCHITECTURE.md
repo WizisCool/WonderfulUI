@@ -1,6 +1,6 @@
 # WonderfulUI Architecture
 
-Last organized: 2026-06-20.
+Last organized: 2026-06-21.
 
 WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻" highlights. Users can browse Valorant highlight metadata and videos without launching Valorant, WeGame, Riot Client, or Vanguard.
 
@@ -9,6 +9,11 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - Runtime: Bun 1.3.14 for CLI and tests, WebView2 V8 for GUI.
 - Shell: Tauri 2.
 - Frontend: Vite + native TypeScript / DOM APIs, no framework.
+- Browser debug runtime: `bun run dev:browser` starts the GUI Vite app only,
+  letting agents open `http://localhost:1420/?debug=1` in a normal browser.
+  The frontend falls back to mock Tauri commands through
+  `packages/gui/src/tauri-adapter.ts`, so UI surfaces can be inspected with
+  browser tooling without reading ACLOS or launching the Tauri shell.
 - Parser: Rust in-process inside the Tauri shell.
 - Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db`.
 - App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
@@ -42,6 +47,13 @@ Account display overrides and drag order live in SQLite `account_preferences`. T
 
 Defined in `src-tauri/src/lib.rs`:
 
+- `scan_shell(dir?: string) -> ScanShellPayload`
+  - Opens the local SQLite library and returns the existing account shell
+    immediately so startup can render without waiting for a full source scan.
+  - Spawns the WonderfulDb source refresh in the background and streams
+    `wui://phase` / per-account progress events to the boot progress UI.
+  - The frontend follows with `load_library()` after startup progress to read
+    the current rounds-stripped library view from SQLite.
 - `scan_all(dir?: string) -> LoadResult`
   - Opens the local SQLite library.
   - Runs the WonderfulDb source adapter in **incremental** mode against `dir` (default `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`).
@@ -93,9 +105,15 @@ Defined in `src-tauri/src/lib.rs`:
 
 ```text
 WebView (packages/gui)
-    invoke scan_all
+    invoke scan_shell
         -> Tauri (src-tauri/src/lib.rs)
-            -> library::scraper refreshes SQLite from WonderfulDb
+            -> library::db loads existing account shell
+            -> background scraper refreshes SQLite from WonderfulDb
+    <- account shell + streamed progress events
+
+WebView (packages/gui)
+    invoke load_library
+        -> Tauri (src-tauri/src/lib.rs)
             -> library::db loads the library view
     <- library matches JSON (rounds stripped)
 
@@ -224,6 +242,20 @@ bun run dev
 - Frontend changes in `packages/gui/src/*.ts`, CSS, or HTML use Vite HMR and should appear in 1-2 seconds.
 - Small Rust changes usually rebuild and relaunch in 3-10 seconds after warmup.
 - Config or dependency changes require restarting `tauri dev`.
+
+For browser-only UI debugging:
+
+```bash
+bun run dev:browser
+```
+
+- Opens the same Vite app on `http://localhost:1420`.
+- Visit `http://localhost:1420/?debug=1` from a normal browser or Browser
+  Skill. Outside Tauri, the mock runtime is also enabled automatically.
+- Browser debug mode serves fixed sample accounts, matches, library stats,
+  logs, asset paths, and safe fake video paths under `D:\WonderfulUIDebug\`.
+- Use this for DOM/CSS/canvas/motion debugging. It must not become a parser or
+  ACLOS data test path; production data access still belongs to Tauri commands.
 
 Use the release loop only when validating a shipped build:
 
