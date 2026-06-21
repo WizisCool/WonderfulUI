@@ -13,7 +13,7 @@ import { invoke, convertFileSrc } from './tauri-adapter.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 import { createElement, Play, Pause, Volume2, Volume1, VolumeX, FolderOpen, Share2, Maximize2, Minimize2, ChevronLeft, ChevronRight, X, Crosshair, Skull } from 'lucide';
 import { clampSeekMsForDuration, EVENT_PREROLL_MS } from './event-time.ts';
-import { effectiveMarkerDurationMs, layoutEventMarkers, MARKER_OVERHEAD_PX, CANVAS_MARKER_THRESHOLD, renderCanvasMarkers, type EventMarkerLayout, type EventMarkerInput } from './player-event-markers.ts';
+import { effectiveMarkerDurationMs, layoutEventMarkers, MARKER_OVERHEAD_PX, CANVAS_MARKER_THRESHOLD, renderCanvasMarkers, type EventMarkerLayout } from './player-event-markers.ts';
 import { eventMarkersForVideo, type EventMarker } from './match-events.ts';
 /* ─── module state (singleton) ─────────────────────────────── */
 
