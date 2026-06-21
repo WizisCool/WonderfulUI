@@ -204,7 +204,7 @@ These are bugs/quirks in ACLOS's own data, not in the parser. The UI has to work
 
 ### Visible event state machine
 
-The shared state machine lives in `packages/gui/src/event-state-machine.ts`
+The shared state machine lives in `packages/gui/src/utils/event-state-machine.ts`
 and is mirrored by `src-tauri/src/library/events.rs` for the SQLite event
 index.
 
@@ -260,7 +260,7 @@ so the UI does not show dots that jump to unrelated moments.
 
 ### Weapon skin → Chinese name
 
-`packages/gui/src/weapons.ts` exports `weaponNameOnly(path)` /
+`packages/gui/src/utils/weapons.ts` exports `weaponNameOnly(path)` /
 `weaponLabel(path)` which strip the Unreal Engine class decoration
 (`…/LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C`)
 and map the weapon code (`LugerPistol`, `RevolverPistol`, `AK`, `MP5`,

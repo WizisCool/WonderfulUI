@@ -87,20 +87,23 @@ Production code must not hard-code user-specific paths.
 
 - Tauri 2 desktop shell.
 - Rust parser runs in-process inside Tauri.
-- Frontend is Vite + native TypeScript / DOM APIs.
+- **Frontend is Vue 3** (`<script setup lang="ts">` + `<style scoped>`) with **Pinia** state management and **vue-router** (`createMemoryHistory`).
 - TS parser remains for CLI and Bun tests.
 - SQLite library lives at `%LOCALAPPDATA%\wonderful-ui\library.db` with **WAL mode** for concurrent reads during writes.
 - WonderfulDb is read only by `src-tauri/src/library/scraper.rs` as a source adapter; Tauri commands must not directly parse WonderfulDb files.
 - The scraper also writes a deduped normalized event index into SQLite `events`. Keep raw match JSON as the replay/audit source; the SQL event index is for fast lookup, migration, and future library features.
 - Account drag order and manual display names are WonderfulUI-local preferences stored in SQLite `account_preferences`; never write them back to `snapshot<openid>` or WonderfulDb.
+- All Tauri `invoke()` calls go through **Pinia store actions** (6 stores: `account`, `filter`, `detail`, `player`, `settings`, `ui`). Components never call `invoke()` directly.
 - GUI calls `scan_all(dir?: string)` / `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full")` to refresh the SQLite library, then receives parsed match JSON from the library view. Startup uses incremental scan; the top-right refresh button uses the user's saved scan mode from the settings modal (`增量扫描` / `全量扫描`). The bulk payload is **rounds-stripped** (see `strip_match_rounds`) to keep IPC small.
 - Round / clip / event data is fetched on demand via the `get_match_rounds(openid, match_id)` Tauri command, which reads the full match JSON from SQLite.
 - No parser sidecar executable is part of the current architecture.
 - **Account scraping is parallelized** with `rayon`: account files are decrypted and parsed in parallel, then written to SQLite sequentially within per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
-- **Match list uses DOM virtual scrolling** (`app.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap).
-- **CSS GPU compositing**: `filter: brightness()` replaced with `::after` overlays, `backdrop-filter: blur()` removed, progress bar uses `transform: scaleX()` / `translateX()` instead of `width`/`left`, ECharts uses `renderer: 'canvas'`.
+- **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a scroll handler computes the visible slice reactively from `scrollTop`. `ROW_HEIGHT = 104` (96 px card + 8 px gap).
+- **CSS GPU compositing**: `filter: brightness()` replaced with `::after` overlays, `backdrop-filter: blur()` removed, progress bar uses `transform: scaleX()` / `translateX()` instead of `width`/`left`, ECharts uses `renderer: 'canvas'`. All component styles use `<style scoped>`; only CSS custom properties, reset, fonts, and shared utilities remain in `assets/style.css`.
 - **Event markers use Canvas rendering** when count > 20 (`CANVAS_MARKER_THRESHOLD` in `player-event-markers.ts`), reducing GPU composited layers from 50+ to 1. DOM path preserved for <= 20 markers.
-- Tooltips and floating overlays use `packages/gui/src/floating.ts` (`@floating-ui/dom`), a shared positioning utility with cursor-aware alignment and edge flips. The global `.tooltip` element lives on `document.body` with a `.floating-arrow` indicator. Event markers on the progress bar detect track space and flip to bottom placement when needed.
+- Tooltips and floating overlays use `packages/gui/src/composables/useFloating.ts` (`@floating-ui/dom`), a shared positioning utility with cursor-aware alignment and edge flips. The global `.tooltip` element lives on `document.body` with a `.floating-arrow` indicator. Event markers on the progress bar detect track space and flip to bottom placement when needed.
+- **Pure logic files** live in `packages/gui/src/utils/` (event-state-machine, match-events, filters, weapons, etc.) — copied verbatim from the pre-Vue codebase with zero logic changes.
+- **App layout** uses CSS Grid: `TopBar` (header), 4-column `.panes` (AccountSidebar / FilterRail / RouterView / DetailView). Player, settings, boot overlay, and toast are Teleported to body or `#player-host`.
 
 More detail: `docs/ARCHITECTURE.md`.
 
@@ -112,14 +115,14 @@ More detail: `docs/ARCHITECTURE.md`.
 - All time and duration fields are milliseconds, but event timestamp semantics are state-specific. `击杀集锦` / `死亡集锦` montage events use `event_sTime` directly as the video timestamp. Moment videos (三杀时刻 / 四杀时刻 / etc.) use `clip_sTime + event_sTime`.
 - There is no universal `max(round_sTime, clip_sTime) + event_sTime` formula. It double-counts observed montage events.
 - `event_ext` carries rich Valorant shot metadata (`KillerPlayerName`, `KilledPlayerName`, `AgentName`, `WeaponSkinName`, `GetShotRolePart` 0=body/1=head/2=leg, `KillerIsMe`, `KilledIsMe`, `AssistNum`).
-- Visible UI events must pass the shared event state machine (`packages/gui/src/event-state-machine.ts`, mirrored by `src-tauri/src/library/events.rs`): `EventName=Shot`, `EventTime` inside the match window, `AgentName` matching the current match agent, killer/victim names present, local-player flags present, shot part present, and video/event type compatible.
+- Visible UI events must pass the shared event state machine (`packages/gui/src/utils/event-state-machine.ts`, mirrored by `src-tauri/src/library/events.rs`): `EventName=Shot`, `EventTime` inside the match window, `AgentName` matching the current match agent, killer/victim names present, local-player flags present, shot part present, and video/event type compatible.
 - Incomplete but shot-like rows are **quarantined**, not displayed. Unsupported or contradictory rows are **rejected**. Neither category may produce event-list rows or progress-bar markers.
 - ACLOS records the same wall-clock kill event under multiple highlight videos for one match (e.g. an event appears in both 击杀集锦 and 三杀时刻). The event list dedupes accepted visible events on `(EventTime, victim)` for kills and `(EventTime, killer)` for deaths in `flattenMatchEvents`. Do not dedupe inside a single video — that data is already clean.
 - If the dedup identity name is missing, do not merge solely by `EventTime` second. Fall back to a composite key using normalized names, weapon, and primary video-time bucket so unrelated same-second rows are preserved.
 - ACLOS highlights can include the **whole team's** kills (all marked `KillerIsMe=1`). The state machine requires explicit local flags for visible rows, but per-match K/D shown in any UI must still come from `m.stats.*`, not from the event count. The list modal uses stats for the header counts and shows events as a playback index.
 - Event playback uses a separate `seekMs`; under the state machine it equals the accepted state's exact video timestamp. `flattenMatchEvents` keeps the best playable duplicate: kills prefer `击杀集锦`, deaths prefer `死亡集锦`.
 - Event row click and progress-bar dot click both apply a 2 s pre-roll (`EVENT_PREROLL_MS` in `event-time.ts`, via `playbackSeekMsForVideo`). The player seeks to `event_time - 2 s` (clamped >= 0) so the user sees the kill/death happen instead of the post-frame. Dot positions on the bar stay at the exact event time for visual reference.
-- Weapon skin paths like `LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C` are normalised in `packages/gui/src/weapons.ts`. Weapon codes are mapped by `WEAPON_CN`; skin Chinese names come from the committed local dump `packages/gui/src/generated/valorant-skins.zh-CN.ts`, refreshed with `bun run update:skins`. Runtime GUI code must not fetch Valorant-API.
+- Weapon skin paths like `LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C` are normalised in `packages/gui/src/utils/weapons.ts`. Weapon codes are mapped by `WEAPON_CN`; skin Chinese names come from the committed local dump `packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, refreshed with `bun run update:skins`. Runtime GUI code must not fetch Valorant-API.
 
 ## Reference Docs
 
