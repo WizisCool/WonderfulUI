@@ -542,6 +542,7 @@ pub fn scrape_wonderful_dir_with_mode(
         let mut acc_events = 0usize;
         match parser::parse_wonderful_db(path, openid) {
             Ok(file) => {
+                conn.execute("BEGIN IMMEDIATE", []).map_err(|e| e.to_string())?;
                 upsert_account(
                     conn,
                     openid,
@@ -563,6 +564,7 @@ pub fn scrape_wonderful_dir_with_mode(
                     acc_matches += 1;
                     summary.matches_seen += 1;
                 }
+                conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
                 summary.videos_seen += acc_videos;
                 summary.events_seen += acc_events;
                 let acc_duration = now_ms() - account_start;
@@ -590,6 +592,7 @@ pub fn scrape_wonderful_dir_with_mode(
                 }
             }
             Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
                 let message = format!("parse {}: {}", path.display(), e);
                 upsert_account(
                     conn,

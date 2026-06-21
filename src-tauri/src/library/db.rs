@@ -17,6 +17,8 @@ pub fn open_library() -> std::result::Result<Connection, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
     let path = dir.join("library.db");
     let conn = Connection::open(&path).map_err(|e| format!("open {}: {}", path.display(), e))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+        .map_err(|e| format!("pragma {}: {}", path.display(), e))?;
     migrate(&conn).map_err(|e| format!("migrate {}: {}", path.display(), e))?;
     Ok(conn)
 }
