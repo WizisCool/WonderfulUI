@@ -450,12 +450,6 @@ function onTimeUpdate() {
   }
 }
 
-function onError() {
-  showLoading.value = false;
-  showError.value = true;
-  showControls();
-}
-
 function revealInExplorer() {
   invoke('reveal_in_explorer', { path: videoPath.value }).catch((e) => {
     ui.showToast(`打开资源管理器失败: ${e}`, 'error');
