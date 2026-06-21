@@ -257,7 +257,7 @@
       </template>
 
       <!-- About tab -->
-      <template v-else>
+      <template v-else-if="settings.activeTab === 'about'">
         <section class="settings-section">
           <div class="settings-section-head">
             <h3>关于 WonderfulUI</h3>
