@@ -24,8 +24,11 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { listen, type UnlistenFn } from '../../tauri-adapter.ts';
 import { pulseRendererForMotion } from '../../utils/render-pulse.ts';
+import { useUiStore } from '../../stores/ui.ts';
+import { watch } from 'vue';
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
+const ui = useUiStore();
 
 const visible = ref(false);
 const mode = ref<'boot' | 'overlay'>('boot');
@@ -141,6 +144,17 @@ onMounted(() => {
 onUnmounted(() => {
   dispose();
 });
+
+watch(() => ui.scanOverlayVisible, (v) => {
+  if (v) {
+    start({ mode: 'overlay', initialLabel: ui.scanOverlayLabel, initialPct: ui.scanOverlayPct });
+  } else {
+    complete();
+  }
+});
+
+watch(() => ui.scanOverlayLabel, (l) => { update(l); });
+watch(() => ui.scanOverlayPct, (p) => { pct.value = p; });
 
 defineExpose({ start, update, complete, dispose });
 </script>

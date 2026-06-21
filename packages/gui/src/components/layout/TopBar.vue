@@ -51,10 +51,12 @@ import { RefreshCw, Settings } from 'lucide-vue-next';
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
+import { useUiStore } from '../../stores/ui.ts';
 
 const account = useAccountStore();
 const filter = useFilterStore();
 const settings = useSettingsStore();
+const ui = useUiStore();
 
 const router = useRouter();
 
@@ -72,8 +74,13 @@ function onQueryEscape(e: Event) {
 }
 
 async function onScrape() {
-  await account.scrapeLibrary(filter.refreshScanMode);
-  (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
+  if (filter.refreshScanMode === 'full') ui.showScanOverlay();
+  try {
+    await account.scrapeLibrary(filter.refreshScanMode);
+    (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
+  } finally {
+    if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
+  }
 }
 </script>
 

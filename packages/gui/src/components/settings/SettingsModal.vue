@@ -229,6 +229,7 @@ import {
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
+import { useUiStore } from '../../stores/ui.ts';
 import { invoke } from '../../tauri-adapter.ts';
 import { fmtBytes, CHART_METRIC_LABELS, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
 import type { LibraryStats } from '../../utils/library-stats.ts';
@@ -236,6 +237,7 @@ import type { LibraryStats } from '../../utils/library-stats.ts';
 const account = useAccountStore();
 const filter = useFilterStore();
 const settings = useSettingsStore();
+const ui = useUiStore();
 
 const chartRef = ref<HTMLElement | null>(null);
 
@@ -297,7 +299,12 @@ const logPreviewText = computed(() => {
 });
 
 async function onFullScan() {
-  await account.scrapeLibrary('full');
+  ui.showScanOverlay();
+  try {
+    await account.scrapeLibrary('full');
+  } finally {
+    ui.hideScanOverlay();
+  }
   settings.fetchLibraryStats();
 }
 

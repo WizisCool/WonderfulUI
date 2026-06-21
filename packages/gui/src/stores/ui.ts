@@ -17,5 +17,26 @@ export const useUiStore = defineStore('ui', () => {
     }, kind === 'error' ? 6000 : 2500);
   }
 
-  return { toastMessage, toastKind, toastVisible, showToast };
+  const scanOverlayVisible = ref(false);
+  const scanOverlayLabel = ref('正在准备全量扫描…');
+  const scanOverlayPct = ref(5);
+
+  function showScanOverlay() {
+    scanOverlayVisible.value = true;
+    scanOverlayLabel.value = '正在准备全量扫描…';
+    scanOverlayPct.value = 5;
+  }
+
+  function updateScanOverlay(label: string, pct: number) {
+    scanOverlayLabel.value = label;
+    scanOverlayPct.value = pct;
+  }
+
+  function hideScanOverlay() {
+    scanOverlayVisible.value = false;
+  }
+
+  return { toastMessage, toastKind, toastVisible, showToast,
+    scanOverlayVisible, scanOverlayLabel, scanOverlayPct,
+    showScanOverlay, updateScanOverlay, hideScanOverlay };
 });
