@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="settings.isOpen" class="settings-modal-backdrop" :class="{ 'is-closing': settings.isClosing }">
+    <div v-if="settings.isOpen" class="settings-modal-backdrop" :class="{ 'is-closing': settings.isClosing }" @click.self="settings.setOpen(false)">
       <section
         class="settings-modal"
         role="dialog"
@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue';
+import { watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSettingsStore } from '../stores/settings.ts';
 import SettingsModal from '../components/settings/SettingsModal.vue';
@@ -37,6 +37,16 @@ watch(() => settings.isOpen, (open) => {
     router.push({ name: 'home' });
   }
 });
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && settings.isOpen) {
+    e.stopPropagation();
+    settings.setOpen(false);
+  }
+}
+
+onMounted(() => document.addEventListener('keydown', onKeydown, true));
+onUnmounted(() => document.removeEventListener('keydown', onKeydown, true));
 </script>
 
 <style scoped>
