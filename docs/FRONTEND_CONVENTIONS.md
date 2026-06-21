@@ -174,16 +174,16 @@ Account list uses a custom tooltip, not native `title=`.
 
 ## Settings Modal
 
-- The top-right refresh icon is the fast path: it calls `scrape_library` with the user's saved refresh-button mode.
-- The top-right settings icon opens a centered settings modal, not a side drawer.
+- The match-list header refresh icon is the fast path: it calls `scrape_library` with the user's saved refresh-button mode.
+- The sidebar-bottom settings button opens a centered settings modal, not a side drawer.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
 - The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus an ECharts donut chart showing per-account video-count share. It is a library composition view, not a storage/disk-usage view.
 - The `资料库概览` chart is mounted by `mountAccountVideoChart` from `packages/gui/src/utils/library-stats.ts` via a Vue `ref` on the chart container. The chart center overlay (total count + label) is rendered as a Vue template element, not via DOM manipulation. `mountAccountVideoChart` returns `{ total, label, emptyLabel }` for the reactive overlay. Dispose the chart when the settings tab leaves `资料库` or the modal closes; do not leave hidden canvas instances around.
 - Known handoff (2026-06-21): the ECharts donut hover tooltip can visually flicker during continuous mouse movement. Prefer official ECharts tooltip/emphasis/graphic options over custom tooltip implementations, click-only fallbacks, or disabling hover wholesale. Current investigation found that putting the fixed center total in the pie `series.label` makes it participate in slice hover state; keep fixed center totals in a static ECharts `graphic` layer instead. HTML tooltip placement over or near the donut may also interfere with hover hit testing; evaluate official `tooltip.position`, `confine`, and `renderMode` options without requiring Browser Skill-only workflows.
-- Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the top-right refresh button/settings full-scan action are the scan controls.
+- Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the match-list header refresh button / settings full-scan action are the scan controls.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
-- Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库` and `日志`.
+- Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库`, `日志`, and `关于`.
 - The `日志` tab reads from Tauri `get_log_status` and opens the WonderfulUI log directory through `reveal_logs_dir`; frontend code must not read arbitrary local files directly.
 - The `日志` tab shows one app-owned log file only. Do not expose automatic maintenance as a user setting; it is backend behavior.
 - Do not show the full absolute log path as primary UI. Show the log filename/status and rely on `打开目录` for filesystem location.

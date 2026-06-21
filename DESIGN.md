@@ -256,7 +256,7 @@ flow. It must stay visually quiet and native to the app shell.
 but should not make the dialog feel like a separate product.
 
 **Layout:** A compact left section nav and right grouped setting rows. The
-top-right refresh action uses the saved refresh-button mode. Settings expose
+match-list header refresh action uses the saved refresh-button mode. Settings expose
 that mode as `增量扫描` / `全量扫描`. The direct full scan maintenance action
 also lives here and should use a restrained outline/ghost button, not a full
 red primary button.

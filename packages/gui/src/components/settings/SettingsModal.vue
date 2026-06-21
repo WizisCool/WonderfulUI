@@ -14,11 +14,11 @@
   </header>
   <div class="settings-modal-body">
     <nav class="settings-nav" aria-label="设置分区">
-      <button
+       <button
         class="settings-nav-item"
         :class="{ 'is-active': settings.activeTab === 'library' }"
         type="button"
-        aria-current="page"
+        :aria-current="settings.activeTab === 'library' ? 'page' : undefined"
         @click="settings.setTab('library')"
       >
         <WIcon icon="ph:database" :size="16" />
@@ -28,16 +28,29 @@
         class="settings-nav-item"
         :class="{ 'is-active': settings.activeTab === 'logs' }"
         type="button"
-        aria-current="false"
+        :aria-current="settings.activeTab === 'logs' ? 'page' : undefined"
         @click="settings.setTab('logs')"
       >
         <WIcon icon="ph:bug" :size="16" />
         <span>日志</span>
       </button>
+      <button
+        class="settings-nav-item"
+        :class="{ 'is-active': settings.activeTab === 'about' }"
+        type="button"
+        :aria-current="settings.activeTab === 'about' ? 'page' : undefined"
+        @click="settings.setTab('about')"
+      >
+        <WIcon icon="ph:info" :size="16" />
+        <span>关于</span>
+      </button>
     </nav>
     <main
       class="settings-content"
-      :class="settings.activeTab === 'logs' ? 'settings-content--logs' : 'settings-content--library'"
+      :class="{
+        'settings-content--logs': settings.activeTab === 'logs',
+        'settings-content--library': settings.activeTab !== 'logs',
+      }"
     >
       <!-- Library tab -->
       <template v-if="settings.activeTab === 'library'">
@@ -153,7 +166,7 @@
             <div class="settings-row-main">
               <div class="settings-row-title">刷新模式</div>
               <div class="settings-row-sub settings-sub-line">
-                决定右上角 <WIcon icon="ph:arrows-clockwise" :size="12" /> 刷新按钮的工作方式
+                决定对局列表头部 <WIcon icon="ph:arrows-clockwise" :size="12" /> 刷新按钮的工作方式
               </div>
             </div>
             <div class="settings-segment" role="radiogroup" aria-label="扫描模式">
@@ -194,7 +207,7 @@
       </template>
 
       <!-- Logs tab -->
-      <template v-else>
+      <template v-else-if="settings.activeTab === 'logs'">
         <section class="settings-log-panel">
           <header class="settings-log-toolbar">
             <div class="settings-log-identity">
@@ -242,6 +255,24 @@
           </section>
         </section>
       </template>
+
+      <!-- About tab -->
+      <template v-else>
+        <section class="settings-section">
+          <div class="settings-section-head">
+            <h3>关于 WonderfulUI</h3>
+          </div>
+          <div class="settings-row settings-row-stack">
+            <div class="settings-row-main">
+              <div class="settings-row-title">版本</div>
+              <div class="settings-row-sub">v{{ APP_VERSION }}</div>
+            </div>
+            <div class="settings-row-main">
+              <div class="settings-row-sub is-muted">无畏时刻高光离线浏览器。无需启动游戏即可浏览 VALORANT 高光时刻的元数据与本地录像。</div>
+            </div>
+          </div>
+        </section>
+      </template>
     </main>
   </div>
 </template>
@@ -254,6 +285,7 @@ import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke } from '../../tauri-adapter.ts';
+import { APP_VERSION } from '../../utils/version.ts';
 import { fmtBytes, CHART_METRIC_LABELS, CHART_METRIC_EMPTY, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
 import type { LibraryStats } from '../../utils/library-stats.ts';
 
@@ -516,6 +548,11 @@ onUnmounted(() => {
 }
 .settings-row-sub.is-error {
   color: var(--warn);
+}
+.settings-row-sub.is-muted {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
 }
 .settings-sub-line {
   display: inline-flex; align-items: center; gap: 4px;

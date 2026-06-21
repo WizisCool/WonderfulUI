@@ -71,6 +71,19 @@
       </div>
       </div>
     </div>
+    <div class="pane-foot">
+      <button
+        class="pane-foot-item"
+        type="button"
+        aria-label="设置"
+        :data-tip="'设置'"
+        @click="settings.setOpen(true)"
+      >
+        <WIcon icon="ph:gear" :size="14" />
+        <span>设置</span>
+      </button>
+      <span class="pane-foot-version">v{{ APP_VERSION }}</span>
+    </div>
   </aside>
 </template>
 
@@ -80,9 +93,12 @@ import WIcon from './WIcon.vue';
 import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
+import { useSettingsStore } from '../../stores/settings.ts';
+import { APP_VERSION } from '../../utils/version.ts';
 
 const account = useAccountStore();
 const filterStore = useFilterStore();
+const settings = useSettingsStore();
 
 const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
@@ -362,4 +378,32 @@ onUnmounted(() => {
 }
 .account.is-all .account-name { font-weight: var(--w-semibold); }
 .account.is-all .account-main { gap: 0; }
+
+.pane-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 40px;
+  padding: 0 var(--pad);
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.pane-foot-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  border-radius: var(--radius);
+  padding: 4px 7px;
+  transition: color 80ms ease-out, background 80ms ease-out;
+}
+.pane-foot-item:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.pane-foot-version {
+  color: var(--ink-4);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  user-select: text;
+}
 </style>

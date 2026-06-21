@@ -95,7 +95,7 @@ Production code must not hard-code user-specific paths.
 - The scraper also writes a deduped normalized event index into SQLite `events`. Keep raw match JSON as the replay/audit source; the SQL event index is for fast lookup, migration, and future library features.
 - Account drag order and manual display names are WonderfulUI-local preferences stored in SQLite `account_preferences`; never write them back to `snapshot<openid>` or WonderfulDb.
 - All Tauri `invoke()` calls go through **Pinia store actions** (6 stores: `account`, `filter`, `detail`, `player`, `settings`, `ui`). Components never call `invoke()` directly.
-- GUI calls `scan_all(dir?: string)` / `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full")` to refresh the SQLite library, then receives parsed match JSON from the library view. Startup uses incremental scan; the top-right refresh button uses the user's saved scan mode from the settings modal (`增量扫描` / `全量扫描`). The bulk payload is **rounds-stripped** (see `strip_match_rounds`) to keep IPC small.
+- GUI calls `scan_all(dir?: string)` / `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full")` to refresh the SQLite library, then receives parsed match JSON from the library view. Startup uses incremental scan; the match-list header refresh button uses the user's saved scan mode from the settings modal (`增量扫描` / `全量扫描`). The bulk payload is **rounds-stripped** (see `strip_match_rounds`) to keep IPC small.
 - Round / clip / event data is fetched on demand via the `get_match_rounds(openid, match_id)` Tauri command, which reads the full match JSON from SQLite.
 - No parser sidecar executable is part of the current architecture.
 - **Account scraping is parallelized** with `rayon`: account files are decrypted and parsed in parallel, then written to SQLite sequentially within per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
@@ -105,6 +105,8 @@ Production code must not hard-code user-specific paths.
 - Tooltips and floating overlays use `packages/gui/src/composables/useFloating.ts` (`@floating-ui/dom`), a shared positioning utility with cursor-aware alignment and edge flips. The global `.tooltip` element lives on `document.body` with a `.floating-arrow` indicator. Event markers on the progress bar detect track space and flip to bottom placement when needed.
 - **Pure logic files** live in `packages/gui/src/utils/` (event-state-machine, match-events, filters, weapons, player-state, etc.) — copied verbatim from the pre-Vue codebase with zero logic changes.
 - **App layout** uses CSS Grid: `TopBar` (header), 4-column `.panes` (AccountSidebar / FilterRail / RouterView / DetailView). Player, settings, boot overlay, and toast are Teleported to body or `#player-host`.
+- **AccountSidebar** has a fixed `.pane-foot` at the bottom with a settings button (gear icon + "设置") and app version (`vX.Y.Z`, from `packages/gui/src/utils/version.ts`). Settings modal includes an `关于` tab with version info.
+- **Match-list header** (`HomeView` `.pane-head-right`) hosts the refresh/scan button; `TopBar` right side is intentionally empty. Both the sidebar settings button and the match-list refresh button use the same compact bordered style (24 px tall, matching the filter toggle).
 
 More detail: `docs/ARCHITECTURE.md`.
 

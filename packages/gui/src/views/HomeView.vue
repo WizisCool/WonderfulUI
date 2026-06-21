@@ -23,6 +23,17 @@
           </template>
           <template v-else>{{ accountMatches.length }} 条 · 时间倒序</template>
         </span>
+        <button
+          class="pane-head-action"
+          :class="{ 'is-loading': account.scraping }"
+          :aria-label="account.scraping ? '正在扫描资料库' : scanLabel + '资料库'"
+          :data-tip="account.scraping ? '正在扫描资料库' : scanLabel + '资料库'"
+          type="button"
+          :disabled="account.scraping"
+          @click="onScrape"
+        >
+          <WIcon icon="ph:arrows-clockwise" :size="14" />
+        </button>
       </div>
     </div>
     <div class="match-list" role="listbox" ref="listRef" @scroll="onScroll">
@@ -63,6 +74,7 @@ import { useAccountStore } from '../stores/account.ts';
 import { useFilterStore } from '../stores/filter.ts';
 import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
+import { useUiStore } from '../stores/ui.ts';
 import { useVirtualScroll } from '../composables/useVirtualScroll.ts';
 import MatchCard from '../components/match/MatchCard.vue';
 import type { MatchRecord } from '@wonderful-ui/parser';
@@ -72,6 +84,7 @@ const account = useAccountStore();
 const filter = useFilterStore();
 const detail = useDetailStore();
 const player = usePlayerStore();
+const ui = useUiStore();
 
 const listRef = ref<HTMLElement | null>(null);
 
@@ -85,6 +98,18 @@ const accountMatches = computed(() => {
 const filteredMatches = computed(() => filter.applyToMatches(account.matches, accountMatches.value));
 
 const { totalHeight, visibleMatches, onScroll } = useVirtualScroll(filteredMatches, listRef);
+
+const scanLabel = computed(() => filter.refreshScanMode === 'full' ? '全量扫描' : '增量扫描');
+
+async function onScrape() {
+  if (filter.refreshScanMode === 'full') ui.showScanOverlay();
+  try {
+    await account.scrapeLibrary(filter.refreshScanMode);
+    (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
+  } finally {
+    if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
+  }
+}
 
 function playFirst(m: MatchRecord) {
   const video = m.videos[0];
@@ -129,5 +154,37 @@ function playFirst(m: MatchRecord) {
 .scope-filter-toggle.is-open .scope-filter-toggle-count {
   color: var(--accent);
   background: var(--surface-2);
+}
+.pane-head-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 100ms ease-out, color 100ms ease-out, background 100ms ease-out;
+}
+.pane-head-action:hover {
+  color: var(--ink);
+  border-color: var(--ink-4);
+}
+.pane-head-action:disabled {
+  opacity: 0.68;
+  cursor: default;
+}
+.pane-head-action.is-loading svg {
+  animation: spin 900ms linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-head-action.is-loading svg {
+    animation-duration: 1600ms;
+  }
 }
 </style>

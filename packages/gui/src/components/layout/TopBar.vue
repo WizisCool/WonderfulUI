@@ -18,48 +18,15 @@
         @keydown.escape="onQueryEscape"
       />
     </div>
-    <div class="topbar-right">
-      <button
-        class="iconbtn scrape-btn"
-        :class="{ 'is-loading': account.scraping }"
-        :aria-label="account.scraping ? '正在扫描资料库' : scanLabel + '资料库'"
-        :data-tip="account.scraping ? '正在扫描资料库' : scanLabel + '资料库'"
-        type="button"
-        :disabled="account.scraping"
-        @click="onScrape"
-      >
-        <WIcon icon="ph:arrows-clockwise" :size="16" />
-      </button>
-      <button
-        class="iconbtn settings-btn"
-        :class="{ 'is-active': settings.isOpen }"
-        aria-label="设置"
-        data-tip="设置"
-        type="button"
-        @click="settings.setOpen(true)"
-      >
-        <WIcon icon="ph:gear" :size="16" />
-      </button>
-    </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import WIcon from '../common/WIcon.vue';
-import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
-import { useSettingsStore } from '../../stores/settings.ts';
-import { useUiStore } from '../../stores/ui.ts';
 
-const account = useAccountStore();
 const filter = useFilterStore();
-const settings = useSettingsStore();
-const ui = useUiStore();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
-
-const scanLabel = computed(() => filter.refreshScanMode === 'full' ? '全量扫描' : '增量扫描');
 
 function onQueryInput(e: Event) {
   filter.setFilters({ query: (e.target as HTMLInputElement).value });
@@ -68,16 +35,6 @@ function onQueryInput(e: Event) {
 function onQueryEscape(e: Event) {
   filter.setFilters({ query: '' });
   (e.target as HTMLInputElement).value = '';
-}
-
-async function onScrape() {
-  if (filter.refreshScanMode === 'full') ui.showScanOverlay();
-  try {
-    await account.scrapeLibrary(filter.refreshScanMode);
-    (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
-  } finally {
-    if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
-  }
 }
 </script>
 
@@ -107,16 +64,4 @@ async function onScrape() {
 }
 .search::placeholder { color: var(--ink-3); }
 .search:focus { border-color: var(--accent); outline: none; }
-.topbar-right { display: flex; justify-content: flex-end; gap: 6px; }
-.scrape-btn.is-loading svg {
-  animation: spin 900ms linear infinite;
-  transform-origin: center;
-  transform-box: fill-box;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .scrape-btn.is-loading svg {
-    animation-duration: 1600ms;
-  }
-}
 </style>

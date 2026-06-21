@@ -80,7 +80,19 @@ if (existsSync(cliPath)) {
   console.log(`  packages/parser/cli.ts VERSION  ${current} -> ${next}`);
 }
 
-// 8. update versions.json if it exists
+// 8. update packages/gui/src/utils/version.ts APP_VERSION constant
+const versionTsPath = join(ROOT, 'packages', 'gui', 'src', 'utils', 'version.ts');
+if (existsSync(versionTsPath)) {
+  let versionTsText = readFileSync(versionTsPath, 'utf8');
+  versionTsText = versionTsText.replace(
+    /const APP_VERSION = ['"][^'"]+['"];/,
+    `const APP_VERSION = '${next}';`,
+  );
+  writeFileSync(versionTsPath, versionTsText);
+  console.log(`  packages/gui/src/utils/version.ts APP_VERSION  ${current} -> ${next}`);
+}
+
+// 9. update versions.json if it exists (moved from step 8)
 const versionsJsonPath = join(ROOT, 'versions.json');
 if (existsSync(versionsJsonPath)) {
   const versions = readJson(versionsJsonPath);
@@ -97,7 +109,7 @@ if (existsSync(versionsJsonPath)) {
   console.log(`  versions.json  ${current} -> ${next}`);
 }
 
-// 9. git commit + tag
+// 10. git commit + tag
 execSync('git add -A', { cwd: ROOT, stdio: 'inherit' });
 execSync(`git commit -m "chore(release): v${next}"`, { cwd: ROOT, stdio: 'inherit' });
 execSync(`git tag v${next}`, { cwd: ROOT, stdio: 'inherit' });

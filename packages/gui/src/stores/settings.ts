@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
 import type { LibraryStats } from '../utils/library-stats.ts';
 
-export type SettingsTab = 'library' | 'logs';
+export type SettingsTab = 'library' | 'logs' | 'about';
 
 export interface LogStatus {
   logDir: string; logPath: string; size: number;

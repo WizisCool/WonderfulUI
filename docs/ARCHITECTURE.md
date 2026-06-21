@@ -70,7 +70,7 @@ Defined in `src-tauri/src/lib.rs`:
     instead of ~6 MB. Use `get_match_rounds` to fetch the rest on demand.
 - `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full") -> LoadResult`
   - Manually refreshes the local SQLite library from the configured WonderfulDb source, then returns the same library view as `scan_all`.
-  - Missing or unknown `mode` defaults to `incremental`. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the top-right refresh button. The settings modal's direct full scan action passes `mode: "full"`.
+  - Missing or unknown `mode` defaults to `incremental`. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
   - Manual source failures return an error so the user gets explicit feedback.
 - `load_library() -> LoadResult`
   - Returns the current SQLite library view without reading WonderfulDb.
