@@ -301,7 +301,7 @@ export function mountAccountVideoChart(
   if (!accountVideoChart || accountVideoHost !== host) {
     disposeAccountVideoChart();
     accountVideoChart = echarts.init(host, undefined, {
-      renderer: 'svg',
+      renderer: 'canvas',
     });
     accountVideoHost = host;
   }
