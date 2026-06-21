@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { CANVAS_MARKER_THRESHOLD, effectiveMarkerDurationMs, layoutEventMarkers, renderCanvasMarkers } from '../src/player-event-markers.ts';
+import { CANVAS_MARKER_THRESHOLD, effectiveMarkerDurationMs, layoutEventMarkers, renderCanvasMarkers } from '../src/utils/player-event-markers.ts';
 
 describe('layoutEventMarkers', () => {
   test('places kill and death events on separate lanes', () => {

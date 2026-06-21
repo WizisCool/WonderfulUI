@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { accountChartSlices, type AccountStat } from '../src/library-stats.ts';
+import { accountChartSlices, type AccountStat } from '../src/utils/library-stats.ts';
 
 function account(input: Partial<AccountStat> & Pick<AccountStat, 'openid' | 'label'>): AccountStat {
   return {

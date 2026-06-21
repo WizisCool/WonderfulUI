@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { MatchRecord, RoundClip, RoundItem, VideoItem } from '@wonderful-ui/parser';
-import { normalizeMatchEvents } from '../src/match-events.ts';
-import { resolveClipEventState } from '../src/event-state-machine.ts';
+import { normalizeMatchEvents } from '../src/utils/match-events.ts';
+import { resolveClipEventState } from '../src/utils/event-state-machine.ts';
 
 function clip(event: Record<string, unknown>, clip_sTime = 0): RoundClip {
   return {

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   accountDisplayLabel,
   applyAccountOrder,
-} from '../src/account-preferences.ts';
+} from '../src/utils/account-preferences.ts';
 
 describe('account preferences', () => {
   test('custom label overrides snapshot name and empty custom label falls back', () => {

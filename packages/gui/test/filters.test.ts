@@ -2,9 +2,9 @@ import { describe, test, expect } from 'bun:test';
 import {
   EMPTY_FILTERS, activeFilterCount,
   FilterState, kdaOf, kdOf, matchDurationSec, normalizeVisibleFilters, videoTotalDuration,
-} from '../src/filters.ts';
-import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/filter-engine.ts';
-import { endOfSelectedDayForFilter } from '../src/date-picker.ts';
+} from '../src/utils/filters.ts';
+import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
+import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 
 function mkVideo(overrides: Partial<VideoItem> = {}): VideoItem {

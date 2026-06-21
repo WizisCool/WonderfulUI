@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { VideoItem } from '@wonderful-ui/parser';
-import { clampSeekMsForDuration, eventSeekMsForVideo, playbackSeekMsForVideo, EVENT_PREROLL_MS } from '../src/event-time.ts';
+import { clampSeekMsForDuration, eventSeekMsForVideo, playbackSeekMsForVideo, EVENT_PREROLL_MS } from '../src/utils/event-time.ts';
 
 describe('eventSeekMsForVideo', () => {
   test('uses the primary video timestamp when it fits the video duration', () => {

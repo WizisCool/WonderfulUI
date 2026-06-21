@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
-import { eventMarkersForVideo, normalizeMatchEvents } from '../src/match-events.ts';
+import { eventMarkersForVideo, normalizeMatchEvents } from '../src/utils/match-events.ts';
 
 function shot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

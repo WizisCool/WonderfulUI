@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
-import { flattenMatchEvents } from '../src/event-list-modal.ts';
+import { normalizeMatchEvents as flattenMatchEvents } from '../src/utils/match-events.ts';
 
 function strictMatch(videos: VideoItem[], agentName = 'Cypher'): MatchRecord {
   return {

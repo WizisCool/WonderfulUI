@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { weaponLabel, weaponNameOnly } from '../src/weapons.ts';
+import { weaponLabel, weaponNameOnly } from '../src/utils/weapons.ts';
 
 describe('weapon name normalization', () => {
   test('maps ACLOS internal weapon codes before the skin suffix', () => {
