@@ -1,9 +1,11 @@
 {
   "name": "wonderful-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bunx tauri dev",
     "dev:browser": "bun run --cwd packages/gui dev -- --host 127.0.0.1",
