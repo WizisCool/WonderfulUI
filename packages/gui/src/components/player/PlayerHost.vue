@@ -25,8 +25,8 @@
         <div ref="loadingRef" class="player-loading" :class="{ 'is-hidden': !showLoading }">
           <img v-if="posterSrc" class="player-loading-poster" :src="posterSrc" alt="" />
           <div v-else class="player-loading-poster" />
-          <div class="player-loading-darken" />
-          <div class="player-spinner" />
+          <div v-if="!isDimOverlay" class="player-loading-darken" />
+          <div v-if="showSpinner" class="player-spinner" />
         </div>
 
         <div class="player-error" :class="{ 'is-hidden': !showError }">
@@ -59,7 +59,7 @@
 
         <PlayerControls
           ref="controlsRef"
-          :playing="isPlaying"
+          :playing="controlsPlaying"
           :current-time-str="currentTimeStr"
           :duration-str="durationStr"
           :current-time="currentTime"
@@ -102,6 +102,7 @@ import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
+import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import type { VideoItem } from '@wonderful-ui/parser';
 
@@ -116,29 +117,33 @@ const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
 const progressWrapRef = ref<HTMLElement | null>(null);
 const loadingRef = ref<HTMLElement | null>(null);
 
-const isPlaying = ref(false);
+const state = ref<PlayerState>('loading');
+const bufferingMode = ref<BufferingMode>('hidden');
+let stateBeforeSeek: PlayerState | null = null;
+let lastSeekTime = 0;
+let bufferingTimer: ReturnType<typeof setTimeout> | null = null;
+
+const showLoading = computed(() => state.value === 'loading' || state.value === 'buffering');
+const showSpinner = computed(() => state.value === 'loading' || bufferingMode.value === 'spinner');
+const isDimOverlay = computed(() => bufferingMode.value === 'dim-overlay');
+const showReplay = computed(() => state.value === 'ended');
+const showFrameStepper = computed(() => state.value === 'paused');
+const showError = ref(false);
+const controlsPlaying = computed(() => state.value === 'playing' || state.value === 'buffering');
 const currentTime = ref(0);
 const duration = ref(0);
-const showLoading = ref(true);
-const showError = ref(false);
-const showReplay = ref(false);
-const showFrameStepper = ref(false);
-const isBuffering = ref(false);
-let wasPlayingBeforeBuffering = false;
-let isInitialLoad = true;
 
 watch(() => player.isOpen, (open) => {
   if (open) {
-    isPlaying.value = false;
+    state.value = 'loading';
+    bufferingMode.value = 'hidden';
+    stateBeforeSeek = null;
+    lastSeekTime = 0;
+    clearBufferingTimer();
     currentTime.value = 0;
     duration.value = 0;
-    showLoading.value = true;
+    lastBufferedPct.value = 0;
     showError.value = false;
-    showReplay.value = false;
-    showFrameStepper.value = false;
-    isBuffering.value = false;
-    wasPlayingBeforeBuffering = false;
-    isInitialLoad = true;
     seeked = false;
   }
 });
@@ -285,7 +290,7 @@ function showControls() {
 
 function scheduleHide() {
   clearHideTimer();
-  if (!isPlaying.value) return;
+  if (state.value !== 'playing' && state.value !== 'buffering') return;
   hideTimer = setTimeout(() => {
     const ctrl = controlsRef.value?.$el as HTMLElement | undefined;
     ctrl?.classList.add('is-hidden');
@@ -316,7 +321,6 @@ function replay() {
   if (!v) return;
   v.currentTime = 0;
   v.play().catch(() => {});
-  showReplay.value = false;
 }
 
 function stepFrame(delta: number) {
@@ -371,52 +375,62 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
-  showLoading.value = false;
-  if (isInitialLoad) {
-    isInitialLoad = false;
+  if (state.value === 'loading') {
+    state.value = 'playing';
     videoRef.value?.play().catch(() => {});
     return;
   }
-  if (isBuffering.value) {
-    isBuffering.value = false;
-    if (wasPlayingBeforeBuffering) {
+  if (state.value === 'buffering') {
+    clearBufferingTimer();
+    bufferingMode.value = 'hidden';
+    state.value = stateBeforeSeek ?? 'paused';
+    if (stateBeforeSeek === 'playing') {
       videoRef.value?.play().catch(() => {});
     }
   }
 }
 
 function onPlay() {
-  isPlaying.value = true;
-  isBuffering.value = false;
-  showLoading.value = false;
+  state.value = 'playing';
+  bufferingMode.value = 'hidden';
   scheduleHide();
-  showFrameStepper.value = false;
   if (!fpsMeasured) { fpsMeasured = true; measureFps(videoRef.value!); }
 }
 
 function onPause() {
-  isPlaying.value = false;
-  if (!isBuffering.value) {
-    showControls();
-    showFrameStepper.value = true;
-  }
+  if (state.value === 'buffering') return;
+  state.value = 'paused';
+  showControls();
 }
 
 function onWaiting() {
-  showLoading.value = true;
+  if (state.value !== 'playing') return;
+  clearBufferingTimer();
+  bufferingTimer = setTimeout(() => {
+    state.value = 'buffering';
+    bufferingMode.value = (Date.now() - lastSeekTime < SEEK_WINDOW_MS) ? 'dim-overlay' : 'spinner';
+  }, BUFFERING_DEBOUNCE_MS);
 }
 
 function onSeeking() {
-  if (isInitialLoad) return;
-  wasPlayingBeforeBuffering = isPlaying.value;
-  isBuffering.value = true;
+  if (state.value === 'loading') return;
+  stateBeforeSeek = state.value;
+  lastSeekTime = Date.now();
 }
 
 function onEnded() {
-  isPlaying.value = false;
+  state.value = 'ended';
   showControls();
-  showReplay.value = true;
-  showFrameStepper.value = false;
+}
+
+function onError() {
+  state.value = 'error';
+  showError.value = true;
+  showControls();
+}
+
+function clearBufferingTimer() {
+  if (bufferingTimer) { clearTimeout(bufferingTimer); bufferingTimer = null; }
 }
 
 function onTimeUpdate() {
@@ -545,7 +559,7 @@ function onKeydown(e: KeyboardEvent) {
 
 // Mouse auto-hide
 function onModalMouseMove() {
-  if (!isPlaying.value) { showControls(); return; }
+  if (state.value !== 'playing' && state.value !== 'buffering') { showControls(); return; }
   showControls();
   scheduleHide();
 }
@@ -563,6 +577,7 @@ onUnmounted(() => {
   document.removeEventListener('click', onCtxMenuDocClick);
   document.removeEventListener('keydown', onCtxMenuEsc);
   clearHideTimer();
+  clearBufferingTimer();
 });
 </script>
 
