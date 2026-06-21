@@ -269,8 +269,8 @@ function buildBackdrop(video: VideoItem, src: string, seekMs?: number, matchCont
       const pct = (targetSec / vEl.duration) * 100;
 
       progressWrap.classList.add('is-marker-seek');
-      progressFill.style.width = `${pct}%`;
-      progressThumb.style.left = `${pct}%`;
+      progressFill.style.transform = `scaleX(${pct / 100})`;
+      progressThumb.style.transform = `translate(calc(${pct}% - 50%), -50%)`;
 
       vEl.currentTime = targetSec;
       if (vEl.paused) vEl.play().catch(() => {});
@@ -543,8 +543,8 @@ function wireVideoEvents(
     const dur = vEl.duration || 0;
     const cur = vEl.currentTime || 0;
     const pct = dur > 0 ? (cur / dur) * 100 : 0;
-    fill.style.width = `${pct}%`;
-    thumb.style.left = `${pct}%`;
+    fill.style.transform = `scaleX(${pct / 100})`;
+    thumb.style.transform = `translate(calc(${pct}% - 50%), -50%)`;
     timeDisplay.textContent = `${fmtPlayerTime(cur)} / ${fmtPlayerTime(dur)}`;
 
     /* update buffered bar */
@@ -553,7 +553,7 @@ function wireVideoEvents(
       const bufEnd = buf.end(buf.length - 1);
       const bufPct = dur > 0 ? (bufEnd / dur) * 100 : 0;
       const bufBar = progressWrap.querySelector('.player-progress-buffered') as HTMLElement;
-      if (bufBar) bufBar.style.width = `${bufPct}%`;
+      if (bufBar) bufBar.style.transform = `scaleX(${bufPct / 100})`;
     }
   });
 
@@ -612,8 +612,8 @@ function wireProgress(
     pct = Math.max(0, Math.min(1, pct));
     const t = pct * vEl.duration;
     vEl.currentTime = t;
-    fill.style.width = `${pct * 100}%`;
-    thumb.style.left = `${pct * 100}%`;
+    fill.style.transform = `scaleX(${pct})`;
+    thumb.style.transform = `translate(calc(${pct * 100}% - 50%), -50%)`;
     return t;
   }
 

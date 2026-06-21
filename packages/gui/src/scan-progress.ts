@@ -120,7 +120,7 @@ export async function mountScanProgress(parent: HTMLElement, opts: ScanProgressO
   function applyUpdate(label: string, pct: number) {
     if (disposed) return;
     if (statusNode.textContent !== label) statusNode.textContent = label;
-    fillNode.style.width = `${pct}%`;
+    fillNode.style.transform = `scaleX(${pct / 100})`;
     currentPct = pct;
   }
 
