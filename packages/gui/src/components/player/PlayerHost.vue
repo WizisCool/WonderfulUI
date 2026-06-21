@@ -349,6 +349,7 @@ function onLoadedMeta() {
 
 function onCanPlay() {
   showLoading.value = false;
+  videoRef.value?.play().catch(() => {});
 }
 
 function onPlay() {
@@ -503,10 +504,6 @@ onMounted(() => {
   loadVolume();
   nextTick(() => {
     applyVolumeToVideo();
-    const v = videoRef.value;
-    if (v) {
-      v.play().catch(() => {});
-    }
   });
   document.addEventListener('keydown', onKeydown, true);
 
