@@ -102,7 +102,7 @@ Production code must not hard-code user-specific paths.
 - **CSS GPU compositing**: `filter: brightness()` replaced with `::after` overlays, `backdrop-filter: blur()` removed, progress bar uses `transform: scaleX()` / `translateX()` instead of `width`/`left`, ECharts uses `renderer: 'canvas'`. All component styles use `<style scoped>`; only CSS custom properties, reset, fonts, and shared utilities remain in `assets/style.css`.
 - **Event markers use Canvas rendering** when count > 20 (`CANVAS_MARKER_THRESHOLD` in `player-event-markers.ts`), reducing GPU composited layers from 50+ to 1. DOM path preserved for <= 20 markers.
 - Tooltips and floating overlays use `packages/gui/src/composables/useFloating.ts` (`@floating-ui/dom`), a shared positioning utility with cursor-aware alignment and edge flips. The global `.tooltip` element lives on `document.body` with a `.floating-arrow` indicator. Event markers on the progress bar detect track space and flip to bottom placement when needed.
-- **Pure logic files** live in `packages/gui/src/utils/` (event-state-machine, match-events, filters, weapons, etc.) — copied verbatim from the pre-Vue codebase with zero logic changes.
+- **Pure logic files** live in `packages/gui/src/utils/` (event-state-machine, match-events, filters, weapons, player-state, etc.) — copied verbatim from the pre-Vue codebase with zero logic changes.
 - **App layout** uses CSS Grid: `TopBar` (header), 4-column `.panes` (AccountSidebar / FilterRail / RouterView / DetailView). Player, settings, boot overlay, and toast are Teleported to body or `#player-host`.
 
 More detail: `docs/ARCHITECTURE.md`.
@@ -173,8 +173,11 @@ bun test packages/parser
 # Rust parser unit tests
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 
-# GUI unit tests
+# GUI unit tests (all)
 bun test packages/gui
+
+# Player state machine tests (subset)
+bun test packages/gui/test/player-state.test.ts
 
 # TS parser CLI sanity
 bun run packages/parser/cli.ts scan 4807045517549591240
@@ -204,6 +207,12 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - **Cross-match event filtering:** ACLOS highlight videos (especially 击杀集锦) can stitch kills from multiple matches. The shared state machine requires `event_ext.AgentName` to be present and match `m.agent.agent_name`; missing or mismatching agent evidence prevents UI exposure. This is a heuristic — if the same agent was played in multiple matches, cross-match events with the same agent name may slip through.
 - **Snapshot achievements** (MVP/SVP badge + filter) come from `snapshot<openid>`, not the main WonderfulDb file. Coverage is partial (early ACLOS builds didn't write `match`-type records). The badge silently hides when data is missing. **Never aggregate** snapshot data — only filter by it.
 - **Virtual scroll layout**: match rows are `position: absolute` siblings of `.vlist-spacer` inside `.match-list` (`position: relative`). Do not nest rows inside a separate wrapper — it pushes them below the spacer. `ROW_HEIGHT` (104) must account for card `min-height` (96) + visual gap (8). Changing `.match-row` padding or `min-height` requires adjusting `ROW_HEIGHT`.
+- **Player state machine**: PlayerHost.vue uses a single `PlayerState` ref (`loading`/`playing`/`paused`/`buffering`/`ended`/`error`), not ad-hoc booleans. Do NOT reintroduce `isBuffering`, `isInitialLoad`, `wasPlayingBeforeBuffering`, or `pendingSeekCount`. All visual flags (`showLoading`, `showFrameStepper`, etc.) are computed from state.
+- **Buffering timer lifecycle**: `waiting` while `playing` starts a 300 ms debounce timer before entering `buffering`. The timer MUST be cleared in `onCanPlay`, `onPlay`, `onPause`, `onEnded`, `onError`, `doClose`, and `watch(player.isOpen)` (reopen). Failure to clear the timer causes stale `buffering` state that locks the loading overlay.
+- **Seek visual prevention**: Fast seeks should not flash a spinner. CSS-only fix via `.player-video { background-color: #000 }` — the video element's own background covers the frame gap during seek. `onSeeking` does NOT show the loading overlay; it only records `stateBeforeSeek` + `lastSeekTime` for buffering recovery.
+- **Controls click propagation**: `.player-controls` div has `@click.stop` to prevent clicks on the controls bar (volume slider, progress track, time text, gaps) from bubbling to `.player-stage`'s `togglePlay`. Individual buttons also have `@click.stop`. `.player-frame-stepper` parent must NOT have `@click.stop` (blocks click-to-resume).
+- **Progress bar reactivity**: `lastBufferedPct` is a `ref` (not `let`) so `bufferedStyle` recomputes. Thumb positioning uses `left: X%` (relative to parent track), not `translate(X%)` (relative to element's own 8 px width). `.player-event-markers` uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop` to avoid blocking track seek in canvas mode.
+- **Loading overlay visibility**: Uses `opacity: 0; pointer-events: none` (not `display: none`) so the element stays in the render tree. Initial load shows poster + darken + spinner. Buffering shows poster only (no darken, no spinner) in `dim-overlay` mode, or full spinner in slow-buffering mode.
 
 Details for these pitfalls are in `docs/ACLOS_FORMAT.md` and `docs/FRONTEND_CONVENTIONS.md`.
 

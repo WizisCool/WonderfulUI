@@ -304,6 +304,24 @@ Player state machine:
 - `bufferingMode` is `dim-overlay` for seek-triggered waits and `spinner` for natural playback stalls.
 - Reset `lastBufferedPct` and `bufferingMode` whenever a new video opens so a previous video's buffered bar or loading mode cannot animate into the next video.
 
+Progress bar:
+
+- Thumb positioning uses `left: X%` (relative to parent track), not `translate(calc(X% - 50%), -50%)` — CSS `translate()` percentages are relative to the element's own 8 px width, which collapses the offset to near zero.
+- `lastBufferedPct` must be a `ref`; a plain `let` is invisible to Vue's reactivity and the buffered bar will never update.
+- Event marker container uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop`. Adding `@mousedown.stop` on the container breaks track-seeking in canvas mode because `.is-canvas` has `pointer-events: auto`.
+- `CANVAS_MARKER_THRESHOLD = 20`.
+
+Controls click propagation:
+
+- `.player-controls` has `@click.stop` to prevent clicks on the controls bar (volume slider, progress track, time text, gaps between buttons) from bubbling to `.player-stage`'s `togglePlay`.
+- Individual controls buttons have their own `@click.stop`.
+- `.player-frame-stepper` parent must NOT have `@click.stop` — it would block click-to-resume when paused.
+
+Loading overlay:
+
+- Visibility uses `opacity: 0; pointer-events: none` instead of `display: none`. The element stays in the render tree so showing it during seek is instantaneous (no layout flash).
+- Seek-induced frame gaps are covered by `.player-video { background-color: #000 }`, not by the loading overlay. No JS timing involved.
+
 Context menu:
 
 - Fixed-position custom `.player-context-menu`.
