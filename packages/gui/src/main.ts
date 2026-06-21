@@ -1,5 +1,9 @@
-import { renderApp } from './app.ts';
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import { router } from './router';
+import App from './App.vue';
 
-const root = document.getElementById('app');
-if (!root) throw new Error('#app root not found');
-renderApp(root);
+const app = createApp(App);
+app.use(createPinia());
+app.use(router);
+app.mount('#app');
