@@ -259,28 +259,13 @@
       <!-- About tab -->
       <template v-else-if="settings.activeTab === 'about'">
         <div class="settings-about">
-          <img class="settings-about-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="64" height="64" />
+          <img class="settings-about-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="72" height="72" />
           <h3 class="settings-about-name">WonderfulUI</h3>
           <span class="settings-about-version">v{{ APP_VERSION }}</span>
+          <span class="settings-about-copy">&copy; 2026 WizisCool</span>
           <div class="settings-about-links">
-            <a
-              class="settings-about-link"
-              href="https://github.com/WizisCool/WonderfulUI"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <WIcon icon="ph:github-logo" :size="15" />
-              <span>GitHub</span>
-            </a>
-            <a
-              class="settings-about-link"
-              href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <WIcon icon="ph:scales" :size="15" />
-              <span>GPL-3.0</span>
-            </a>
+            <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPL-3.0</a>
           </div>
         </div>
       </template>
@@ -574,12 +559,14 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 40px 24px;
+  gap: 6px;
+  padding: 0 24px;
+  min-height: 380px;
 }
 .settings-about-logo {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 10px;
   pointer-events: none;
   user-select: none;
 }
@@ -594,34 +581,34 @@ onUnmounted(() => {
   font-family: var(--font-mono);
   font-size: 13px;
 }
+.settings-about-copy {
+  color: var(--ink-4);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  user-select: text;
+}
 .settings-about-links {
   display: flex;
-  gap: 10px;
-  margin-top: 6px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--ink-4);
+  font-size: 12px;
 }
 .settings-about-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   color: var(--ink-3);
-  font-size: 12px;
   font-family: var(--font-sans);
-  transition: color 100ms ease-out, border-color 100ms ease-out, background 100ms ease-out;
-}
-.settings-about-link:hover {
-  color: var(--ink);
-  border-color: var(--ink-4);
-  background: var(--surface-2);
-}
-.settings-about-link svg {
-  color: var(--ink-3);
+  font-size: 12px;
+  text-decoration: none;
   transition: color 100ms ease-out;
 }
-.settings-about-link:hover svg {
-  color: var(--ink);
+.settings-about-link:hover {
+  color: var(--accent);
+}
+.settings-about-link + .settings-about-link::before {
+  content: '\00B7';
+  margin-right: 6px;
+  color: var(--ink-4);
 }
 .settings-sub-line {
   display: inline-flex; align-items: center; gap: 4px;
