@@ -51,6 +51,7 @@ docs/*
 !docs/ARCHITECTURE.md
 !docs/FRONTEND_CONVENTIONS.md
 !docs/AGENT_WORKFLOW.md
+!docs/superpowers/
 tools/
 .github/BFG_GUIDE.md
 .github/RELEASE_TEMPLATE.md
