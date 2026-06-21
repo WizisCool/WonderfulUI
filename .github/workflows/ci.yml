@@ -27,6 +27,7 @@ jobs:
           bun-version: latest
 
       - run: bun install --frozen-lockfile
+      - run: bun run scripts/check-versions.ts
       - run: bun run typecheck
       - run: bun run test
       - run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib

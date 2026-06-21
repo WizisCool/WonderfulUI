@@ -20,12 +20,31 @@ bun run version:major    # 0.1.0 → 1.0.0
 每次 bump 会自动：
 1. 读取 `tauri.conf.json` 当前版本
 2. 计算下一版本号
-3. 更新所有配置文件的版本字段
+3. 更新所有配置文件和测试的版本字段（见下方清单）
 4. 提交 `chore(release): vX.Y.Z`
 5. 创建 git 标签
+6. 推送 main 分支和 tag
+7. CI（release.yml）自动构建并创建 GitHub Release（`generate_release_notes: true`）
 
 `scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的工作树上运行，
 且工作树中只能包含本次发布需要提交的版本文件变更。
+
+### 版本一致性检查
+
+`scripts/check-versions.ts` 在 CI 中自动运行（ci.yml 和 release.yml 均有），
+确保以下所有文件的版本号与 `tauri.conf.json` 一致：
+
+- `src-tauri/tauri.conf.json`（事实源）
+- `src-tauri/Cargo.toml`
+- `package.json`
+- `packages/parser/package.json`
+- `packages/gui/package.json`
+- `packages/parser/cli.ts`（`VERSION` 常量）
+- `packages/gui/src/utils/version.ts`（`APP_VERSION` 常量）
+- `versions.json`
+- `packages/parser/tests/cli.test.ts`（CLI 版本测试硬编码值）
+
+如需新增含版本号的文件，必须同步更新 `scripts/check-versions.ts` 和 `scripts/version-bump.ts`。
 
 ## GitHub Actions 发布
 

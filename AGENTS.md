@@ -139,7 +139,7 @@ More detail: `docs/ARCHITECTURE.md`.
 Before changing parser behavior, read `docs/ACLOS_FORMAT.md`.
 Before changing app structure or build workflow, read `docs/ARCHITECTURE.md`.
 Before changing GUI layout, DOM refresh, CSS, icons, player, or tooltips, read `docs/FRONTEND_CONVENTIONS.md` plus `DESIGN.md`.
-Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`.
+Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`. Version consistency is verified in CI via `scripts/check-versions.ts` — add new version-bearing files to both `check-versions.ts` and `version-bump.ts`.
 
 ## Development Workflow
 
@@ -170,6 +170,9 @@ Use release builds only when validating shipment or installer behavior.
 Run the smallest relevant set:
 
 ```bash
+# Version consistency check (useful before release)
+bun run scripts/check-versions.ts
+
 # TS parser unit tests
 bun test packages/parser
 

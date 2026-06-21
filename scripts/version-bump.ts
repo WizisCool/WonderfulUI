@@ -109,6 +109,18 @@ if (existsSync(versionsJsonPath)) {
   console.log(`  versions.json  ${current} -> ${next}`);
 }
 
+// 9b. update packages/parser/tests/cli.test.ts hardcoded version
+const cliTestPath = join(ROOT, 'packages', 'parser', 'tests', 'cli.test.ts');
+if (existsSync(cliTestPath)) {
+  let cliTestText = readFileSync(cliTestPath, 'utf8');
+  cliTestText = cliTestText.replace(
+    /expect\(r\.stdout\.trim\(\)\)\.toBe\('[\d.]+'\);/,
+    `expect(r.stdout.trim()).toBe('${next}');`,
+  );
+  writeFileSync(cliTestPath, cliTestText);
+  console.log(`  packages/parser/tests/cli.test.ts  ${current} -> ${next}`);
+}
+
 // 10. git commit + tag
 execSync('git add -A', { cwd: ROOT, stdio: 'inherit' });
 execSync(`git commit -m "chore(release): v${next}"`, { cwd: ROOT, stdio: 'inherit' });
