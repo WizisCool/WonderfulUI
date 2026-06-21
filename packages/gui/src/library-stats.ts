@@ -79,13 +79,13 @@ function cssVar(name: string, fallback: string): string {
 function chartPalette(): string[] {
   return [
     cssVar('--accent', '#e34b43'),
-    cssVar('--ink-2', '#c6bfb6'),
-    cssVar('--win', '#62c97f'),
-    cssVar('--warn', '#d9b75f'),
-    cssVar('--loss', '#d9574f'),
-    cssVar('--ink-3', '#90877e'),
+    'oklch(0.70 0.14 45)',
     'oklch(0.62 0.13 210)',
     'oklch(0.68 0.12 300)',
+    'oklch(0.75 0.12 180)',
+    'oklch(0.60 0.14 330)',
+    'oklch(0.65 0.10 80)',
+    'oklch(0.55 0.10 160)',
   ];
 }
 
@@ -127,6 +127,7 @@ let accountVideoChart: echarts.ECharts | null = null;
 let accountVideoResizeObserver: ResizeObserver | null = null;
 let accountVideoHost: HTMLElement | null = null;
 let accountVideoSignature: string | null = null;
+let accountVideoOverlay: HTMLElement | null = null;
 
 export interface AccountChartSlice {
   name: string;
@@ -169,8 +170,7 @@ function buildChartOption(
     animationDuration: reducedMotion ? 0 : 360,
     animationEasing: 'cubicOut',
     stateAnimation: {
-      duration: reducedMotion ? 0 : 100,
-      easing: 'cubicOut',
+      duration: 0,
     },
     tooltip: {
       trigger: 'item',
@@ -227,8 +227,7 @@ function buildChartOption(
         borderRadius: 2,
       },
       emphasis: {
-        scale: !reducedMotion,
-        scaleSize: reducedMotion ? 0 : 4,
+        disabled: true,
       },
       label: {
         show: false,
@@ -245,37 +244,44 @@ function buildChartOption(
         : [{
             name: CHART_METRIC_EMPTY[metric],
             value: 1,
-            itemStyle: { color: cssVar('--ink-4', '#665e59') },
+            itemStyle: { color: cssVar('--border-soft', '#423831') },
           }],
       animation: !reducedMotion,
       animationDuration: reducedMotion ? 0 : 360,
       animationEasing: 'cubicOut',
     }],
-    graphic: hasData ? [{
-      type: 'text',
-      left: '35%',
-      top: '51%',
-      silent: true,
-      style: {
-        text: `${total}\n${metricLabel}`,
-        fill: cssVar('--ink', '#efe9e1'),
-        font: `520 18px ${cssVar('--font-mono', 'monospace')}`,
-        align: 'center',
-        verticalAlign: 'middle',
-        lineHeight: 22,
-      },
-    }] : [{
-      type: 'text',
-      left: 'center',
-      top: 'middle',
-      silent: true,
-      style: {
-        text: CHART_METRIC_EMPTY[metric],
-        fill: cssVar('--ink-3', '#918982'),
-        font: `12px ${cssVar('--font-sans', 'sans-serif')}`,
-      },
-    }],
   };
+}
+
+function renderAccountVideoCenterOverlay(
+  host: HTMLElement,
+  total: number,
+  accountCount: number,
+  metric: ChartMetric,
+): void {
+  if (accountVideoOverlay && accountVideoOverlay.parentNode === host) {
+    host.removeChild(accountVideoOverlay);
+  }
+  accountVideoOverlay?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'stats-video-chart-center';
+  overlay.setAttribute('aria-hidden', 'true');
+  if (total > 0) {
+    const number = document.createElement('span');
+    number.className = 'stats-video-chart-center-number';
+    number.textContent = String(total);
+    const label = document.createElement('span');
+    label.className = 'stats-video-chart-center-label';
+    label.textContent = CHART_METRIC_LABELS[metric];
+    overlay.append(number, label);
+  } else {
+    const empty = document.createElement('span');
+    empty.className = 'stats-video-chart-center-empty';
+    empty.textContent = CHART_METRIC_EMPTY[metric];
+    overlay.append(empty);
+  }
+  host.appendChild(overlay);
+  accountVideoOverlay = overlay;
 }
 
 export function mountAccountVideoChart(
@@ -295,8 +301,7 @@ export function mountAccountVideoChart(
   if (!accountVideoChart || accountVideoHost !== host) {
     disposeAccountVideoChart();
     accountVideoChart = echarts.init(host, undefined, {
-      renderer: 'canvas',
-      useDirtyRect: false,
+      renderer: 'svg',
     });
     accountVideoHost = host;
   }
@@ -310,6 +315,9 @@ export function mountAccountVideoChart(
     lazyUpdate: false,
   });
   accountVideoSignature = sig;
+
+  const total = accounts.reduce((sum, account) => sum + countFor(account, metric), 0);
+  renderAccountVideoCenterOverlay(host, total, accounts.length, metric);
 
   const instance = accountVideoChart;
   if (!accountVideoResizeObserver && 'ResizeObserver' in window) {
@@ -330,6 +338,8 @@ export function disposeAccountVideoChart(): void {
     accountVideoChart.dispose();
     accountVideoChart = null;
   }
+  accountVideoOverlay?.remove();
+  accountVideoOverlay = null;
   accountVideoHost = null;
   accountVideoSignature = null;
 }
