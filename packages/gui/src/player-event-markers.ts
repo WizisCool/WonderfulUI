@@ -42,6 +42,8 @@ const STEM_TRACK_OVERLAP_PX = 2;
 const DEFAULT_TRACK_HEIGHT_PX = 4;
 const GAP_BELOW_PX = 4;
 
+export const CANVAS_MARKER_THRESHOLD = 20;
+
 export const MARKER_OVERHEAD_PX = Math.abs(UPPER_TOP_PX) + COMPACT_MARKER_HEIGHT_PX + 4;
 
 export function effectiveMarkerDurationMs<T extends EventMarkerInput>(
@@ -151,4 +153,60 @@ function markerStemPx(
     + STEM_DOT_OVERLAP_PX
     + STEM_TRACK_OVERLAP_PX;
   return Math.max(6, stemPx);
+}
+
+export function renderCanvasMarkers<T extends EventMarkerInput>(
+  canvas: HTMLCanvasElement,
+  layouts: EventMarkerLayout<T>[],
+): void {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(dpr, dpr);
+
+  const totalWidth = rect.width;
+  const trackY = rect.height / 2;
+
+  for (const layout of layouts) {
+    const x = (layout.leftPct / 100) * totalWidth;
+    const dotSize = 7;
+    const dotR = dotSize / 2;
+
+    const stemTop = layout.placement === 'bottom'
+      ? trackY + 2
+      : trackY - 2 - layout.stemPx;
+    const stemBottom = layout.placement === 'bottom'
+      ? trackY + 2 + layout.stemPx
+      : trackY - 2;
+    ctx.strokeStyle = 'rgba(77, 77, 81, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, stemTop);
+    ctx.lineTo(x, stemBottom);
+    ctx.stroke();
+
+    const dotY = layout.placement === 'bottom'
+      ? trackY + 4 + dotR
+      : trackY - 4 - dotR - layout.stemPx;
+    ctx.fillStyle = layout.marker.type === 'death'
+      ? 'rgba(219, 68, 55, 0.42)'
+      : layout.isHeadshot
+        ? 'rgba(234, 160, 40, 0.42)'
+        : 'rgba(55, 55, 55, 0.42)';
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x - dotR, dotY - dotR, dotSize, dotSize, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#c2c2c2';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(layout.marker.type === 'death' ? '\u2715' : '\u271A', x, dotY);
+  }
 }

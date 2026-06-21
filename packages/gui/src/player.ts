@@ -13,7 +13,7 @@ import { invoke, convertFileSrc } from './tauri-adapter.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 import { createElement, Play, Pause, Volume2, Volume1, VolumeX, FolderOpen, Share2, Maximize2, Minimize2, ChevronLeft, ChevronRight, X, Crosshair, Skull } from 'lucide';
 import { clampSeekMsForDuration, EVENT_PREROLL_MS } from './event-time.ts';
-import { effectiveMarkerDurationMs, layoutEventMarkers, MARKER_OVERHEAD_PX, type EventMarkerLayout } from './player-event-markers.ts';
+import { effectiveMarkerDurationMs, layoutEventMarkers, MARKER_OVERHEAD_PX, CANVAS_MARKER_THRESHOLD, renderCanvasMarkers, type EventMarkerLayout, type EventMarkerInput } from './player-event-markers.ts';
 import { eventMarkersForVideo, type EventMarker } from './match-events.ts';
 /* ─── module state (singleton) ─────────────────────────────── */
 
@@ -283,6 +283,36 @@ function buildBackdrop(video: VideoItem, src: string, seekMs?: number, matchCont
       seekToMarker(dot);
       e.stopPropagation();
     });
+
+    if (markersContainer.classList.contains('is-canvas')) {
+      markersContainer.addEventListener('click', (e: MouseEvent) => {
+        const canvas = markersContainer.querySelector<HTMLCanvasElement>('.player-event-canvas');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const stored = markersContainer.dataset.canvasLayouts;
+        if (!stored) return;
+        let layouts: EventMarkerLayout<EventMarker>[] = [];
+        try { layouts = JSON.parse(stored); } catch { return; }
+        const hit = layouts.find(l =>
+          Math.abs((l.leftPct / 100) * rect.width - clickX) < 14
+        );
+        if (hit) {
+          const timeMs = hit.marker.timeMs;
+          if (!vEl.duration) return;
+          const seekMs_val = Math.max(0, timeMs - EVENT_PREROLL_MS);
+          const targetSec = Math.min(seekMs_val / 1000, vEl.duration - 0.05);
+          const pct = (targetSec / vEl.duration) * 100;
+          progressWrap.classList.add('is-marker-seek');
+          progressFill.style.transform = `scaleX(${pct / 100})`;
+          progressThumb.style.transform = `translate(calc(${pct}% - 50%), -50%)`;
+          vEl.currentTime = targetSec;
+          if (vEl.paused) vEl.play().catch(() => {});
+          setTimeout(() => progressWrap.classList.remove('is-marker-seek'), 220);
+        }
+      });
+    }
+
     markersContainer.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const dot = (e.target as HTMLElement).closest('.player-event-marker') as HTMLElement | null;
@@ -417,6 +447,21 @@ function buildControls(video: VideoItem, matchContext?: { match: MatchRecord }):
 function buildEventMarkers(markers: EventMarker[], videoDurationMs: number): HTMLElement | null {
   const layouts = layoutEventMarkers(markers, videoDurationMs);
   if (layouts.length === 0) return null;
+
+  if (layouts.length > CANVAS_MARKER_THRESHOLD) {
+    const container = el('div', { class: 'player-event-markers is-canvas' }) as HTMLElement;
+    container.dataset.rawMarkers = JSON.stringify(markers);
+    container.dataset.canvasLayouts = JSON.stringify(layouts);
+
+    const canvas = el('canvas', { class: 'player-event-canvas' }) as HTMLCanvasElement;
+    container.appendChild(canvas);
+
+    requestAnimationFrame(() => {
+      renderCanvasMarkers(canvas, layouts);
+    });
+    return container;
+  }
+
   const container = el('div', { class: 'player-event-markers' });
   container.dataset.rawMarkers = JSON.stringify(markers);
   renderEventMarkerLayouts(container, layouts);
@@ -472,7 +517,16 @@ function repositionEventMarkers() {
     placement,
     trackHeightPx: trackRect.height,
   });
-  renderEventMarkerLayouts(container, layouts);
+
+  if (container.classList.contains('is-canvas')) {
+    const canvas = container.querySelector<HTMLCanvasElement>('.player-event-canvas');
+    if (canvas) {
+      container.dataset.canvasLayouts = JSON.stringify(layouts);
+      renderCanvasMarkers(canvas, layouts);
+    }
+  } else {
+    renderEventMarkerLayouts(container, layouts);
+  }
 }
 
 function eventMarkerTip(layout: EventMarkerLayout<EventMarker>): string {
