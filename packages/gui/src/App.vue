@@ -50,6 +50,7 @@ onMounted(async () => {
     }
   } catch (e) {
     console.error('Boot failed:', e);
+    bootRef.value?.complete();
   }
 });
 </script>

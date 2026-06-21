@@ -10,6 +10,8 @@ export interface LogStatus {
   modifiedMs: number; maxBytes: number; latestText: string;
 }
 
+const ANIMATION_MS = 150;
+
 export const useSettingsStore = defineStore('settings', () => {
   const isOpen = ref(false);
   const isClosing = ref(false);
@@ -22,14 +24,20 @@ export const useSettingsStore = defineStore('settings', () => {
   const statsError = ref<string | null>(null);
   const chartMetric = ref<'video' | 'match'>('video');
 
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
   function setOpen(open: boolean) {
     if (open) {
+      if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
       isOpen.value = true;
       isClosing.value = false;
     } else if (isOpen.value) {
-      isOpen.value = false;
       isClosing.value = true;
-      setTimeout(() => { isClosing.value = false; }, 150);
+      closeTimer = setTimeout(() => {
+        isOpen.value = false;
+        isClosing.value = false;
+        closeTimer = null;
+      }, ANIMATION_MS);
     }
   }
 

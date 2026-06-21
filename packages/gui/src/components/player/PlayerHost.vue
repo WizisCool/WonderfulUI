@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick, type Ref } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { X, Play, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';

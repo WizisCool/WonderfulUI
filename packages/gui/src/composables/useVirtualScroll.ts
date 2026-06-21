@@ -12,11 +12,13 @@ export function useVirtualScroll(
 
   const totalHeight = computed(() => matches.value.length * ROW_HEIGHT);
 
+  const containerHeight = computed(() => containerRef.value?.clientHeight ?? 600);
+
   const visibleRange = computed(() => {
     const start = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - ROW_BUFFER);
     const end = Math.min(
       matches.value.length,
-      Math.ceil((scrollTop.value + 600) / ROW_HEIGHT) + ROW_BUFFER,
+      Math.ceil((scrollTop.value + containerHeight.value) / ROW_HEIGHT) + ROW_BUFFER,
     );
     return { start, end };
   });
