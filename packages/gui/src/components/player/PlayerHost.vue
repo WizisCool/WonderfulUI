@@ -19,7 +19,6 @@
           @timeupdate="onTimeUpdate"
           @waiting="onWaiting"
           @seeking="onSeeking"
-          @seeked="onSeeked"
           @error="onError"
         />
 
@@ -127,8 +126,6 @@ const showFrameStepper = ref(false);
 const isBuffering = ref(false);
 let wasPlayingBeforeBuffering = false;
 let isInitialLoad = true;
-let pendingSeekCount = 0;
-let seekSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(() => player.isOpen, (open) => {
   if (open) {
@@ -142,7 +139,6 @@ watch(() => player.isOpen, (open) => {
     isBuffering.value = false;
     wasPlayingBeforeBuffering = false;
     isInitialLoad = true;
-    pendingSeekCount = 0;
     seeked = false;
   }
 });
@@ -333,10 +329,6 @@ function stepFrame(delta: number) {
 function onControlsSeek(pct: number) {
   const v = videoRef.value;
   if (!v || !v.duration) return;
-  if (!isInitialLoad) {
-    showLoading.value = true;
-    loadingRef.value?.classList.remove('is-hidden');
-  }
   const t = pct * v.duration;
   v.currentTime = t;
 }
@@ -418,21 +410,6 @@ function onSeeking() {
   if (isInitialLoad) return;
   wasPlayingBeforeBuffering = isPlaying.value;
   isBuffering.value = true;
-  pendingSeekCount++;
-  showLoading.value = true;
-  clearTimeout(seekSafetyTimer as ReturnType<typeof setTimeout>);
-  seekSafetyTimer = setTimeout(() => {
-    pendingSeekCount = 0;
-    showLoading.value = false;
-  }, 5000);
-}
-
-function onSeeked() {
-  clearTimeout(seekSafetyTimer as ReturnType<typeof setTimeout>);
-  pendingSeekCount = Math.max(0, pendingSeekCount - 1);
-  if (pendingSeekCount <= 0) {
-    showLoading.value = false;
-  }
 }
 
 function onEnded() {
@@ -679,12 +656,12 @@ onUnmounted(() => {
   object-fit: fill;
   display: block;
   border-radius: 0;
+  background-color: #000;
 }
 
 .player-loading {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #000;
 }
 .player-loading.is-hidden { opacity: 0; pointer-events: none; }
 .player-loading-poster {
