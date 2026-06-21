@@ -128,6 +128,7 @@ const isBuffering = ref(false);
 let wasPlayingBeforeBuffering = false;
 let isInitialLoad = true;
 let pendingSeekCount = 0;
+let seekSafetyTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(() => player.isOpen, (open) => {
   if (open) {
@@ -333,7 +334,6 @@ function onControlsSeek(pct: number) {
   const v = videoRef.value;
   if (!v || !v.duration) return;
   if (!isInitialLoad) {
-    pendingSeekCount++;
     showLoading.value = true;
     loadingRef.value?.classList.remove('is-hidden');
   }
@@ -420,9 +420,15 @@ function onSeeking() {
   isBuffering.value = true;
   pendingSeekCount++;
   showLoading.value = true;
+  clearTimeout(seekSafetyTimer as ReturnType<typeof setTimeout>);
+  seekSafetyTimer = setTimeout(() => {
+    pendingSeekCount = 0;
+    showLoading.value = false;
+  }, 5000);
 }
 
 function onSeeked() {
+  clearTimeout(seekSafetyTimer as ReturnType<typeof setTimeout>);
   pendingSeekCount = Math.max(0, pendingSeekCount - 1);
   if (pendingSeekCount <= 0) {
     showLoading.value = false;
