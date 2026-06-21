@@ -19,6 +19,7 @@
           @timeupdate="onTimeUpdate"
           @waiting="onWaiting"
           @seeking="onSeeking"
+          @seeked="onSeeked"
           @error="onError"
         />
 
@@ -124,6 +125,7 @@ const showFrameStepper = ref(false);
 const isBuffering = ref(false);
 let wasPlayingBeforeBuffering = false;
 let isInitialLoad = true;
+let pendingSeekCount = 0;
 
 watch(() => player.isOpen, (open) => {
   if (open) {
@@ -137,6 +139,7 @@ watch(() => player.isOpen, (open) => {
     isBuffering.value = false;
     wasPlayingBeforeBuffering = false;
     isInitialLoad = true;
+    pendingSeekCount = 0;
     seeked = false;
   }
 });
@@ -369,9 +372,9 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
-  showLoading.value = false;
   if (isInitialLoad) {
     isInitialLoad = false;
+    showLoading.value = false;
     videoRef.value?.play().catch(() => {});
     return;
   }
@@ -408,6 +411,15 @@ function onSeeking() {
   if (isInitialLoad) return;
   wasPlayingBeforeBuffering = isPlaying.value;
   isBuffering.value = true;
+  pendingSeekCount++;
+  showLoading.value = true;
+}
+
+function onSeeked() {
+  pendingSeekCount = Math.max(0, pendingSeekCount - 1);
+  if (pendingSeekCount <= 0) {
+    showLoading.value = false;
+  }
 }
 
 function onEnded() {
