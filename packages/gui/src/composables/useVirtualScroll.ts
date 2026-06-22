@@ -1,4 +1,4 @@
-import { ref, computed, watch, type Ref } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
 export const ROW_HEIGHT = 104;
@@ -9,10 +9,51 @@ export function useVirtualScroll(
   containerRef: Ref<HTMLElement | null>,
 ) {
   const scrollTop = ref(0);
+  // Reactive container height. ResizeObserver on the scroller (and the
+  // window) bumps this ref so the visible range recomputes on layout
+  // changes (window resize, pane drag, etc.) — not only on scroll.
+  const containerHeight = ref(600);
+
+  let resizeObserver: ResizeObserver | null = null;
+  let observedEl: HTMLElement | null = null;
+
+  function attachObserver(el: HTMLElement) {
+    if (observedEl === el) return;
+    detachObserver();
+    if (typeof ResizeObserver === 'undefined') {
+      containerHeight.value = el.clientHeight || 600;
+      return;
+    }
+    resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        // Use contentBoxSize when available (sub-pixel), fall back to
+        // clientHeight. Either is fine for ROW_HEIGHT slicing.
+        const h = entry.contentRect.height || el.clientHeight;
+        if (h > 0) containerHeight.value = h;
+      }
+    });
+    resizeObserver.observe(el);
+    observedEl = el;
+    containerHeight.value = el.clientHeight || 600;
+  }
+
+  function detachObserver() {
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
+    observedEl = null;
+  }
+
+  // Reattach when the ref resolves or swaps elements.
+  watch(containerRef, (el, prev) => {
+    if (el) attachObserver(el);
+    else if (prev) detachObserver();
+  }, { immediate: true });
+
+  onBeforeUnmount(detachObserver);
 
   const totalHeight = computed(() => matches.value.length * ROW_HEIGHT);
-
-  const containerHeight = computed(() => containerRef.value?.clientHeight ?? 600);
 
   const visibleRange = computed(() => {
     const start = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - ROW_BUFFER);
