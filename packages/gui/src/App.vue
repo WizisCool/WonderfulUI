@@ -80,7 +80,13 @@ const showOnboarding = computed(() => {
 async function runBoot() {
   bootError.value = null;
   account.bootScraping = true;
-  let unlistenScrape: (() => void) | null = null;
+  // Subscribe to the next scrape_summary BEFORE we call scan_shell, so
+  // we never miss the event. Rust's background scrape can finish in well
+  // under a second on a small library; the previous implementation
+  // subscribed only after cacheAssets(), by which point the event had
+  // already been emitted and the match list was stuck on the loading
+  // view until the 12s safety timeout fired.
+  const unlistenScrape = await waitForBackgroundScrape();
   try {
     bootRef.value?.start({ mode: 'boot' });
     // 1) Probe the ACLOS WonderfulDb directory (read-only, cheap).
@@ -97,11 +103,8 @@ async function runBoot() {
     // scan_shell spawns a background scrape. We do not block on it —
     // BootOverlay's progress is enough for the boot screen — but we do
     // need to know when it is done so the match list stops showing the
-    // loading view. Wait for the wui://scrape_summary event that the
-    // scraper emits at the end of the sweep (it fires regardless of
-    // whether anything was found), with a safety timeout in case the
-    // scrape never reports back.
-    unlistenScrape = await waitForBackgroundScrape();
+    // loading view. waitForBackgroundScrape (subscribed above) listens
+    // for the wui://scrape_summary event with a 12s safety timeout.
     booted.value = true;
     bootRef.value?.complete();
   } catch (e) {
@@ -114,7 +117,7 @@ async function runBoot() {
     booted.value = true;
     bootRef.value?.complete();
   } finally {
-    if (unlistenScrape) unlistenScrape();
+    unlistenScrape();
     account.bootScraping = false;
   }
 }
