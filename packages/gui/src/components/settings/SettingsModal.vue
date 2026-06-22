@@ -914,7 +914,7 @@ onUnmounted(() => {
 .stats-video-chart-center-number {
   font-family: var(--font-mono);
   font-size: 18px;
-  font-weight: 600;
+  font-weight: var(--w-semibold);
   color: var(--ink);
 }
 .stats-video-chart-center-label {

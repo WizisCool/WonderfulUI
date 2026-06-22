@@ -338,7 +338,7 @@ function onModeIconError() { modeIconFailed.value = true; }
 }
 .match-time    { font-family: var(--font-mono); color: var(--ink-3); font-size: 12px; flex-shrink: 0; }
 .match-result  {
-  font-weight: 700; font-family: var(--font-mono); font-size: 12px;
+  font-weight: var(--w-bold); font-family: var(--font-mono); font-size: 12px;
   width: 18px; text-align: center;
   padding: 1px 4px; border-radius: 3px;
 }

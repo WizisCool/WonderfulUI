@@ -421,7 +421,7 @@ function onNumClear(key: string) {
 }
 .filter-num-input::placeholder {
   color: var(--ink-4);
-  font-weight: 400;
+  font-weight: var(--w-medium);
 }
 .filter-num-input:hover {
   border-color: var(--ink-4);

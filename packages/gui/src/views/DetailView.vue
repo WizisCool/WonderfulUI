@@ -439,7 +439,7 @@ watch(() => detail.selectedMatch, (m) => {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px;
   border-radius: 4px;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  font-family: var(--font-mono); font-size: 12px; font-weight: var(--w-bold);
 }
 .detail-badge.result-win  { color: var(--win);  background: var(--win-soft); }
 .detail-badge.result-loss { color: var(--loss); background: var(--loss-soft); }
@@ -466,7 +466,7 @@ watch(() => detail.selectedMatch, (m) => {
   border-radius: 8px;
 }
 .stat-icon { color: var(--ink-3); }
-.stat-value { font-size: 18px; font-family: var(--font-mono); color: var(--ink); font-weight: 600; }
+.stat-value { font-size: 18px; font-family: var(--font-mono); color: var(--ink); font-weight: var(--w-semibold); }
 .stat-label { font-size: 11px; color: var(--ink-3); }
 .stat-cell.is-win    .stat-value,
 .stat-cell.is-win    .stat-icon  { color: var(--win); }
@@ -510,7 +510,7 @@ watch(() => detail.selectedMatch, (m) => {
   opacity: 0.6;
 }
 .event-stat-cell .stat-icon { color: var(--ink-3); }
-.event-stat-cell .stat-value { font-size: 18px; font-family: var(--font-mono); color: var(--ink); font-weight: 600; }
+.event-stat-cell .stat-value { font-size: 18px; font-family: var(--font-mono); color: var(--ink); font-weight: var(--w-semibold); }
 .event-stat-cell .stat-label { font-size: 11px; color: var(--ink-3); }
 
 .event-stat-cell:not(:disabled)::after {
@@ -595,7 +595,7 @@ watch(() => detail.selectedMatch, (m) => {
   padding: 1px 6px;
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: var(--w-semibold);
   letter-spacing: 0.02em;
   pointer-events: none;
 }
