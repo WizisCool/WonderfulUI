@@ -270,6 +270,24 @@ export function mountAccountVideoChart(
     return { total: 0, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
   }
 
+  // Guard against zero-size containers: ECharts init reads
+  // clientWidth/clientHeight once and the chart stays at 0×0
+  // forever.  Defer init until the host has real dimensions so the
+  // chart is always visible.
+  if (host.clientWidth === 0 || host.clientHeight === 0) {
+    // Only defer if we haven't already disposed — avoids spinning
+    // indefinitely on an element that will never get size.
+    if (accountVideoChart) {
+      disposeAccountVideoChart();
+    }
+    requestAnimationFrame(() => {
+      if (host.isConnected && (host.clientWidth > 0 || host.clientHeight > 0)) {
+        mountAccountVideoChart(host, stats, metric);
+      }
+    });
+    return { total: 0, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
+  }
+
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const sig = chartSignature(stats, metric, reducedMotion);
   if (accountVideoChart && accountVideoHost === host && accountVideoSignature === sig) {

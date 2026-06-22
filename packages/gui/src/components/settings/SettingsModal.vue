@@ -409,16 +409,17 @@ watch(() => settings.activeTab, (tab) => {
 });
 
 watch([statsData, () => settings.chartMetric], () => {
-  if (chartRef.value && statsData.value) {
-    chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
-  }
-});
-
-onMounted(() => {
-  if (chartRef.value && statsData.value) {
-    chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
-  }
-});
+  // flush: 'post' + immediate: chartRef is always populated when
+  // this runs.  On first render with cached Pinia state the v-else
+  // block that contains chartRef already rendered; on first-ever
+  // open (statsData=null) fetchLibraryStats sets it later and this
+  // fires again after the re-render.
+  nextTick(() => {
+    if (chartRef.value && statsData.value) {
+      chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
+    }
+  });
+}, { flush: 'post', immediate: true });
 
 onUnmounted(() => {
   disposeAccountVideoChart();
