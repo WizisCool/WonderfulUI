@@ -41,6 +41,21 @@
   --w-semibold:   520;
   --w-bold:       630;
 
+  /* Type scale. 1px steps so the user font-size setting promised by
+     PRODUCT.md (14 → 18) can flip the whole scale by remapping --step-base
+     and its dependents. Until that UI lands, --step-N is used directly. */
+  --step-base:    14px;
+  --step-1:       10px;
+  --step-2:       11px;
+  --step-3:       12px;
+  --step-4:       13px;
+  --step-5:       var(--step-base);
+  --step-6:       15px;
+  --step-7:       16px;
+  --step-8:       18px;
+  --step-9:       20px;
+  --step-10:      28px;
+
   /* layout */
   --topbar-h:     56px;
   --pane-l:       220px;
