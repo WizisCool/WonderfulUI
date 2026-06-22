@@ -1,4 +1,12 @@
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { PieChart } from 'echarts/charts';
+import { LegendComponent, TooltipComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+// Register only the chart / components / renderer this module actually uses.
+// ECharts 5+ tree-shaking: nothing else is needed for the single donut chart
+// in SettingsModal. ~1MB saved vs. `import * as echarts from 'echarts'`.
+echarts.use([PieChart, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 export type ChartMetric = 'video' | 'match';
 
@@ -155,7 +163,7 @@ function buildChartOption(
   metric: ChartMetric,
   palette: string[],
   reducedMotion: boolean,
-): echarts.EChartsOption {
+): echarts.EChartsCoreOption {
   const slices = accountChartSlices(accounts, metric);
   const total = slices.reduce((sum, account) => sum + account.value, 0);
   const valuesByName = new Map(slices.map(account => [account.name, account.value]));
