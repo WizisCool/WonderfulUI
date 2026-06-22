@@ -129,18 +129,23 @@ function registerCardRef(id: string, el: Element | null) {
 }
 
 // Keep focusedId valid when the underlying list changes
+// focusedId drives aria-activedescendant + which row gets tabindex=0.
+// Keep it null until the user actually interacts: seeding it to the first
+// row on mount was painting a red outline (= same color as .is-selected)
+// on a row the user had never touched, which read as "first row is
+// permanently selected".
 watch(filteredMatches, (list) => {
   if (list.length === 0) {
     focusedId.value = null;
     return;
   }
-  if (!focusedId.value || !list.some(m => m.matches_id === focusedId.value)) {
-    // Default focus to the currently-selected match if any, else the first row.
-    const sel = detail.selectedMatch?.matches_id;
-    focusedId.value = sel && list.some(m => m.matches_id === sel)
-      ? sel
-      : list[0]!.matches_id;
+  if (focusedId.value && list.some(m => m.matches_id === focusedId.value)) {
+    return; // current focus is still in the list
   }
+  // Re-anchor only when there is a real selection (user clicked a row
+  // earlier). Otherwise stay null until the user actually navigates.
+  const sel = detail.selectedMatch?.matches_id;
+  focusedId.value = sel && list.some(m => m.matches_id === sel) ? sel : null;
 }, { immediate: true });
 
 function onRowActivate(m: MatchRecord) {
@@ -187,14 +192,18 @@ function onListKeydown(e: KeyboardEvent) {
   const list = filteredMatches.value;
   if (list.length === 0) return;
   const currentIdx = list.findIndex(m => m.matches_id === focusedId.value);
-  const safeIdx = currentIdx < 0 ? 0 : currentIdx;
+  // When no row is focused yet, ArrowDown lands on the first row and
+  // ArrowUp lands on the last (so the user always gets a meaningful move
+  // from the initial Tab into the listbox). Home/End behave normally.
+  const noFocus = currentIdx < 0;
+  const safeIdx = noFocus ? -1 : currentIdx;
 
   let nextIdx: number | null = null;
   switch (e.key) {
-    case 'ArrowDown': nextIdx = safeIdx + 1; break;
-    case 'ArrowUp': nextIdx = safeIdx - 1; break;
-    case 'Home': nextIdx = 0; break;
-    case 'End': nextIdx = list.length - 1; break;
+    case 'ArrowDown': nextIdx = noFocus ? 0 : safeIdx + 1; break;
+    case 'ArrowUp':   nextIdx = noFocus ? list.length - 1 : safeIdx - 1; break;
+    case 'Home':      nextIdx = 0; break;
+    case 'End':       nextIdx = list.length - 1; break;
     case 'PageDown': {
       const el = listRef.value;
       const page = el ? Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1) : 5;
