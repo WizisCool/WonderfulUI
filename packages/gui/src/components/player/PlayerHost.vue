@@ -551,6 +551,12 @@ function onKeydown(e: KeyboardEvent) {
   if (!player.isOpen) return;
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  // The progress slider handles its own arrow / page / home / end keys
+  // (WAI-ARIA slider pattern). Skip those here to avoid double-seek.
+  const target = e.target as HTMLElement | null;
+  if (target?.closest('.player-progress-wrap')) {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') return;
+  }
   const v = videoRef.value;
   if (!v) return;
 

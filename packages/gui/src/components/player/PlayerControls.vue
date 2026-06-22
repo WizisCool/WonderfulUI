@@ -10,6 +10,8 @@
         ref="progressRef"
         :current-time="currentTime"
         :duration="duration"
+        :current-time-str="currentTimeStr"
+        :duration-str="durationStr"
         :buffered-style="bufferedStyle"
         :video="video"
         :match="match"

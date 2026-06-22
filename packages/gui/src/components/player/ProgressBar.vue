@@ -3,7 +3,15 @@
     ref="wrapRef"
     class="player-progress-wrap"
     :class="{ 'is-dragging': isDragging }"
+    role="slider"
+    tabindex="0"
+    aria-label="视频进度"
+    :aria-valuemin="0"
+    :aria-valuemax="duration > 0 ? Math.round(duration) : 0"
+    :aria-valuenow="duration > 0 ? Math.round(currentTime) : 0"
+    :aria-valuetext="`${currentTimeStr} / ${durationStr}`"
     @mousedown.prevent="onMouseDown"
+    @keydown="onSliderKeydown"
   >
     <div class="player-progress-track" ref="trackRef">
       <div class="player-progress-buffered" :style="bufferedStyle" />
@@ -53,6 +61,8 @@ import type { EventMarker } from '../../utils/match-events.ts';
 const props = defineProps<{
   currentTime: number;
   duration: number;
+  currentTimeStr: string;
+  durationStr: string;
   bufferedStyle: Record<string, string>;
   video: VideoItem | null;
   match: MatchRecord | null;
@@ -127,6 +137,36 @@ function onMouseDown(e: MouseEvent) {
   };
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
+}
+
+// Slider keyboard semantics (WAI-ARIA slider pattern).
+// Stop propagation so the player-level global keyboard shortcuts (in
+// PlayerHost.onKeydown) don't double-handle the same arrow / space.
+function onSliderKeydown(e: KeyboardEvent) {
+  if (props.duration <= 0) {
+    if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
+    return;
+  }
+  const t = props.currentTime;
+  const d = props.duration;
+  let next = t;
+  switch (e.key) {
+    case 'ArrowLeft':  next = Math.max(0, t - 5); break;
+    case 'ArrowRight': next = Math.min(d, t + 5); break;
+    case 'PageUp':    next = Math.max(0, t - d * 0.1); break;
+    case 'PageDown':  next = Math.min(d, t + d * 0.1); break;
+    case 'Home':      next = 0; break;
+    case 'End':       next = d; break;
+    case 'Enter':
+    case ' ':
+      // Don't double-toggle play here; let the play/pause button handle it.
+      return;
+    default:
+      return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  emit('seek', next / d);
 }
 
 function markerClasses(layout: EventMarkerLayout<EventMarker>): Record<string, boolean> {
@@ -209,6 +249,11 @@ defineExpose({
   padding: 12px 0;
   cursor: pointer;
   position: relative;
+}
+.player-progress-wrap:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 .player-progress-track {
   position: relative;
