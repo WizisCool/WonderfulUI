@@ -1,6 +1,6 @@
 # WonderfulUI Architecture
 
-Last organized: 2026-06-21.
+Last organized: 2026-06-22.
 
 WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻" highlights. Users can browse Valorant highlight metadata and videos without launching Valorant, WeGame, Riot Client, or Vanguard.
 

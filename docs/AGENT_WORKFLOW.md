@@ -1,6 +1,6 @@
 # Agent Workflow
 
-Last organized: 2026-06-20.
+Last organized: 2026-06-22.
 
 This document is the operating manual for agents maintaining WonderfulUI.
 `AGENTS.md` is still the short high-priority entry point; use this file when
@@ -112,14 +112,14 @@ change.
 
 Good low-risk splits:
 
-- Pulling a self-contained GUI component out of `app.ts`.
+- Pulling a self-contained GUI Vue component out of an existing one.
 - Moving shared DOM or formatting helpers into a focused module.
 - Isolating tests around an existing behavior before changing it.
 
 Avoid:
 
 - Moving parser schema files without an ACLOS-version reason.
-- Rebuilding the stable DOM skeleton in `app.ts`.
+- Rebuilding the stable DOM skeleton in `App.vue`.
 - Broad CSS rewrites while fixing a narrow UI issue.
 - Removing dead code you did not make unless it is part of a verified warning
   or requested cleanup.

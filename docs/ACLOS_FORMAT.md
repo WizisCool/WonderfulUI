@@ -1,6 +1,6 @@
 # ACLOS Data Format Notes
 
-Last organized: 2026-06-20.
+Last organized: 2026-06-22.
 
 This document holds ACLOS/WonderfulDb facts that are useful for parser and GUI work.
 
@@ -165,7 +165,7 @@ These are bugs/quirks in ACLOS's own data, not in the parser. The UI has to work
    identical (same `KillerPlayerName`, `WeaponSkinName`, `BloodAfter`,
    `GetShotRolePart`, etc.). The GUI's event list dedupes on
    `(EventTime, victim)` for kills and `(EventTime, killer)` for deaths in
-   `flattenMatchEvents`. When duplicates exist, the GUI keeps the most
+   `normalizeMatchEvents`. When duplicates exist, the GUI keeps the most
    playable occurrence. Kill rows prefer `击杀集锦` and death rows prefer
    `死亡集锦`, because those sources match user expectations for the per-match
    event list. If the matching montage candidate cannot be seeked within its
@@ -270,7 +270,7 @@ multi-part codes like `AssaultRifle_ACR` (幻影) and `AssaultRifle_Burst`
 (獠犬) are not collapsed to the generic `AssaultRifle` fallback.
 
 Skin names come from the committed local Valorant-API dump at
-`packages/gui/src/generated/valorant-skins.zh-CN.ts`, generated from
+`packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, generated from
 `https://valorant-api.com/v1/weapons/skins?language=zh-CN` by
 `bun run update:skins`. The GUI must not fetch this API at runtime, so it
 stays usable in offline / poor-network environments. Unknown skin codes

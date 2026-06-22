@@ -1,17 +1,17 @@
 # Frontend Conventions
 
-Last organized: 2026-06-21.
+Last organized: 2026-06-22.
 
 This document holds GUI implementation conventions that are too detailed for `AGENTS.md`. Follow `DESIGN.md` and `PRODUCT.md` first for product and visual intent.
 
 ## Rendering Model
 
 - The app uses a stable DOM skeleton.
-- `app.ts` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load.
-- State changes use targeted refresh helpers for accounts, filters, match list, and detail.
+- `App.vue` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load. State management is driven by 6 Pinia stores (`account`, `filter`, `detail`, `player`, `settings`, `ui`) and vue-router (`createMemoryHistory`).
+- State changes are driven by reactive Pinia stores, not manual DOM helpers.
 - Do not reintroduce `root.innerHTML = ''` or whole-`#app` rebuilds for ordinary interactions.
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
-- **Match list uses DOM virtual scrolling** (`app.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
+- **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
@@ -311,7 +311,7 @@ Progress bar:
 - Thumb positioning uses `left: X%` (relative to parent track), not `translate(calc(X% - 50%), -50%)` — CSS `translate()` percentages are relative to the element's own 8 px width, which collapses the offset to near zero.
 - `lastBufferedPct` must be a `ref`; a plain `let` is invisible to Vue's reactivity and the buffered bar will never update.
 - Event marker container uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop`. Adding `@mousedown.stop` on the container breaks track-seeking in canvas mode because `.is-canvas` has `pointer-events: auto`.
-- `CANVAS_MARKER_THRESHOLD = 20`.
+- `CANVAS_MARKER_THRESHOLD = Infinity` (permanently disables canvas mode; see AGENTS.md for rationale).
 
 Controls click propagation:
 
@@ -352,10 +352,10 @@ it opens the per-match event list. The flow is **3 steps**, layered:
                                                             seekMs)
 ```
 
-- **Stat card** (`app.ts:eventStatCell`): always shown in the detail pane.
+- **Stat card** (DetailView.vue): always shown in the detail pane.
   Shows total event count once rounds are loaded; spinner while loading.
   Becomes a `disabled` button if the match has no events.
-- **List modal** (`event-list-modal.ts`): shows all kill/death events for the
+- **List modal** (`EventListModal.vue`): shows all kill/death events for the
   match, sorted by `timeMs`. Header shows the **real** K/D from `m.stats.*`
   (not the event count — ACLOS highlights can include team kills, so the
   count is misleading). `normalizeMatchEvents` first runs each raw clip event
@@ -385,17 +385,11 @@ Progress-bar markers:
   machine accepts an event. `eventMarkersForVideo` must call
   `resolveClipEventState`; do not add a second event-validity state machine
   in the player or marker code.
-- **Dual rendering path**: when marker count <= 20 (`CANVAS_MARKER_THRESHOLD`),
+- **DOM-only rendering**: `CANVAS_MARKER_THRESHOLD = Infinity` so markers always
   use DOM-based rendering (`.player-event-marker` divs with pseudo-elements).
-  When count > 20, switch to Canvas rendering (`renderCanvasMarkers`) — all
-  markers are drawn in a single `<canvas>` element, reducing GPU composited
-  layers from 50+ to 1.
-- Canvas markers use `.player-event-markers.is-canvas` with
-  `pointer-events: auto` for hit-testing. Click coordinates are matched against
-  stored layout positions in `dataset.canvasLayouts`. The canvas child has
-  `pointer-events: none`.
-- `repositionEventMarkers` branches on `.is-canvas` to re-render via Canvas on
-  fullscreen/resize.
+  Canvas code (`renderCanvasMarkers`) is retained for future use if the threshold
+  is lowered, but is unreachable in normal operation. See AGENTS.md for the
+  historical rationale.
 - The event list dedupes across videos for the user's per-match view, but the
   progress bar is scoped to the currently playing video. It keeps accepted
   moment-video events visible even when the list's best playable duplicate is
@@ -435,7 +429,7 @@ display names.
   `AssaultRifle_Burst` (獠犬), which must not be truncated to
   `AssaultRifle`.
 - Skin names come from the committed local dump
-  `packages/gui/src/generated/valorant-skins.zh-CN.ts`, generated from
+  `packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, generated from
   `https://valorant-api.com/v1/weapons/skins?language=zh-CN`.
 - Refresh the dump with `bun run update:skins`. Runtime GUI code must use
   the committed dump only; do not fetch Valorant-API while the app is
