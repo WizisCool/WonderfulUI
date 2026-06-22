@@ -176,7 +176,6 @@
 
     <div v-else class="empty">
       <div class="empty-title">没有选中</div>
-      <div class="empty-sub">从左侧账户选一个,再从中间选一场高光</div>
     </div>
     <EventListModal
       v-if="eventListVisible && match"

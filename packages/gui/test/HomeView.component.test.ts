@@ -70,7 +70,7 @@ describe('HomeView', () => {
   test('shows empty state with no matches', async () => {
     const wrapper = await mountHome([]);
     expect(wrapper.find('.empty').exists()).toBe(true);
-    expect(wrapper.text()).toContain('这个账户还没有高光');
+    expect(wrapper.text()).toContain('还没有高光');
   });
 
   test('renders virtual scroll spacer when matches exist', async () => {

@@ -38,6 +38,7 @@
     </div>
     <div
       class="match-list"
+      :class="{ 'is-empty': accountMatches.length === 0 }"
       role="listbox"
       ref="listRef"
       :aria-activedescendant="focusedId ?? undefined"
@@ -45,35 +46,30 @@
       @scroll="onScroll"
       @keydown="onListKeydown"
     >
-      <div class="vlist-spacer" :style="{ height: totalHeight + 'px' }" />
-      <MatchCard
-        v-for="item in visibleMatches"
-        :ref="(el) => registerCardRef(item.match.matches_id, el)"
-        :key="item.match.matches_id"
-        :match="item.match"
-        :style="{ position: 'absolute', top: '0', left: '0', right: '0', transform: 'translateY(' + item.y + 'px)' }"
-        :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
-        :is-focused="item.match.matches_id === focusedId"
-        :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
-        @click="onRowActivate(item.match)"
-        @dblclick="playFirst(item.match)"
-      />
-    </div>
-    <div v-if="accountMatches.length === 0" class="empty">
-      <div class="empty-title">这个账户还没有高光</div>
-      <div class="empty-sub">
-        完成一局 VALORANT 对局后,ACLOS 会把"无畏时刻"写入本地,然后点顶部刷新按钮就能看到。
-      </div>
-    </div>
-    <div v-else-if="filteredMatches.length === 0" class="empty">
-      <div class="empty-title">没有匹配</div>
-      <div class="empty-sub">
-        <template v-if="filter.activeCount > 0">
-          {{ accountMatches.length }} 条中无结果 · {{ filter.summary }}
-        </template>
-        <template v-else>搜索 "{{ filter.filters.query }}" 在 {{ accountMatches.length }} 条中没结果</template>
-      </div>
-      <button class="btn btn-primary" style="margin-top:12px" @click="filter.clearFilter('__all__')">清除全部筛选</button>
+      <template v-if="accountMatches.length === 0">
+        <div class="empty">
+          <div class="empty-title">还没有高光</div>
+        </div>
+      </template>
+      <template v-else>
+        <div class="vlist-spacer" :style="{ height: totalHeight + 'px' }" />
+        <MatchCard
+          v-for="item in visibleMatches"
+          :ref="(el) => registerCardRef(item.match.matches_id, el)"
+          :key="item.match.matches_id"
+          :match="item.match"
+          :style="{ position: 'absolute', top: '0', left: '0', right: '0', transform: 'translateY(' + item.y + 'px)' }"
+          :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
+          :is-focused="item.match.matches_id === focusedId"
+          :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
+          @click="onRowActivate(item.match)"
+          @dblclick="playFirst(item.match)"
+        />
+        <div v-if="filteredMatches.length === 0" class="empty empty-inside-list">
+          <div class="empty-title">没有匹配</div>
+          <button class="btn btn-primary" style="margin-top:12px" @click="filter.clearFilter('__all__')">清除全部筛选</button>
+        </div>
+      </template>
     </div>
   </main>
 </template>
@@ -326,5 +322,26 @@ function playFirst(m: MatchRecord) {
   .pane-head-action.is-loading svg {
     animation-duration: 1600ms;
   }
+}
+
+/* Empty state lives inside .match-list (was previously a sibling of it,
+   which placed it visually below the scroller's spacer). When the list
+   is empty, switch the scroller to a centred flex column so the title
+   sits at the visual centre of the pane instead of stuck under the
+   (zero-height) spacer. */
+.match-list.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.empty-inside-list {
+  /* The global .empty has flex: 1 + 32px padding, which is right for a
+     pane-sibling empty but wrong inside a listbox. Reset the padding
+     and let the parent .match-list.is-empty centre us instead. */
+  flex: 0 0 auto;
+  padding: 0;
+  position: absolute;
+  inset: 0;
 }
 </style>
