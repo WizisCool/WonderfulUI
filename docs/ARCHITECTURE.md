@@ -52,6 +52,17 @@ Account display overrides and drag order live in SQLite `account_preferences`. T
 
 Defined in `src-tauri/src/lib.rs`:
 
+- `aclos_status(dir?: string) -> AclosStatusPayload`
+  - **Read-only** probe of the ACLOS WonderfulDb directory. Returns
+    `{ dir, dirExists, hasAccounts }` so the GUI can route the user to the
+    first-run / onboarding screen without paying the cost of `scan_shell`.
+  - `dirExists` is true when the directory is on disk.
+  - `hasAccounts` is true when the directory contains at least one
+    non-hidden, non-snapshot, non-index file (mirrors the rule ACLOS
+    uses to enumerate account files).
+  - Does not create, modify, or touch the directory.
+  - The frontend calls this at boot, before `scan_shell`, in
+    `App.vue -> runBoot()`.
 - `scan_shell(dir?: string) -> ScanShellPayload`
   - Opens the local SQLite library and returns the existing account shell
     immediately so startup can render without waiting for a full source scan.

@@ -13,6 +13,7 @@ This document holds GUI implementation conventions that are too detailed for `AG
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
 - **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
+- **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but is empty (e.g. user logged in but has no matches yet) — they point at ACLOS as the data source rather than dumping raw paths.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
 
