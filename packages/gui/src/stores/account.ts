@@ -45,13 +45,6 @@ export const useAccountStore = defineStore('account', () => {
   // The GUI uses this to decide between the normal 3-pane shell and the
   // first-run / onboarding screen.
   const aclosStatus = ref<AclosStatus | null>(null);
-  // True while the GUI is waiting for the Rust background scrape that
-  // scan_shell spawns. The match list shows a loading view while this
-  // is on, so the user does not see a brief "no matches" flash between
-  // launch and the first wui://account_loaded event arriving.
-  // Distinct from `scraping` (which is set only when the user
-  // explicitly clicks Refresh, going through scrapeLibrary).
-  const bootScraping = ref(false);
 
   const realAccounts = computed(() => accounts.value);
 
@@ -187,7 +180,7 @@ export const useAccountStore = defineStore('account', () => {
 
   return {
     accounts, selectedAccountId, matches, dir, totalErrors, scraping,
-    assetPathCache, loadedMatchIds, aclosStatus, bootScraping,
+    assetPathCache, loadedMatchIds, aclosStatus,
     realAccounts, accountsForRender, accountLabels, accountOrder, matchAchievements,
     scanShell, loadLibrary, scrapeLibrary, cacheAssets, probeAclos,
     selectAccount, saveAccountOrder, renameAccount,

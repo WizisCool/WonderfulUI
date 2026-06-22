@@ -113,15 +113,12 @@ const accountMatches = computed(() => {
 
 const filteredMatches = computed(() => filter.applyToMatches(account.matches, accountMatches.value));
 
-// Loading view: shown whenever we know data is being fetched but the
-// list is still empty. Two distinct sources:
-//  - account.scraping: user explicitly clicked Refresh, going through
-//    account.scrapeLibrary.
-//  - account.bootScraping: App.vue runBoot is waiting for the Rust
-//    background scrape that scan_shell spawns, so the GUI does not
-//    briefly flash the empty state between launch and the first
-//    wui://account_loaded event.
-const isBootLoading = computed(() => account.scraping || account.bootScraping);
+// Spinner for the user-driven refresh path (the Refresh button calls
+// account.scrapeLibrary, which sets scraping=true). The first-launch
+// background scrape is shown by BootOverlay at the app level, not here:
+// the match list is not mounted while booted is false, so a
+// boot-time loading view would never be visible.
+const isBootLoading = computed(() => account.scraping);
 
 const { totalHeight, visibleMatches, onScroll, scrollToIndex } = useVirtualScroll(filteredMatches, listRef);
 
