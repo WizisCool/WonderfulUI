@@ -25,18 +25,31 @@ export function useTooltip() {
     return el;
   }
 
-  function show(t: HTMLElement, tipText: string, x: number) {
+  async function show(t: HTMLElement, tipText: string, x: number) {
     clearTimer();
+    // Bail if the target left the DOM while the schedule timer was
+    // running — computePosition would fail on a disconnected element.
+    if (!t.isConnected) return;
     target = t;
     cursorX = x;
     text.value = tipText;
     const el = ensureElement();
     const body = el.querySelector<HTMLElement>('.tooltip-body');
     if (body) body.textContent = tipText;
+    // Await position BEFORE showing the tooltip.  positionFloating
+    // calls the async computePosition which can take 300-600 ms;
+    // without await the tooltip renders at its CSS default (0,0)
+    // and then visibly jumps to the computed location.
+    const ref = referenceAtX(t, x);
+    await positionFloating(ref, el);
+    // Re-check connectedness after the async gap.
+    if (!t.isConnected) return;
+    // If `hide()` was called during the await (e.g. the user moved
+    // the mouse away while computePosition was running), don't
+    // re-show the tooltip.
+    if (target !== t) return;
     visible.value = true;
     el.classList.add('is-visible');
-    const ref = referenceAtX(t, x);
-    positionFloating(ref, el);
   }
 
   function schedule(t: HTMLElement, tipText: string, x: number) {
