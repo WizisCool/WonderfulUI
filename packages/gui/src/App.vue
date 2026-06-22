@@ -109,10 +109,6 @@ async function retryBoot() {
   await runBoot();
 }
 
-async function retryBoot() {
-  await runBoot();
-}
-
 onMounted(() => {
   void runBoot();
 });
