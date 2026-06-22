@@ -1,4 +1,4 @@
-import { ref, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { positionFloating, createArrow, referenceAtX } from './useFloating.ts';
 
 const TOOLTIP_DELAY_MS = 800;
@@ -11,8 +11,12 @@ export function useTooltip() {
   let target: HTMLElement | null = null;
   let cursorX = 0;
 
-  function ensureElement(): HTMLElement {
-    if (tooltipEl.value) return tooltipEl.value;
+  // Create the tooltip element eagerly, not lazily.  When it is
+  // created lazily on the first show(), computePosition reads its
+  // dimensions while the element hasn't had a full render pass —
+  // this can return stale offsetWidth/offsetHeight and cause the
+  // first tooltip to be mispositioned.
+  function create(): HTMLElement {
     const el = document.createElement('div');
     el.className = 'tooltip';
     el.setAttribute('role', 'tooltip');
@@ -20,9 +24,30 @@ export function useTooltip() {
     body.className = 'tooltip-body';
     el.appendChild(body);
     el.appendChild(createArrow());
+    return el;
+  }
+
+  onMounted(() => {
+    const el = create();
     document.body.appendChild(el);
     tooltipEl.value = el;
-    return el;
+  });
+
+  onUnmounted(() => {
+    clearTimer();
+    tooltipEl.value?.remove();
+    tooltipEl.value = null;
+  });
+
+  function ensureElement(): HTMLElement {
+    // Fallback: if onMounted hasn't run yet (shouldn't happen in
+    // App.vue, but defensive), create lazily.
+    if (!tooltipEl.value) {
+      const el = create();
+      document.body.appendChild(el);
+      tooltipEl.value = el;
+    }
+    return tooltipEl.value;
   }
 
   async function show(t: HTMLElement, tipText: string, x: number) {
@@ -36,10 +61,16 @@ export function useTooltip() {
     const el = ensureElement();
     const body = el.querySelector<HTMLElement>('.tooltip-body');
     if (body) body.textContent = tipText;
+    // Force synchronous layout after setting text so computePosition
+    // reads fresh dimensions. Without this, a freshly-created
+    // tooltip element (or one whose text changed significantly) may
+    // not yet have its final offsetWidth when computePosition reads
+    // it, causing the first tooltip of the session to appear
+    // misaligned relative to the cursor.
+    void el.offsetWidth;
     // Await position BEFORE showing the tooltip.  positionFloating
-    // calls the async computePosition which can take 300-600 ms;
-    // without await the tooltip renders at its CSS default (0,0)
-    // and then visibly jumps to the computed location.
+    // calls the async computePosition; without await the tooltip
+    // renders at its CSS default (0,0) and then visibly jumps.
     const ref = referenceAtX(t, x);
     await positionFloating(ref, el);
     // Re-check connectedness after the async gap.
@@ -79,11 +110,6 @@ export function useTooltip() {
   function clearTimer() {
     if (timer != null) { clearTimeout(timer); timer = null; }
   }
-
-  onUnmounted(() => {
-    clearTimer();
-    tooltipEl.value?.remove();
-  });
 
   return { tooltipEl, visible, text, show, schedule, reposition, hide };
 }

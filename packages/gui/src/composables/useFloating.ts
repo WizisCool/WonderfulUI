@@ -25,6 +25,7 @@ export function positionFloating(
 
   return computePosition(reference, floating, {
     placement: opts.placement ?? 'top',
+    strategy: 'fixed',
     middleware,
   }).then(({ x, y, placement, middlewareData }) => {
     Object.assign(floating.style, { left: `${x}px`, top: `${y}px` });
