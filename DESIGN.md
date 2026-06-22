@@ -41,6 +41,9 @@ rounded:
   lg: "8px"
   xl: "10px"
   full: "999px"
+  xs: "3px"
+  pill: "999px"
+  circle: "50%"
 spacing:
   gap: "4px"
   pad: "16px"
@@ -164,6 +167,8 @@ A restrained warm-dark palette with one saturated anchor. All neutrals are tinte
 **The One-Family Rule.** MiSans carries every heading, label, button, and body. JetBrains Mono is reserved for data (numbers, timestamps, codes). Never introduce a third family.
 
 **The Weight Token Rule.** Use `var(--w-medium)` (380), `var(--w-semibold)` (520), `var(--w-bold)` (630). Never write `font-weight: 400` or `font-weight: 500` — MiSans has no weight at those stops.
+
+**The Type-Scale Token Rule.** Pixel font-sizes are exposed as `--step-1` (10) through `--step-10` (28), with `--step-base` (14) as the central handle. When the user font-size setting (PRODUCT.md: 14 → 18) lands, the whole scale flips by remapping `--step-base` and the few `--step-N` values that scale with it. Until then, prefer `var(--step-N)` over raw `NNpx` so the eventual flip is a one-line change.
 
 ## 4. Elevation
 
@@ -290,7 +295,15 @@ The PlayerModal is the primary justified modal — video playback requires focus
 
 **Keyboard:** Space/K, Arrows, J/L, Up/Down for volume, M for mute, F toggles fullscreen, Esc exits fullscreen then closes modal.
 
-**Volume memory:** Persisted across sessions via localStorage.
+**Volume memory:** Persisted across sessions via localStorage. The persisted volume is re-applied inside `onLoadedMeta` (the first event the freshly-mounted `<video>` fires), not in the player `onMounted` — the `<video>` element is rendered by the same `v-if` that mounts PlayerHost, so onMounted runs before the element exists and the apply is silently dropped.
+
+**Accessibility:**
+- `role="dialog"`, `aria-modal="true"`, `aria-labelledby` pointing at a visually-hidden `<h1>` ("视频播放器"). The close button is the labelled-by target, so screen readers announce the dialog's purpose on open.
+- On open, focus moves to the first focusable element inside the dialog (typically the close button). On close, focus restores to the element that opened the player.
+- `@keydown.tab.prevent` cycles focus between the first and last focusable elements to keep Tab and Shift+Tab inside the dialog while it is open.
+- The global `keydown` capture listener early-returns when `player.isOpen` is `false`, so it does not swallow events from the underlying app between open/close.
+- **Progress bar** is a real `role="slider"` with `tabindex="0"`, `aria-valuemin`/`max`/`now`/`text` (text is the same `M:SS / M:SS` shown on screen), and ArrowLeft/Right (±5s), PageUp/PageDown (±10%), Home/End. `stopPropagation` keeps the player-level global keyboard from double-seeking. The player's `onKeydown` skips these keys when focus is inside `.player-progress-wrap`.
+- **Error block** is `role="alert"` so the "该高光视频源不可用" message is announced when the video source fails. The error icon is `aria-hidden` because the visible title is the meaningful name.
 
 ## 6. Do's and Don'ts
 
