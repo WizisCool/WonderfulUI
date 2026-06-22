@@ -22,6 +22,12 @@ export interface LoadResult {
   totalErrors: number;
 }
 
+export interface AclosStatus {
+  dir: string;
+  dirExists: boolean;
+  hasAccounts: boolean;
+}
+
 export const ALL_ACCOUNTS = '__all__';
 
 export const useAccountStore = defineStore('account', () => {
@@ -34,6 +40,11 @@ export const useAccountStore = defineStore('account', () => {
   const assetPathCache = ref(new Map<string, string>());
   const loadedMatchIds = ref(new Set<string>());
   const accountLabels = ref(new Map<string, string>());
+  // Result of `aclos_status` (read-only probe of the ACLOS WonderfulDb
+  // directory). `null` until the GUI has finished its first-run probe.
+  // The GUI uses this to decide between the normal 3-pane shell and the
+  // first-run / onboarding screen.
+  const aclosStatus = ref<AclosStatus | null>(null);
 
   const realAccounts = computed(() => accounts.value);
 
@@ -75,6 +86,12 @@ export const useAccountStore = defineStore('account', () => {
     dir.value = shell.dir;
     totalErrors.value = shell.totalErrors;
     assignAccountLabels();
+  }
+
+  async function probeAclos(dirOverride?: string): Promise<AclosStatus> {
+    const status = await invoke<AclosStatus>('aclos_status', dirOverride ? { dir: dirOverride } : undefined);
+    aclosStatus.value = status;
+    return status;
   }
 
   async function loadLibrary(): Promise<void> {
@@ -163,9 +180,9 @@ export const useAccountStore = defineStore('account', () => {
 
   return {
     accounts, selectedAccountId, matches, dir, totalErrors, scraping,
-    assetPathCache, loadedMatchIds,
+    assetPathCache, loadedMatchIds, aclosStatus,
     realAccounts, accountsForRender, accountLabels, accountOrder, matchAchievements,
-    scanShell, loadLibrary, scrapeLibrary, cacheAssets,
+    scanShell, loadLibrary, scrapeLibrary, cacheAssets, probeAclos,
     selectAccount, saveAccountOrder, renameAccount,
   };
 });

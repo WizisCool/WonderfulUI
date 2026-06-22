@@ -380,6 +380,22 @@ async function mockInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
       if (next.length > 0) accountOrder = next;
       return undefined as T;
     }
+    case 'aclos_status':
+      // In browser debug, fake "ACLOS is here with accounts" so the
+      // dashboard is exercised. Pass ?debug=1&onboarding=1 in the URL to
+      // exercise the first-run screen instead.
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
+        return deepClone({
+          dir: 'D:\\WonderfulUIDebug\\WonderfulDb (missing)',
+          dirExists: false,
+          hasAccounts: false,
+        }) as T;
+      }
+      return deepClone({
+        dir: 'D:\\WonderfulUIDebug\\WonderfulDb',
+        dirExists: true,
+        hasAccounts: true,
+      }) as T;
     case 'rename_account': {
       const openid = typeof args?.openid === 'string' ? args.openid : '';
       const customName = typeof args?.customName === 'string' ? args.customName.trim() : '';

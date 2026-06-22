@@ -33,7 +33,8 @@ pub fn run() {
         reveal_in_explorer,
         get_log_status,
         reveal_logs_dir,
-        get_library_stats
+        get_library_stats,
+        aclos_status
     ]);
 
     #[cfg(feature = "updater")]
@@ -90,6 +91,60 @@ struct ScanShellPayload {
     accounts: Vec<parser::model::Account>,
     dir: String,
     total_errors: usize,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AclosStatusPayload {
+    /// The directory WonderfulUI is currently configured to read from. May
+    /// be the platform default (`%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`)
+    /// or a user-selected override (not yet exposed in the GUI).
+    dir: String,
+    /// True if `dir` exists on disk. The frontend uses this to decide
+    /// whether to show the onboarding / first-run screen.
+    dir_exists: bool,
+    /// True if any account file (`<openid>`) is present in `dir`. `dir_exists`
+    /// can be true while this is false if the directory is empty / newly
+    /// created. Distinguishes "ACLOS never wrote here" from "directory
+    /// missing entirely".
+    has_accounts: bool,
+}
+
+/// Probe the ACLOS WonderfulDb directory so the GUI can detect first-run
+/// state without running a full scan. Returns the path, whether it exists,
+/// and whether it contains any account files. This is read-only: it does
+/// not create, modify, or touch the directory in any way.
+#[tauri::command]
+fn aclos_status(dir: Option<String>) -> Result<AclosStatusPayload, String> {
+    let base = match dir {
+        Some(d) => PathBuf::from(d),
+        None => default_wonderful_dir(),
+    };
+    let dir_str = base.to_string_lossy().into_owned();
+    let dir_exists = base.is_dir();
+    let has_accounts = if dir_exists {
+        std::fs::read_dir(&base)
+            .map(|rd| {
+                rd.filter_map(Result::ok).any(|entry| {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    // ACLOS writes a single file per account named after the
+                    // openid; any sibling file that is not a hidden / index /
+                    // snapshot file is treated as an account shell.
+                    !name.starts_with('.')
+                        && !name.starts_with("snapshot")
+                        && !name.eq_ignore_ascii_case("index")
+                })
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    Ok(AclosStatusPayload {
+        dir: dir_str,
+        dir_exists,
+        has_accounts,
+    })
 }
 
 /// Return existing library state immediately, then spawn a background
