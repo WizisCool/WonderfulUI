@@ -28,11 +28,26 @@ const filter = useFilterStore();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 
+// Debounce query input: each keystroke otherwise rebuilds the TanStack
+// table (applyFilters) plus the per-account count map. 150ms keeps the
+// search feeling live while collapsing bursts to a single recompute.
+let queryDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const QUERY_DEBOUNCE_MS = 150;
+
 function onQueryInput(e: Event) {
-  filter.setFilters({ query: (e.target as HTMLInputElement).value });
+  const value = (e.target as HTMLInputElement).value;
+  if (queryDebounceTimer !== null) clearTimeout(queryDebounceTimer);
+  queryDebounceTimer = setTimeout(() => {
+    filter.setFilters({ query: value });
+    queryDebounceTimer = null;
+  }, QUERY_DEBOUNCE_MS);
 }
 
 function onQueryEscape(e: Event) {
+  if (queryDebounceTimer !== null) {
+    clearTimeout(queryDebounceTimer);
+    queryDebounceTimer = null;
+  }
   filter.setFilters({ query: '' });
   (e.target as HTMLInputElement).value = '';
 }

@@ -91,13 +91,22 @@ export const useFilterStore = defineStore('filter', () => {
     return applyFilters(accountMatches, filters.value);
   }
 
-  // Per-account filtered counts for sidebar numbers
+  // Per-account filtered counts for sidebar numbers.
+  // Previously called applyFilters once for ALL_ACCOUNTS and once per real
+  // account (O((N+1) * M), with each applyFilters rebuilding a full TanStack
+  // table). Now: one applyFilters pass, then group by openID in a single
+  // linear walk. The map omits accounts with zero matches after filtering;
+  // AccountSidebar's consumer falls back to a.matchCount in that case.
   function filteredAccountCounts(matches: MatchRecord[], realAccounts: Array<{ openid: string; error?: string }>) {
     const counts = new Map<string, number>();
-    counts.set(ALL_ACCOUNTS, applyFilters(matches, filters.value).length);
+    const filtered = applyFilters(matches, filters.value);
+    counts.set(ALL_ACCOUNTS, filtered.length);
+    for (const m of filtered) {
+      counts.set(m.openID, (counts.get(m.openID) ?? 0) + 1);
+    }
+    // Errored accounts always show 0, regardless of any residual matches.
     for (const a of realAccounts) {
-      if (a.error) { counts.set(a.openid, 0); continue; }
-      counts.set(a.openid, applyFilters(matches.filter(m => m.openID === a.openid), filters.value).length);
+      if (a.error) counts.set(a.openid, 0);
     }
     return counts;
   }
