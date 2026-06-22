@@ -229,10 +229,8 @@ function onModeIconError() { modeIconFailed.value = true; }
   border-radius: 4px;
   position: relative;
   overflow: hidden;
-  box-shadow:
-    0 1px 2px oklch(0.10 0.01 30 / 0.45),
-    0 4px 12px oklch(0.10 0.01 30 / 0.25),
-    inset 0 1px 0 oklch(1 0 0 / 0.04);
+  /* flat by design: depth comes from tonal layers, not shadows
+     (DESIGN.md "Flat-By-Default Rule"). */
 }
 .cover-placeholder {
   font-size: 28px; font-weight: var(--w-bold); color: var(--ink-3);
@@ -275,11 +273,7 @@ function onModeIconError() { modeIconFailed.value = true; }
   bottom: 3px; right: 3px;
   z-index: 2;
   font-size: 15px;
-  box-shadow:
-    inset 0 0 0 1px oklch(1 0 0 / 0.1),
-    0 1px 1px oklch(0.08 0.01 30 / 0.5),
-    0 2px 4px oklch(0.08 0.01 30 / 0.3),
-    0 8px 16px oklch(0.08 0.01 30 / 0.18);
+  border: 1px solid oklch(1 0 0 / 0.1);
   object-fit: cover;
 }
 
@@ -298,7 +292,6 @@ function onModeIconError() { modeIconFailed.value = true; }
   line-height: 1;
   letter-spacing: 0.3px;
   pointer-events: none;
-  box-shadow: 0 1px 2px oklch(0.10 0.01 30 / 0.4);
   border: 1px solid oklch(0 0 0 / 0.25);
 }
 .cover-badge-mvp {
