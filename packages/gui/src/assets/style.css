@@ -66,6 +66,9 @@
   --pad:          16px;
   --radius:       6px;
   --radius-lg:    10px;
+  --radius-xs:    3px;   /* tight control radius (chips, pills, small buttons) */
+  --radius-pill:  999px; /* fully rounded pill */
+  --radius-circle: 50%;  /* circular avatars / dot markers */
 
   /* event markers */
   --marker-kill:       var(--accent);
