@@ -67,7 +67,7 @@ function openPlay() {
   grid-template-columns: 56px 76px 1fr 130px 80px;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px 8px 13px;
+  padding: 8px 16px;
   font-size: 12px;
   cursor: pointer;
   border-bottom: 1px solid var(--border-soft);
@@ -75,17 +75,8 @@ function openPlay() {
   position: relative;
   transition: background 80ms ease-out;
 }
-.event-list-row::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 2px;
-  background: transparent;
-}
-.event-list-row.type-kill::before  { background: var(--win); }
-.event-list-row.type-death::before { background: var(--loss); }
 .event-list-row:hover { background: var(--surface-3); }
-.event-list-row:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+.event-list-row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 .event-list-col-time {
   font-family: var(--font-mono);
