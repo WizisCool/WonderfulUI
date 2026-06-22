@@ -28,7 +28,7 @@
         <span class="account-count">{{ countText(allRow.find(a => a.openid === ALL_ACCOUNTS)!) }}</span>
       </div>
       <div class="account-sortable-list" role="presentation">
-        <div v-for="a in allRow.filter(x => x.openid !== ALL_ACCOUNTS)" :key="a.openid"
+        <div v-for="(a, i) in realAccountRows" :key="a.openid"
         class="account"
         :class="rowClass(a)"
         role="option"
@@ -37,6 +37,7 @@
         :data-account-id="a.openid"
         :data-tip="rowTip(a)"
         @click="onSelect(a.openid)"
+        @keydown="onAccountKeydown($event, a, i)"
       >
         <span class="account-main">
           <span v-if="a.openid !== ALL_ACCOUNTS" class="account-grip" aria-hidden="true">
@@ -66,6 +67,26 @@
           @click.stop="startRename(a)"
         >
           <WIcon icon="ph:pencil-simple" :size="12" />
+        </button>
+        <button
+          v-if="a.openid !== ALL_ACCOUNTS"
+          class="account-move-btn account-move-up"
+          type="button"
+          :aria-label="`账户 ${accountLabel(a)} 上移`"
+          :disabled="i === 0"
+          @click.stop="moveAccount(a.openid, -1)"
+        >
+          <WIcon icon="ph:arrow-up" :size="12" />
+        </button>
+        <button
+          v-if="a.openid !== ALL_ACCOUNTS"
+          class="account-move-btn account-move-down"
+          type="button"
+          :aria-label="`账户 ${accountLabel(a)} 下移`"
+          :disabled="i === realAccountRows.length - 1"
+          @click.stop="moveAccount(a.openid, 1)"
+        >
+          <WIcon icon="ph:arrow-down" :size="12" />
         </button>
         <span class="account-count">{{ countText(a) }}</span>
       </div>
@@ -116,6 +137,40 @@ const filteredCounts = computed(() =>
 const hasActiveFilters = computed(() => filterStore.activeCount > 0);
 
 const allRow = computed(() => account.accountsForRender);
+
+// Used by the per-row up/down move buttons (keyboard alternative to
+// Sortable.js drag-and-drop). Excludes the synthetic "全部" row.
+const realAccountRows = computed(() =>
+  allRow.value.filter(a => a.openid !== ALL_ACCOUNTS)
+);
+
+async function moveAccount(openid: string, dir: -1 | 1) {
+  const list = realAccountRows.value;
+  const idx = list.findIndex(a => a.openid === openid);
+  if (idx < 0) return;
+  const target = idx + dir;
+  if (target < 0 || target >= list.length) return;
+  const next = [...list];
+  const [moved] = next.splice(idx, 1);
+  next.splice(target, 0, moved!);
+  try {
+    await account.saveAccountOrder(next.map(a => a.openid));
+  } catch {
+    // store already reverts on error
+  }
+}
+
+function onAccountKeydown(e: KeyboardEvent, _a: Account, i: number) {
+  // Alt+Arrow on a focused row is a keyboard alternative to the up/down
+  // buttons. Don't intercept plain Enter/Space — those bubble to the row's
+  // own click handler.
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault();
+    const row = realAccountRows.value[i];
+    if (!row) return;
+    void moveAccount(row.openid, e.key === 'ArrowUp' ? -1 : 1);
+  }
+}
 
 function accountLabel(a: Account): string {
   return account.accountLabels.get(a.openid) ?? a.openid;
@@ -300,6 +355,40 @@ onUnmounted(() => {
 .account-edit-btn:hover {
   background: var(--surface-3);
   color: var(--ink);
+}
+.account-move-btn {
+  /* Hidden by default — keyboard / screen reader only. Revealed when the
+     parent row is hovered or this button is focused. */
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  color: var(--ink-3);
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.account:hover .account-move-btn,
+.account-move-btn:focus-visible {
+  position: static;
+  width: 22px; height: 22px;
+  margin: 0; padding: 0;
+  clip: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 80ms ease-out, color 80ms ease-out, opacity 80ms ease-out;
+}
+.account-move-btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.account-move-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
 }
 .account-rename-input {
   width: 100%;
