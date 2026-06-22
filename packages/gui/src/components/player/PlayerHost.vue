@@ -415,6 +415,12 @@ let fpsMeasured = false;
 function onLoadedMeta() {
   const v = videoRef.value;
   if (!v) return;
+  // Push the persisted volume / mute onto the freshly-loaded <video>.
+  // onMounted's applyVolumeToVideo runs before the <video> element exists
+  // (it is rendered by the same v-if that mounts PlayerHost), so without
+  // this re-apply the player would open at the HTML default (volume 1,
+  // unmuted) every time, even after the user has saved a different level.
+  applyVolumeToVideo();
   currentTime.value = 0;
   duration.value = v.duration || 0;
   if (player.seekMs !== undefined && !seeked) {
