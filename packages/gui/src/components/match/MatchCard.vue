@@ -1,11 +1,18 @@
 <template>
   <div
+    ref="rootEl"
     class="match-row"
-    :class="{ 'is-selected': isSelected }"
+    :class="{ 'is-selected': isSelected, 'is-focused': isFocused }"
     :data-match-id="match.matches_id"
     :data-tip="tooltipText"
+    role="option"
+    :tabindex="isFocused ? 0 : -1"
+    :aria-selected="String(isSelected)"
+    :aria-label="rowAriaLabel"
     @click="$emit('click')"
     @dblclick="$emit('dblclick')"
+    @keydown.enter.prevent="$emit('click')"
+    @keydown.space.prevent="$emit('click')"
   >
     <div class="match-cover" aria-hidden="true">
       <img
@@ -85,6 +92,7 @@ import type { MatchRecord } from '@wonderful-ui/parser';
 const props = defineProps<{
   match: MatchRecord;
   isSelected: boolean;
+  isFocused: boolean;
   accountLabel: string;
 }>();
 
@@ -92,6 +100,9 @@ defineEmits<{
   click: [];
   dblclick: [];
 }>();
+
+const rootEl = ref<HTMLElement | null>(null);
+defineExpose({ rootEl });
 
 const account = useAccountStore();
 
@@ -165,6 +176,11 @@ const tooltipText = computed(() =>
   `${agentName.value}  ·  ${matchScore.value}  ·  ${mapName.value}\n${props.accountLabel}\n${timeText.value}\n${props.match.matches_id}`
 );
 
+const rowAriaLabel = computed(() => {
+  const outcome = props.match.stats.has_won ? '胜利' : '失败';
+  return `${agentName.value} · ${mapName.value} · ${outcome} ${matchScore.value} · ${props.accountLabel} · ${timeText.value}`;
+});
+
 function onMapBgError() { mapBgFailed.value = true; }
 function onHeroError() { heroFailed.value = true; }
 function onModeIconError() { modeIconFailed.value = true; }
@@ -194,6 +210,18 @@ function onModeIconError() { modeIconFailed.value = true; }
 .match-row.is-selected {
   background: var(--surface-2);
   border-color: var(--accent);
+}
+.match-row:focus-visible,
+.match-row.is-focused {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.match-row:focus-visible:not(:focus),
+.match-row.is-focused:not(:focus-visible) {
+  /* Keep programmatic focus indicator even when :focus-visible doesn't match
+     (e.g. arrow-key navigation reaches a row via focus()). */
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 .match-cover {
   width: 88px; height: 72px;

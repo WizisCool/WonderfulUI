@@ -36,16 +36,26 @@
         </button>
       </div>
     </div>
-    <div class="match-list" role="listbox" ref="listRef" @scroll="onScroll">
+    <div
+      class="match-list"
+      role="listbox"
+      ref="listRef"
+      :aria-activedescendant="focusedId ?? undefined"
+      :aria-label="`高光对局列表,共 ${filteredMatches.length} 条`"
+      @scroll="onScroll"
+      @keydown="onListKeydown"
+    >
       <div class="vlist-spacer" :style="{ height: totalHeight + 'px' }" />
       <MatchCard
         v-for="item in visibleMatches"
+        :ref="(el) => registerCardRef(item.match.matches_id, el)"
         :key="item.match.matches_id"
         :match="item.match"
         :style="{ position: 'absolute', top: '0', left: '0', right: '0', transform: 'translateY(' + item.y + 'px)' }"
         :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
+        :is-focused="item.match.matches_id === focusedId"
         :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
-        @click="router.push({ name: 'detail', params: { id: item.match.matches_id } })"
+        @click="onRowActivate(item.match)"
         @dblclick="playFirst(item.match)"
       />
     </div>
@@ -67,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
 import { useAccountStore } from '../stores/account.ts';
@@ -75,9 +85,11 @@ import { useFilterStore } from '../stores/filter.ts';
 import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
 import { useUiStore } from '../stores/ui.ts';
-import { useVirtualScroll } from '../composables/useVirtualScroll.ts';
+import { useVirtualScroll, ROW_HEIGHT } from '../composables/useVirtualScroll.ts';
 import MatchCard from '../components/match/MatchCard.vue';
 import type { MatchRecord } from '@wonderful-ui/parser';
+
+type MatchCardInstance = InstanceType<typeof MatchCard> & { rootEl: HTMLElement | null };
 
 const router = useRouter();
 const account = useAccountStore();
@@ -97,9 +109,126 @@ const accountMatches = computed(() => {
 
 const filteredMatches = computed(() => filter.applyToMatches(account.matches, accountMatches.value));
 
-const { totalHeight, visibleMatches, onScroll } = useVirtualScroll(filteredMatches, listRef);
+const { totalHeight, visibleMatches, onScroll, scrollToIndex } = useVirtualScroll(filteredMatches, listRef);
 
 const scanLabel = computed(() => filter.refreshScanMode === 'full' ? '全量扫描' : '增量扫描');
+
+// Keyboard listbox navigation
+// focusedId follows the currently-focused option; it uses aria-activedescendant
+// (the listbox itself stays unfocused) so virtual-scroll range changes do not
+// yank focus out of the listbox.
+const focusedId = ref<string | null>(null);
+const cardRefs = new Map<string, MatchCardInstance>();
+
+function registerCardRef(id: string, el: Element | null) {
+  if (el) {
+    cardRefs.set(id, el as unknown as MatchCardInstance);
+  } else {
+    cardRefs.delete(id);
+  }
+}
+
+// Keep focusedId valid when the underlying list changes
+watch(filteredMatches, (list) => {
+  if (list.length === 0) {
+    focusedId.value = null;
+    return;
+  }
+  if (!focusedId.value || !list.some(m => m.matches_id === focusedId.value)) {
+    // Default focus to the currently-selected match if any, else the first row.
+    const sel = detail.selectedMatch?.matches_id;
+    focusedId.value = sel && list.some(m => m.matches_id === sel)
+      ? sel
+      : list[0]!.matches_id;
+  }
+}, { immediate: true });
+
+function onRowActivate(m: MatchRecord) {
+  router.push({ name: 'detail', params: { id: m.matches_id } });
+}
+
+function focusIndex(index: number, opts: { scroll?: 'auto' | 'always' } = {}) {
+  const list = filteredMatches.value;
+  if (list.length === 0) return;
+  const clamped = Math.max(0, Math.min(list.length - 1, index));
+  const target = list[clamped]!;
+  focusedId.value = target.matches_id;
+  const shouldScroll = opts.scroll === 'always' || shouldScrollIntoView(clamped);
+  if (shouldScroll) {
+    scrollToIndex(visibleRowIndexFor(clamped));
+  }
+  // After Vue has rendered the new visible range, move focus to the row.
+  nextTick(() => {
+    const el = cardRefs.get(target.matches_id)?.rootEl;
+    if (el && document.activeElement !== el) el.focus({ preventScroll: true });
+  });
+}
+
+function visibleRowIndexFor(filteredIndex: number): number {
+  // filteredMatches and the virtual scroll share the same ordering, so the
+  // filtered index equals the scroll index. (Filtered list length === scroll
+  // length because useVirtualScroll is fed filteredMatches directly.)
+  return filteredIndex;
+}
+
+function shouldScrollIntoView(filteredIndex: number): boolean {
+  const el = listRef.value;
+  if (!el) return false;
+  const top = filteredIndex * ROW_HEIGHT;
+  const bottom = top + ROW_HEIGHT;
+  const viewTop = el.scrollTop;
+  const viewBottom = viewTop + el.clientHeight;
+  if (top < viewTop) return true;
+  if (bottom > viewBottom) return true;
+  return false;
+}
+
+function onListKeydown(e: KeyboardEvent) {
+  const list = filteredMatches.value;
+  if (list.length === 0) return;
+  const currentIdx = list.findIndex(m => m.matches_id === focusedId.value);
+  const safeIdx = currentIdx < 0 ? 0 : currentIdx;
+
+  let nextIdx: number | null = null;
+  switch (e.key) {
+    case 'ArrowDown': nextIdx = safeIdx + 1; break;
+    case 'ArrowUp': nextIdx = safeIdx - 1; break;
+    case 'Home': nextIdx = 0; break;
+    case 'End': nextIdx = list.length - 1; break;
+    case 'PageDown': {
+      const el = listRef.value;
+      const page = el ? Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1) : 5;
+      nextIdx = safeIdx + page;
+      break;
+    }
+    case 'PageUp': {
+      const el = listRef.value;
+      const page = el ? Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1) : 5;
+      nextIdx = safeIdx - page;
+      break;
+    }
+    case 'Enter':
+    case ' ': {
+      // MatchCard's own keydown already handled click emission; nothing more
+      // to do here.
+      return;
+    }
+    default:
+      return;
+  }
+  e.preventDefault();
+  if (nextIdx === null) return;
+  // Always clamp and scroll on Page/Home/End so the user lands inside the view
+  // even when the focused row is currently visible.
+  focusIndex(nextIdx, { scroll: e.key === 'PageDown' || e.key === 'PageUp' || e.key === 'Home' || e.key === 'End' ? 'always' : 'auto' });
+}
+
+// Make the listbox itself focusable so it can receive keydown
+onMounted(() => {
+  if (listRef.value) {
+    listRef.value.tabIndex = 0;
+  }
+});
 
 async function onScrape() {
   if (filter.refreshScanMode === 'full') ui.showScanOverlay();
