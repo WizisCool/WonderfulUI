@@ -1,6 +1,16 @@
 <template>
-   <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }" @click.self="doClose">
-    <div class="player-modal" ref="modalRef" :class="{ 'is-closing': closing }" @mousemove="onModalMouseMove">
+  <div v-if="player.isOpen" class="player-backdrop" :class="{ 'is-closing': closing }" @click.self="doClose">
+    <div
+      class="player-modal"
+      ref="modalRef"
+      :class="{ 'is-closing': closing }"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="player-modal-title"
+      @mousemove="onModalMouseMove"
+      @keydown.tab.prevent="onTabKey"
+    >
+      <h1 id="player-modal-title" class="sr-only">视频播放器</h1>
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
         <WIcon icon="ph:x" :size="16" />
       </button>
@@ -29,7 +39,7 @@
           <div v-if="showSpinner" class="player-spinner" />
         </div>
 
-        <div class="player-error" :class="{ 'is-hidden': !showError }">
+        <div class="player-error" :class="{ 'is-hidden': !showError }" role="alert">
           <div class="player-error-icon">⚠</div>
           <div class="player-error-title">该高光视频源不可用</div>
           <div class="player-error-path"><code>{{ videoPath }}</code></div>
@@ -115,6 +125,34 @@ const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
 const progressWrapRef = ref<HTMLElement | null>(null);
 
+// Focus management for the player dialog.
+// restoreFocusEl remembers which element opened the player so we can return
+// focus to it on close. The trap runs only on Tab inside the dialog.
+let restoreFocusEl: HTMLElement | null = null;
+
+function getModalFocusables(): HTMLElement[] {
+  const modal = modalRef.value;
+  if (!modal) return [];
+  const sel = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), [role="button"]:not([aria-disabled="true"])';
+  return Array.from(modal.querySelectorAll<HTMLElement>(sel))
+    .filter(el => !el.hasAttribute('inert') && el.offsetParent !== null);
+}
+
+function onTabKey(e: KeyboardEvent) {
+  const focusables = getModalFocusables();
+  if (focusables.length === 0) return;
+  const first = focusables[0]!;
+  const last = focusables[focusables.length - 1]!;
+  const active = document.activeElement as HTMLElement | null;
+  if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 const state = ref<PlayerState>('loading');
 const bufferingMode = ref<BufferingMode>('hidden');
 let stateBeforeSeek: PlayerState | null = null;
@@ -134,6 +172,8 @@ const duration = ref(0);
 
 watch(() => player.isOpen, (open) => {
   if (open) {
+    // Remember what had focus so we can restore it on close.
+    restoreFocusEl = (document.activeElement as HTMLElement | null) ?? null;
     state.value = 'loading';
     bufferingMode.value = 'hidden';
     stateBeforeSeek = null;
@@ -143,6 +183,16 @@ watch(() => player.isOpen, (open) => {
     duration.value = 0;
     lastBufferedPct.value = 0;
     seeked = false;
+    // Move focus into the dialog once Vue has rendered it.
+    nextTick(() => {
+      const focusables = getModalFocusables();
+      const target = focusables[0] ?? modalRef.value;
+      target?.focus();
+    });
+  } else if (restoreFocusEl && document.contains(restoreFocusEl)) {
+    // Restore focus to the element that opened the player.
+    restoreFocusEl.focus();
+    restoreFocusEl = null;
   }
 });
 let seeked = false;
@@ -496,6 +546,9 @@ function onCtxMenuEsc(e: KeyboardEvent) {
 
 // Keyboard
 function onKeydown(e: KeyboardEvent) {
+  // AGENTS.md: only handle keys while the player is actually open; otherwise
+  // a stale listener can swallow events from the underlying app.
+  if (!player.isOpen) return;
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   const v = videoRef.value;
