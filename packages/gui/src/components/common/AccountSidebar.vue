@@ -171,16 +171,26 @@ function startRename(a: Account) {
 
 function cancelRename() {
   editingOpenid.value = null;
+  renameValue.value = '';
 }
 
 async function commitRename(a: Account) {
+  // Guard against re-entry: Enter calls .blur() which also fires
+  // commitRename; we must not run twice for one save action.
+  if (a.openid !== editingOpenid.value) return;
   const val = renameValue.value.trim();
   try {
     await account.renameAccount(a.openid, val || null);
-  } catch {
+  } catch (e) {
+    // Keep the input open so the user can fix the value. Surface the error
+    // instead of silently swallowing it.
+    ui.showToast(`重命名失败: ${(e as Error)?.message ?? String(e)}`, 'error');
     return;
   }
-  editingOpenid.value = null;
+  // Only clear editing state if the user is still on this row. They may
+  // have hit Esc and started editing a different account meanwhile.
+  if (editingOpenid.value === a.openid) editingOpenid.value = null;
+  renameValue.value = '';
 }
 
 function initSortable() {
