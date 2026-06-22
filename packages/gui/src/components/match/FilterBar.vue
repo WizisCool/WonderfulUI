@@ -45,7 +45,9 @@
       :aria-expanded="String(advancedExpanded)"
       @click="advancedExpanded = !advancedExpanded"
     >
-      <span class="filter-num-group-chevron">{{ advancedExpanded ? '▾' : '▸' }}</span>
+      <span class="filter-num-group-chevron" aria-hidden="true">
+        <WIcon :icon="advancedExpanded ? 'ph:caret-down' : 'ph:caret-right'" :size="10" />
+      </span>
       <span class="filter-num-group-title">表现筛选</span>
       <span class="filter-num-group-count">{{ advancedActiveCount > 0 ? advancedActiveCount : '' }}</span>
     </button>

@@ -40,7 +40,7 @@
         </div>
 
         <div class="player-error" :class="{ 'is-hidden': !showError }" role="alert">
-          <div class="player-error-icon">⚠</div>
+          <div class="player-error-icon" aria-hidden="true"><WIcon icon="ph:warning" :size="48" /></div>
           <div class="player-error-title">该高光视频源不可用</div>
           <div class="player-error-path"><code>{{ videoPath }}</code></div>
           <div class="player-error-actions">
