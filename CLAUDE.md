@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 This is the high-priority entry file for agents working in WonderfulUI. Keep it short enough to read every time. Detailed reference material lives in `docs/`.
 
@@ -201,6 +201,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 
 - ACLOS can hold `WonderfulDb` open while writing; torn reads are possible if ACLOS is running.
 - Keep direct WonderfulDb reads isolated to `library::scraper`; command handlers and GUI-facing load paths should go through SQLite.
+- **`scan_shell` background scrape race:** `scan_shell` returns immediately with the existing SQLite library view, then spawns a background thread to refresh from WonderfulDb. On first launch the local library is empty, so the frontend must NOT reveal the main UI until the background scrape settles — otherwise the user sees a flash of empty "还没有高光". Subscribe to `wui://scrape_summary` **before** calling `scan_shell`; Tauri events are not buffered, so subscribing after the command returns may miss the event. `runBoot()` in `App.vue` sets `account.scraping = true` before `scanShell()` and waits for `scrape_summary` (with a 30 s safety timeout) before calling `loadLibrary()` a second time and revealing the 3-pane shell.
 - Incremental scan skips only unchanged accounts with no previous parse error; full scan is available from the refresh-button mode setting and as a direct settings-modal maintenance action.
 - `snapshot<openid>` is optional and must not block highlight loading.
 - `ALL_ACCOUNTS = '__all__'` is a synthetic sentinel, not a real account.

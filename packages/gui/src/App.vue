@@ -34,6 +34,7 @@ import DetailView from './views/DetailView.vue';
 import SettingsView from './views/SettingsView.vue';
 import OnboardingView from './components/common/OnboardingView.vue';
 import { watch, onMounted, onUnmounted, ref, computed } from 'vue';
+import { listen } from './tauri-adapter.ts';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
 import { useTooltip } from './composables/useTooltip.ts';
@@ -82,10 +83,36 @@ async function runBoot() {
     bootRef.value?.start({ mode: 'boot' });
     // 1) Probe the ACLOS WonderfulDb directory (read-only, cheap).
     await account.probeAclos();
-    // 2) Load whatever the local SQLite library has, regardless of the
-    // probe. The user may have a previous partial library; the
-    // onboarding screen is what we render in front of it.
-    await account.scanShell();
+
+    // 2) Subscribe to scrape_summary *before* scanShell so we don't
+    // miss the event when the background scrape finishes. scanShell
+    // spawns a background thread in Rust that writes to SQLite and
+    // emits wui://scrape_summary when done. On the first launch the
+    // local library is empty, so we must keep the BootOverlay visible
+    // until the scrape settles — otherwise the user sees a flash of
+    // the empty "还没有高光" state while scraping is still running.
+    let resolveScrape: () => void;
+    const scrapeComplete = new Promise<void>(r => { resolveScrape = r; });
+    const safetyTimer = setTimeout(() => resolveScrape(), 30_000);
+    const unlisten = await listen<Record<string, unknown>>('wui://scrape_summary', () => {
+      clearTimeout(safetyTimer);
+      resolveScrape();
+    });
+
+    account.scraping = true;
+    try {
+      await account.scanShell();
+      await account.loadLibrary();
+
+      // Wait for the background scrape to finish.
+      await scrapeComplete;
+    } finally {
+      unlisten();
+      account.scraping = false;
+    }
+
+    // 3) Reload library now that scrape has settled so the view has
+    // fresh accounts + matches.
     await account.loadLibrary();
     await account.cacheAssets();
     if (account.realAccounts.length > 0) {
@@ -100,6 +127,7 @@ async function runBoot() {
     // Even on error, reveal the app so the user can open Settings and
     // inspect what went wrong. The onboarding screen still appears if
     // the probe said ACLOS is missing.
+    account.scraping = false;
     booted.value = true;
     bootRef.value?.complete();
   }
