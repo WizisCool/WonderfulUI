@@ -47,7 +47,7 @@
             v-model="renameValue"
             placeholder="昵称#编号"
             aria-label="账户显示名"
-            @blur="commitRename(a)"
+            @blur="onInputBlur($event, a)"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
             @keydown.escape.stop="cancelRename()"
           />
@@ -57,12 +57,12 @@
           v-if="a.openid !== ALL_ACCOUNTS"
           class="account-edit-btn"
           type="button"
-          aria-label="重命名账户"
+          :aria-label="editingOpenid === a.openid ? '保存' : '重命名账户'"
           :data-action="'rename-account'"
           :data-account-id="a.openid"
-          @click.stop="startRename(a)"
+          @click.stop="editingOpenid === a.openid ? commitRename(a) : startRename(a)"
         >
-          <WIcon icon="ph:pencil-simple" :size="12" />
+          <WIcon :icon="editingOpenid === a.openid ? 'ph:check' : 'ph:pencil-simple'" :size="12" />
         </button>
         <span class="account-count">{{ countText(a) }}</span>
       </div>
@@ -91,11 +91,13 @@ import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
+import { useUiStore } from '../../stores/ui.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 
 const account = useAccountStore();
 const filterStore = useFilterStore();
 const settings = useSettingsStore();
+const ui = useUiStore();
 
 const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
@@ -164,6 +166,17 @@ function startRename(a: Account) {
     renameInputRef.value?.focus();
     renameInputRef.value?.select();
   });
+}
+
+function onInputBlur(e: FocusEvent, a: Account) {
+  // When the blur is because the user clicked the save (✓) button,
+  // skip the blur-save — the button's @click handler will commit.
+  // Otherwise we get a double-commit race: blur's async commitRename
+  // clears editingOpenid before the click handler runs, which makes
+  // the click evaluate to a startRename call that re-enters edit mode.
+  const related = e.relatedTarget as HTMLElement | null;
+  if (related?.closest('.account-edit-btn')) return;
+  void commitRename(a);
 }
 
 function cancelRename() {
