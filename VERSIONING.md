@@ -67,7 +67,7 @@ cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 bun run build
 ```
 
-成功后会创建 GitHub Release，并上传 Windows x64 NSIS 安装器与 MSI。
+成功后会创建 GitHub Release，并上传 Windows x64 NSIS 安装器。
 
 详细执行手册见 `docs/AGENT_WORKFLOW.md`。
 

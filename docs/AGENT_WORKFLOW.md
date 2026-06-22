@@ -244,7 +244,6 @@ A completed release must have:
 - a non-draft, non-prerelease GitHub Release unless intentionally marked
   otherwise
 - `WonderfulUI_*_x64-setup.exe`
-- `WonderfulUI_*_x64_zh-CN.msi`
 
 ## Local Verification Matrix
 
@@ -268,6 +267,17 @@ target/release/bundle/
 
 Local bundles are useful for validation. Official release assets come from
 GitHub Actions.
+
+> **NSIS template note.** The Windows installer is built from
+> `src-tauri/installer.nsi` (a fork of the upstream
+> `tauri-apps/tauri` tauri-bundler template). The sidecar files
+> `src-tauri/utils.nsh` and `src-tauri/FileAssociation.nsh` must
+> be kept alongside the template — the template `!include`s them by
+> bare name and `makensis` will fail if they are missing.
+> NSIS compile errors (macro misuse, page-order mistakes,
+> `LangString` parsing) only surface during the full Windows
+> `bun run build` step, so a local Windows smoke build is
+> mandatory before tagging. macOS / Linux cannot compile NSIS.
 
 ## Documentation Maintenance
 

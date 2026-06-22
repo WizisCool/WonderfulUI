@@ -283,7 +283,7 @@ bunx tauri build
 bun run build
 ```
 
-Release build bundles MSI, NSIS, and standalone exe and commonly takes 60-90 seconds. The WiX/MSI target is configured as Simplified Chinese (`zh-CN`) because the product UI is currently Chinese-only.
+Release build bundles an NSIS installer and commonly takes 60-90 seconds. The NSIS installer is configured as Simplified Chinese (`SimpChinese`) because the product UI is currently Chinese-only.
 
 ## Test Commands
 

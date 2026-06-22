@@ -107,6 +107,8 @@ Production code must not hard-code user-specific paths.
 - **App layout** uses CSS Grid: `TopBar` (header), 4-column `.panes` (AccountSidebar / FilterRail / RouterView / DetailView). Player, settings, boot overlay, and toast are Teleported to body or `#player-host`.
 - **AccountSidebar** has a fixed `.pane-foot` at the bottom with a settings button (gear icon + "设置") and app version (`vX.Y.Z`, from `packages/gui/src/utils/version.ts`). Settings modal includes an `关于` tab with version info.
 - **Match-list header** (`HomeView` `.pane-head-right`) hosts the refresh/scan button; `TopBar` right side is intentionally empty. Both the sidebar settings button and the match-list refresh button use the same compact bordered style (24 px tall, matching the filter toggle).
+- **Windows installer is NSIS-only**, customized via `src-tauri/installer.nsi` (a fork of the upstream `tauri-apps/tauri` tauri-bundler template). `tauri.conf.json` `bundle.windows.nsis.template` points at it; the sidecar files `src-tauri/utils.nsh` and `src-tauri/FileAssociation.nsh` must be kept alongside or `makensis` will fail. `installMode: perMachine` requires `RequestExecutionLevel admin` and a UAC prompt. The custom template only changes the uninstaller confirm page (adds one "保留本地用户配置" checkbox via `MUI_PAGE_CUSTOMFUNCTION_SHOW`); the install-side pages stay upstream-default. The custom cleanup path is `${WUI_DATA_DIR} = $LOCALAPPDATA\wonderful-ui` (hyphen, lowercase) — **not** the bundle id — because that's where the Rust code actually writes (`src-tauri/src/library/db.rs:12`, `app_log.rs:41`, `lib.rs:385`). When upgrading the upstream template, reapply the `; WUI:` marked changes in `installer.nsi`.
+- **Bundle identifier is `app.local.wonderfului`** (was `local.wonderfului.app` until v0.1.3). The old id triggered Tauri 2's "ends with `.app`" warning and would conflict with macOS app bundles. Changing it is a one-line edit in `tauri.conf.json`; everything else uses `{{bundle_id}}` template substitution. **User impact**: existing users' WebView2 `localStorage` (volume, filters, scan mode) lives under `%LOCALAPPDATA%\<old-id>\EBWebView` and does not migrate — they re-set those prefs once on the first run after upgrade. Worth a one-liner in release notes when this changes again.
 
 More detail: `docs/ARCHITECTURE.md`.
 
@@ -164,6 +166,10 @@ bun run build
 ```
 
 Use release builds only when validating shipment or installer behavior.
+
+- **NSIS uninstaller data cleanup is custom, NOT upstream-default.** The upstream `installer.nsi` cleans `%LOCALAPPDATA%\<BUNDLEID>` (which is `%LOCALAPPDATA%\app.local.wonderfului` in this project) and would miss the actual SQLite / logs / assets directory (`wonderful-ui\`, hyphenated, lowercase). Our `un.RemoveAppData` (in `src-tauri/installer.nsi`) targets `${WUI_DATA_DIR}` explicitly. If you ever re-sync the NSIS template with upstream, **this custom cleanup logic is the first thing to reapply** — without it, uninstall leaves `library.db` and the asset cache on disk regardless of the user's "保留本地用户配置" choice. ACLOS / Valorant / Riot / Vanguard paths must NEVER be referenced in `un.RemoveAppData`; the existing comment block enumerates the hard constraints.
+- **NSIS rebuild must run on Windows.** The Release workflow (`windows-latest`) handles this; locally you must run `bun run build` from a Windows host to surface `makensis` errors. macOS / Linux cannot compile the NSIS template.
+- **Custom NSIS checkbox geometry is fixed.** `un.ConfirmShow` uses `y=100, h=25, w=400` (the upstream `DeleteAppDataCheckbox` defaults). Do not increase `h` to fit longer text — `__NSD_CheckBox_STYLE` wraps multi-byte characters vertically instead of expanding horizontally, producing a single-character column. If the label needs more room, shorten the `wuiKeepUserData` LangString, don't grow the control.
 
 ## Verification Commands
 
