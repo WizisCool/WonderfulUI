@@ -60,8 +60,10 @@
       />
     </div>
     <div v-if="accountMatches.length === 0" class="empty">
-      <div class="empty-title">这个账户还没录到高光</div>
-      <div class="empty-sub">去打一局 VALORANT 吧</div>
+      <div class="empty-title">这个账户还没有高光</div>
+      <div class="empty-sub">
+        完成一局 VALORANT 对局后,ACLOS 会把"无畏时刻"写入本地,然后点顶部刷新按钮就能看到。
+      </div>
     </div>
     <div v-else-if="filteredMatches.length === 0" class="empty">
       <div class="empty-title">没有匹配</div>

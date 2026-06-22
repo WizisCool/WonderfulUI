@@ -5,9 +5,9 @@
       <span class="pane-sub">{{ realCount }} 个</span>
     </div>
     <div v-if="realCount === 0" class="empty">
-      <div class="empty-title">没有找到账户</div>
+      <div class="empty-title">还没有账户数据</div>
       <div class="empty-sub">
-        默认目录 <code>%APPDATA%\ACLOS\WonderfulDb</code> 下没有任何数据。
+        在 ACLOS 客户端登录并完成一局对局后,这里会自动出现你的账户。
       </div>
     </div>
     <div v-else class="account-list" role="listbox">
