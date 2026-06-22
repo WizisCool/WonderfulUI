@@ -49,7 +49,28 @@ const bootError = ref<string | null>(null);
 // least one account file. If either is false, we render OnboardingView
 // instead of the 3-pane shell — the existing panes would otherwise show
 // four cold "empty" states stacked next to each other.
+//
+// Debug override: the developer-only `wui:debug.simulateFirstRun`
+// localStorage key (and the equivalent `?simulate-first-run=1` URL flag
+// for the browser debug runtime) force the onboarding view regardless
+// of the real ACLOS state. This lets us re-exercise the onboarding flow
+// without uninstalling ACLOS or moving the WonderfulDb directory.
+// There is no UI toggle for this; it is a developer aid only.
+const simulateFirstRun = ref<boolean>((() => {
+  try {
+    if (typeof window !== 'undefined') {
+      const url = new URLSearchParams(window.location.search);
+      if (url.get('simulate-first-run') === '1') return true;
+      if (url.get('simulate-first-run') === '0') return false;
+    }
+    return localStorage.getItem('wui:debug.simulateFirstRun') === '1';
+  } catch {
+    return false;
+  }
+})());
+
 const showOnboarding = computed(() => {
+  if (simulateFirstRun.value) return true;
   const s = account.aclosStatus;
   if (!s) return false; // still probing
   return !s.dirExists || !s.hasAccounts;
