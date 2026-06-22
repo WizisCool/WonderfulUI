@@ -38,7 +38,7 @@
     </div>
     <div
       class="match-list"
-      :class="{ 'is-empty': accountMatches.length === 0 }"
+      :class="{ 'is-empty': accountMatches.length === 0, 'is-loading': isBootLoading }"
       role="listbox"
       ref="listRef"
       :aria-activedescendant="focusedId ?? undefined"
@@ -46,7 +46,13 @@
       @scroll="onScroll"
       @keydown="onListKeydown"
     >
-      <template v-if="accountMatches.length === 0">
+      <template v-if="isBootLoading">
+        <div class="empty empty-loading">
+          <div class="empty-spinner" aria-hidden="true"><WIcon icon="ph:circle-notch" :size="20" class="spin" /></div>
+          <div class="empty-title">正在加载对局</div>
+        </div>
+      </template>
+      <template v-else-if="accountMatches.length === 0">
         <div class="empty">
           <div class="empty-title">还没有高光</div>
         </div>
@@ -106,6 +112,16 @@ const accountMatches = computed(() => {
 });
 
 const filteredMatches = computed(() => filter.applyToMatches(account.matches, accountMatches.value));
+
+// Loading view: shown whenever we know data is being fetched but the
+// list is still empty. Two distinct sources:
+//  - account.scraping: user explicitly clicked Refresh, going through
+//    account.scrapeLibrary.
+//  - account.bootScraping: App.vue runBoot is waiting for the Rust
+//    background scrape that scan_shell spawns, so the GUI does not
+//    briefly flash the empty state between launch and the first
+//    wui://account_loaded event.
+const isBootLoading = computed(() => account.scraping || account.bootScraping);
 
 const { totalHeight, visibleMatches, onScroll, scrollToIndex } = useVirtualScroll(filteredMatches, listRef);
 
@@ -329,7 +345,8 @@ function playFirst(m: MatchRecord) {
    is empty, switch the scroller to a centred flex column so the title
    sits at the visual centre of the pane instead of stuck under the
    (zero-height) spacer. */
-.match-list.is-empty {
+.match-list.is-empty,
+.match-list.is-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -343,5 +360,20 @@ function playFirst(m: MatchRecord) {
   padding: 0;
   position: absolute;
   inset: 0;
+}
+.empty-loading {
+  gap: 10px;
+}
+.empty-spinner :deep(svg) {
+  color: var(--ink-3);
+  animation: empty-spin 0.9s linear infinite;
+}
+@keyframes empty-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-spinner :deep(svg) {
+    animation-duration: 1600ms;
+  }
 }
 </style>

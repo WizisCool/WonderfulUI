@@ -37,6 +37,7 @@ import { watch, onMounted, onUnmounted, ref, computed } from 'vue';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
 import { useTooltip } from './composables/useTooltip.ts';
+import { listen } from './tauri-adapter.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -78,6 +79,8 @@ const showOnboarding = computed(() => {
 
 async function runBoot() {
   bootError.value = null;
+  account.bootScraping = true;
+  let unlistenScrape: (() => void) | null = null;
   try {
     bootRef.value?.start({ mode: 'boot' });
     // 1) Probe the ACLOS WonderfulDb directory (read-only, cheap).
@@ -91,6 +94,14 @@ async function runBoot() {
     if (account.realAccounts.length > 0) {
       account.selectAccount('__all__');
     }
+    // scan_shell spawns a background scrape. We do not block on it —
+    // BootOverlay's progress is enough for the boot screen — but we do
+    // need to know when it is done so the match list stops showing the
+    // loading view. Wait for the wui://scrape_summary event that the
+    // scraper emits at the end of the sweep (it fires regardless of
+    // whether anything was found), with a safety timeout in case the
+    // scrape never reports back.
+    unlistenScrape = await waitForBackgroundScrape();
     booted.value = true;
     bootRef.value?.complete();
   } catch (e) {
@@ -102,7 +113,46 @@ async function runBoot() {
     // the probe said ACLOS is missing.
     booted.value = true;
     bootRef.value?.complete();
+  } finally {
+    if (unlistenScrape) unlistenScrape();
+    account.bootScraping = false;
   }
+}
+
+/**
+ * Subscribe to the next `wui://scrape_summary` event from the background
+ * scrape that `scan_shell` spawns on the Rust side, with a hard
+ * fallback timeout so the user is never stranded on the loading view
+ * if the scraper silently fails to report completion.
+ */
+async function waitForBackgroundScrape(): Promise<() => void> {
+  const BOOT_SCRAPE_TIMEOUT_MS = 12_000;
+  return new Promise<() => void>((resolve) => {
+    let done = false;
+    let unlisten: (() => void) | null = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (unlisten) unlisten();
+      resolve(() => { /* no-op for the caller; we already unlistened */ });
+    };
+    const timer = window.setTimeout(finish, BOOT_SCRAPE_TIMEOUT_MS);
+    listen<unknown>('wui://scrape_summary', () => {
+      window.clearTimeout(timer);
+      finish();
+    }).then((u) => {
+      if (done) {
+        // We already resolved via timeout; drop the listener.
+        u();
+      } else {
+        unlisten = u;
+      }
+    }).catch(() => {
+      // listen() failed: still let the timeout fire so we do not hang.
+      window.clearTimeout(timer);
+      finish();
+    });
+  });
 }
 
 async function retryBoot() {
