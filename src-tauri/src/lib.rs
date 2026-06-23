@@ -1,7 +1,9 @@
 mod app_log;
+mod lan_ip;
 mod library;
 mod os_shell;
 mod parser;
+mod share_server;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,7 +21,14 @@ fn sha256_hex(input: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default().invoke_handler(tauri::generate_handler![
+    let app = tauri::Builder::default()
+        // 注册"快传" server 状态。所有 share 相关命令通过
+        // `app.state::<...>()` 访问 —— 这里 .manage() 必须在 build
+        // 路径上（任何 .invoke_handler / .run 之前）先调一次，否则
+        // 任何 Tauri command 一旦尝试 state::<ShareServerState>()
+        // 就会 panic "state() called before manage()"。
+        .manage(share_server::ShareServerState::new())
+        .invoke_handler(tauri::generate_handler![
         scan_shell,
         scan_all,
         scrape_library,
@@ -35,7 +44,11 @@ pub fn run() {
         get_log_status,
         reveal_logs_dir,
         get_library_stats,
-        aclos_status
+        aclos_status,
+        start_share_server,
+        stop_share_server,
+        share_server_status,
+        log_event,
     ]);
 
     #[cfg(feature = "updater")]
@@ -550,6 +563,55 @@ fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<Stri
 
     results.into_inner().unwrap_or_default()
 }
+
+// ============================================================================
+// "快传" 跨设备分享（HTTP server + 二维码）
+// ============================================================================
+//
+// 启动一个内嵌的 HTTP server，监听自动挑选的空闲端口、生成带 token 的
+// URL 和 SVG 二维码；手机/电脑扫码或复制链接即可在浏览器里下载视频。
+// 详见 src-tauri/src/share_server.rs 的模块级注释和
+// docs/plans/2026-06-23-lan-qr-share.md 的设计。
+
+fn share_state(app: &tauri::AppHandle) -> tauri::State<'_, share_server::ShareServerState> {
+    use tauri::Manager;
+    app.state::<share_server::ShareServerState>()
+}
+
+#[tauri::command]
+fn start_share_server(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<share_server::ShareServerInfo, String> {
+    let state = share_state(&app);
+    let path = std::path::PathBuf::from(&path);
+    share_server::start_server(&app, state.inner(), path)
+}
+
+#[tauri::command]
+fn stop_share_server(app: tauri::AppHandle) -> Result<(), String> {
+    share_server::stop_server(share_state(&app).inner())
+}
+
+#[tauri::command]
+fn share_server_status(app: tauri::AppHandle) -> share_server::ShareServerStatus {
+    share_server::status(share_state(&app).inner())
+}
+
+/// 通用日志 command：让前端能写一行到 app_log（"share" tag 之类）。
+/// 包装 `app_log::write`，让前后端日志格式统一。
+#[tauri::command]
+fn log_event(level: String, scope: String, message: String) {
+    let parsed = match level.as_str() {
+        "error" | "ERROR" => app_log::LogLevel::Error,
+        "warn" | "WARN" => app_log::LogLevel::Warn,
+        _ => app_log::LogLevel::Info,
+    };
+    app_log::write(parsed, &scope, &message);
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn _setup_marker() {} // keep module-scope tool happy
 
 #[cfg(test)]
 mod tests {

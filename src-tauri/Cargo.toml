@@ -35,6 +35,15 @@ uuid = { version = "1", features = ["v4"] }
 rayon = "1"
 tauri-plugin-updater = { version = "2", optional = true }
 
+# 跨设备"快传"分享：内嵌 HTTP server + 二维码生成。
+# - tiny_http: 零 transitive 同步 HTTP server，单文件 ~150KB 编译增量
+# - qrcode: 成熟 QR 库，生成 SVG 字符串给前端直接渲染
+# - rand: token 生成（256 位熵 base64url）
+tiny_http = "0.12"
+qrcode = "0.14"
+rand = "0.8"
+base64 = "0.22"
+
 [target.'cfg(windows)'.dependencies]
 # 与 tauri 2.0.1 锁定的 windows 0.61 同主版本，直接用 ShellExecuteW 走原生
 # "以默认程序打开" 通道，绕过 cmd /c 解析开销。

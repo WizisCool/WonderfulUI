@@ -1,0 +1,18 @@
+# 这个目录是占位 —— 第一个分享平台实现到来之前留空。
+#
+# 加新平台的步骤：
+# 1. 在本目录下新建 `<name>.ts`，export 一个 SharePlatform 对象。
+#    模板：
+#    ```ts
+#    import type { SharePlatform } from '../types.ts';
+#    export const xxxPlatform: SharePlatform = {
+#      id: 'xxx',
+#      label: '...',
+#      description: '...',
+#      isAvailable: () => true,
+#      share: async (ctx) => { /* ... */ return { kind: 'ok' }; },
+#    };
+#    ```
+# 2. 在 `../registry.ts` 的 `sharePlatforms` 对象里 import + 加一行。
+# 3. 跑 `bun run typecheck` + `bun run --cwd packages/gui test:components`。
+# 4. 手动跑一次分享流程验证。

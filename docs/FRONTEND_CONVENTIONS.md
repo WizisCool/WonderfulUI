@@ -197,6 +197,31 @@ Account list uses a custom tooltip, not native `title=`.
 - Settings modal z-index is 1300, above event modals (1100) and the player (1200). Toasts sit above it so scan feedback remains visible.
 - Settings modal motion should stay quiet: short backdrop fade plus subtle translate/scale on the modal. Keep open/close around 120-170 ms and respect `prefers-reduced-motion`.
 
+## Share ("快传") Modal
+
+- **Abstract platform layer** at `packages/gui/src/utils/share/`: `SharePlatform` interface, registry map, `openShareMenu` / `listAvailablePlatforms`. Each platform is one self-contained module under `platforms/`. Currently only `win32-share-sheet` (placeholder; production platform is the in-app `lan-qr` flow which doesn't go through the share abstract — see below).
+- **Production share path = LAN QR ("快传")**: instead of the `SharePlatform` interface, the player toolbar's `share` event opens `ShareModal` directly. Rust side runs an embedded `tiny_http` server (see ARCHITECTURE.md). The modal owns the server lifecycle — server starts on `onMounted`, stops on `onUnmounted` (so closing × / Esc / backdrop all guarantee the port is released).
+- **Modal layout (极简)**: title `快传` + 240×240 QR (Rust-rendered circles, `EcLevel::H`, click-to-copy) + a single status row `<size> · <dot><status text>` + 6 px progress bar matching `.boot-progress` (indeterminate shimmer while waiting, `scaleX(0→1)` on completion). No "复制链接" button — the QR is the button.
+- **Status states** (Rust-side event `wui://share_downloaded` is the only source of truth):
+  - `downloadCount === 0` → gray dot, "等待扫码", progress bar indeterminate shimmer
+  - `downloadCount >= 1` → red dot (with same pulse animation but wider halo), "下载完成", progress bar `scaleX(1)`
+  - The dot is red **only after** `req.respond()` returns `Ok(())` — i.e. after the file actually streamed to the client. WeChat scanning a URL that only previews without downloading does NOT trigger the "下载完成" state (BrokenPipe mid-stream → `respond()` errors → count stays 0). This is by design.
+- **Server lifecycle**:
+  - Modal `onMounted` → `share.start(videoPath)` → Rust starts HTTP server
+  - Modal `onUnmounted` → `share.stop()` → Rust stops server
+  - 3-minute idle timeout is the **only** auto-shutdown path (safety net for "user opened modal then forgot"). NOT "close after first download" — the user controls when to close.
+- **Close paths** (all route to `share.stop()` via `onUnmounted`):
+  - Click the `×` in the top-right corner
+  - Press `Escape` (capture-phase keydown listener, `preventDefault` + `stopPropagation` so it doesn't conflict with PlayerHost's own Esc handling)
+  - Click the backdrop (outside the card)
+- **Client logging**: all key transitions call `clientLog(level, 'share-modal', message)` which forwards to Rust `log_event` → `app_log` → `wonderful-ui.log`. Browser / test environments fall back to `console.*` automatically (no `invoke` thrown on missing Tauri runtime).
+- **Animation vocabulary** (must match Settings modal):
+  - Backdrop: `oklch(0 0 0 / 0.66)`, `150ms ease-out` in / `120ms ease-in` out
+  - Card: `170ms cubic-bezier(0.16, 1, 0.3, 1)`, `scale(0.96→1) translateY(8→0)` in; reverse on close
+  - Status dot pulse: `1.2s ease-in-out infinite`, keyframe drives both `box-shadow` halo size and `transform: scale()` for a subtle breathing effect
+  - Progress bar shimmer: `1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite`, `translateX(-100% → 250%)` — never animates `width`
+  - All motion respects `prefers-reduced-motion` (1 ms duration override)
+
 ## Date Range Picker
 
 - Date-range picker UI lives in `packages/gui/src/utils/date-picker.ts` (pure logic) with a Vue wrapper in `packages/gui/src/components/match/DateRangePicker.vue`, styled by the `.dr-*` block in `packages/gui/src/assets/style.css`.

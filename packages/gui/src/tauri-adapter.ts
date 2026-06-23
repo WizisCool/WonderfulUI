@@ -423,6 +423,7 @@ async function mockInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
     case 'play_video':
     case 'reveal_in_explorer':
     case 'reveal_logs_dir':
+    case 'log_event':
       console.info(`[WonderfulUI debug] ${cmd}`, args ?? {});
       return undefined as T;
     default:

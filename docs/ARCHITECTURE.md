@@ -121,6 +121,27 @@ Defined in `src-tauri/src/lib.rs`:
   - Returns the WonderfulUI log directory, current log file metadata, and a bounded tail preview from `wonderful-ui.log` for the settings `日志` tab.
 - `reveal_logs_dir()`
   - Opens `%LOCALAPPDATA%\wonderful-ui\logs` in Explorer so users can attach logs to future bug reports.
+- `start_share_server(path) -> ShareServerInfo`
+  - Starts a 1-shot HTTP server on a free local port (49152-65535), generates a
+    256-bit URL-safe token, returns `{ port, token, url, lanIp, qrSvg, videoName, videoSize, startedAtUnix }`.
+  - The QR SVG is generated Rust-side using **circle modules** (not rectangles)
+    with `EcLevel::H` (30% recovery) and a 4-module quiet zone for iPhone
+    / Android native scanner compatibility.
+  - Token is the only auth — request path MUST start with `/w/<token>` and the
+    `Host` header MUST match `localhost` / `127.0.0.1` / the detected LAN IP
+    (DNS-rebinding guard).
+  - Server lifetime is **driven by the frontend** (modal mounted → up, modal
+    unmounted → down). Rust holds the running server state in a
+    `tauri::State<ShareServerState>` registered via `.manage()` on the
+    builder. A **3-minute idle timeout** is the only auto-shutdown path —
+    covers "user opened modal then forgot about it" without a port leak.
+- `stop_share_server()` — explicit shutdown; sends stop signal to the server
+  thread which exits cleanly. Frontend calls this on modal close.
+- `share_server_status() -> ShareServerStatus` — `{ running, info, downloadCount, lastError }`
+- `log_event(level, scope, message)` — generic log forwarder so the frontend
+  can write structured logs that end up in `wonderful-ui.log` next to Rust
+  logs. Browser / test environments fall back to `console.*` without
+  throwing on `invoke`.
 - `get_library_stats() -> LibraryStats`
   - Reads the local SQLite library and app-owned cache/log metadata to feed the settings `资料库概览`.
   - The GUI currently visualizes per-account video counts from this payload; storage byte fields remain backend diagnostics, not primary UI.

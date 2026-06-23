@@ -40,7 +40,7 @@
       <button class="ctrl-btn player-ctrl-explorer" title="在资源管理器中打开" @click.stop="$emit('explorer')">
         <WIcon icon="ph:folder-open" :size="16" />
       </button>
-      <button class="ctrl-btn player-ctrl-share" disabled title="即将推出">
+      <button class="ctrl-btn player-ctrl-share" title="快传（扫码下载）" @click.stop="$emit('share')">
         <WIcon icon="ph:share" :size="16" />
       </button>
       <button class="ctrl-btn player-ctrl-fullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" @click.stop="$emit('fullscreen')">
@@ -79,6 +79,7 @@ const emit = defineEmits<{
   volumeChange: [level: number];
   volumeMuteToggle: [];
   explorer: [];
+  share: [];
   fullscreen: [];
 }>();
 

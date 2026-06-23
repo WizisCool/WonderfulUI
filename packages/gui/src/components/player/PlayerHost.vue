@@ -89,6 +89,7 @@
           @volume-change="setVolume"
           @volume-mute-toggle="toggleMute"
           @explorer="revealInExplorer"
+          @share="onShare"
           @fullscreen="toggleFullscreen"
         />
       </div>
@@ -110,6 +111,13 @@
         @click="item.action()"
       >{{ item.label }}</button>
     </div>
+
+    <ShareModal
+      v-if="shareOpen"
+      :video-path="videoPath"
+      :video-name="videoPath.split(/[\\/]/).pop() || 'video.mp4'"
+      @close="shareOpen = false"
+    />
   </div>
 </template>
 
@@ -122,12 +130,14 @@ import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
+import ShareModal from '../share/ShareModal.vue';
 import type { VideoItem } from '@wonderful-ui/parser';
 
 const player = usePlayerStore();
 const ui = useUiStore();
 
 const closing = ref(false);
+const shareOpen = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
@@ -529,6 +539,15 @@ function revealInExplorer() {
   invoke('reveal_in_explorer', { path: videoPath.value }).catch((e) => {
     ui.showToast(`打开资源管理器失败: ${e}`, 'error');
   });
+}
+
+function onShare() {
+  const path = videoPath.value;
+  if (!path) {
+    ui.showToast('没有可分享的视频', 'error');
+    return;
+  }
+  shareOpen.value = true;
 }
 
 function toggleFullscreen() {
