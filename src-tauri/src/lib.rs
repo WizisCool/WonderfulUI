@@ -1,5 +1,6 @@
 mod app_log;
 mod library;
+mod os_shell;
 mod parser;
 
 use std::collections::HashMap;
@@ -307,50 +308,38 @@ fn rename_account(openid: String, custom_name: Option<String>) -> Result<(), Str
         .map_err(|e| format!("rename account: {}", e))
 }
 
-/// Open a local file with the OS-associated default app. The empty quoted
-/// arg is the window title for `cmd /c start` — without it, paths with
-/// spaces in them get misparsed.
+/// Open a local file with the OS-associated default app. **Fire-and-forget,
+/// native Win32 path** — `ShellExecuteW` runs in-process (no `cmd.exe`,
+/// no `start` builtin parsing, no `cmd /c` `""` placeholder). It is the
+/// same API Explorer / the taskbar "Open" button use, so the call
+/// returns in milliseconds after handing the file off to the shell.
 #[tauri::command]
 fn play_video(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
         return Err(format!("源文件丢失: {}", path));
     }
-    let status = std::process::Command::new("cmd")
-        .arg("/c")
-        .arg("start")
-        .arg("")
-        .arg(&path)
-        .status()
-        .map_err(|e| format!("spawn start failed: {}", e))?;
-    if !status.success() {
-        return Err(format!("system handler exited with {:?}", status.code()));
-    }
-    Ok(())
+    os_shell::shell_open(&path)
 }
 
-/// Open Explorer with the given file selected (`explorer /select`).
+/// Open Explorer with the given file selected. Fire-and-forget: see
+/// `play_video` for why `.status()` was the lag source. `explorer.exe` is a
+/// real binary so we skip the `cmd /c` wrapper entirely.
 #[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), String> {
     let p = std::path::Path::new(&path);
     if !p.exists() {
         return Err(format!("文件不存在: {}", path));
     }
-    let status = std::process::Command::new("cmd")
-        .arg("/c")
-        .arg("explorer")
+    std::process::Command::new("explorer")
         .arg(format!("/select,{}", p.display()))
-        .status()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
         .map_err(|e| format!("spawn explorer: {}", e))?;
     // explorer.exe 在 /select 模式下会 fork 新进程后立即返回，
-    // 退出码不可靠（0 或 1 都不能作为成功/失败的依据）。
-    // 文件存在 + spawn 成功就视为成功。
-    if !status.success() {
-        eprintln!(
-            "reveal_in_explorer: explorer exited with {:?} (ignored, file may still be open)",
-            status.code()
-        );
-    }
+    // 退出码不可靠（spawn 成功 + 文件存在即视为成功）。
     Ok(())
 }
 
@@ -367,6 +356,9 @@ fn reveal_logs_dir() -> Result<(), String> {
     app_log::write(app_log::LogLevel::Info, "logs", "opening log directory");
     std::process::Command::new("explorer")
         .arg(&dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("open logs dir {}: {}", dir.display(), e))?;
     Ok(())
@@ -629,5 +621,12 @@ mod tests {
         let path = missing_dir().to_string_lossy().to_string();
         let err = reveal_in_explorer(path).expect_err("expected error for missing file");
         assert!(err.contains("文件不存在"), "{err}");
+    }
+
+    #[test]
+    fn play_video_missing_file_returns_error() {
+        let path = missing_dir().to_string_lossy().to_string();
+        let err = play_video(path).expect_err("expected error for missing file");
+        assert!(err.contains("源文件丢失"), "{err}");
     }
 }

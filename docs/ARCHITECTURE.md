@@ -96,10 +96,23 @@ Defined in `src-tauri/src/lib.rs`:
   - Persists a WonderfulUI-local account display name override.
   - Empty/null clears the override and falls back to snapshot nickname/tag.
 - `play_video(path)`
-  - Uses the system default player through `cmd /c start "" <path>`.
+  - Uses **Win32 `ShellExecuteW`** directly (in-process Win32 call, no
+    `cmd.exe`, no `cmd /c start` parsing). It is the same API Explorer and
+    the taskbar "Open" button use internally, so the call returns in
+    milliseconds after handing the file off to the shell.
+  - Wrapped in `src-tauri/src/os_shell.rs` behind `#[cfg(windows)]`; the
+    non-Windows stub returns an error. Pre-call `Path::exists()` guards
+    both the user-friendly Chinese error and the unit test.
+  - The previous `cmd /c start "" <path>` path added a process layer
+    (cmd parsing + conhost + `start` builtin lookup) that took ~300–800 ms
+    per click, which surfaced as right-click menu close lag. `ShellExecuteW`
+    removes that cost entirely.
   - Does not launch Riot Client or Valorant.
 - `reveal_in_explorer(path)`
-  - Uses `explorer /select,"<path>"`.
+  - Uses `explorer.exe /select,<path>` directly (no `cmd /c` wrapper).
+  - **Fire-and-forget** for the same reason as `play_video` — `.status()` on
+    `explorer /select` blocked the Tauri command thread until the new Explorer
+    window finished initializing.
   - Kept separate from playback for player context-menu actions.
   - `explorer.exe` exit code after `/select` is unreliable (it forks a new
     process and returns immediately with code 0 or 1). Success is judged by

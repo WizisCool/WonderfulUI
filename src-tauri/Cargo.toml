@@ -34,3 +34,12 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 rayon = "1"
 tauri-plugin-updater = { version = "2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# 与 tauri 2.0.1 锁定的 windows 0.61 同主版本，直接用 ShellExecuteW 走原生
+# "以默认程序打开" 通道，绕过 cmd /c 解析开销。
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
