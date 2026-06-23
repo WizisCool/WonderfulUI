@@ -94,7 +94,15 @@
       </div>
     </div>
 
-    <div v-if="ctxMenu" class="player-context-menu" :style="ctxMenuStyle" ref="ctxMenuRef">
+    <div
+      v-show="ctxMenu"
+      class="player-context-menu"
+      :class="{ 'is-closing': ctxMenuClosing }"
+      :style="ctxMenuStyle"
+      ref="ctxMenuRef"
+      @contextmenu.stop.prevent
+      @animationend="onCtxMenuAnimEnd"
+    >
       <button
         v-for="item in ctxMenuItems"
         :key="item.label"
@@ -242,10 +250,17 @@ const bufferedStyle = computed(() => ({
 }));
 
 // context menu
+// `ctxMenu` drives v-show; `ctxMenuClosing` flips on close so the
+// `is-closing` class can play the exit animation before the element is
+// hidden. We only set `ctxMenu = false` once the animation has settled,
+// with a 200 ms safety timeout in case animationend never fires (matches
+// the date-picker pattern at utils/date-picker.ts:246).
 const ctxMenu = ref(false);
+const ctxMenuClosing = ref(false);
 const ctxMenuX = ref(0);
 const ctxMenuY = ref(0);
 const ctxMenuRef = ref<HTMLElement | null>(null);
+let ctxMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 const ctxMenuStyle = computed(() => ({
   left: `${ctxMenuX.value}px`,
@@ -527,23 +542,53 @@ function toggleFullscreen() {
 }
 
 function openContextMenu(e: MouseEvent) {
+  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
+  ctxMenuClosing.value = false;
   ctxMenu.value = true;
   ctxMenuX.value = e.clientX;
   ctxMenuY.value = e.clientY;
+  // Use `mousedown` (left button only), not `click`. A right-click fires
+  // `mousedown → mouseup → click (button=2) → contextmenu` in that order.
+  // If we listened for `click`, the right-click that just opened the menu
+  // would also fire `click` after `contextmenu`, and the doc handler
+  // would see the target is outside the menu and immediately close it.
+  // `mousedown` happens *before* `contextmenu` for a right-click, so a
+  // capture-phase listener registered in `nextTick` still races with the
+  // opening mousedown — `button === 0` filters out everything but the
+  // next genuine left-click.
   nextTick(() => {
-    document.addEventListener('click', onCtxMenuDocClick);
+    document.addEventListener('mousedown', onCtxMenuDocMouseDown, true);
     document.addEventListener('keydown', onCtxMenuEsc);
   });
 }
 
 function closeCtxMenu() {
-  ctxMenu.value = false;
-  document.removeEventListener('click', onCtxMenuDocClick);
+  if (!ctxMenu.value) return;
+  ctxMenuClosing.value = true;
+  // Hide it after the exit animation (160/120ms) finishes, or fall back
+  // to 200 ms in case animationend never fires.
+  if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
+  ctxMenuCloseTimer = setTimeout(() => {
+    ctxMenu.value = false;
+    ctxMenuClosing.value = false;
+    ctxMenuCloseTimer = null;
+  }, 200);
+  document.removeEventListener('mousedown', onCtxMenuDocMouseDown, true);
   document.removeEventListener('keydown', onCtxMenuEsc);
 }
 
-function onCtxMenuDocClick(e: MouseEvent) {
+function onCtxMenuDocMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return; // ignore right/middle clicks
   if (!ctxMenuRef.value?.contains(e.target as Node)) closeCtxMenu();
+}
+
+function onCtxMenuAnimEnd(e: AnimationEvent) {
+  // Only react to our own keyframes; ignore bubbled events from descendants.
+  if (!ctxMenuClosing.value) return;
+  if (e.animationName !== 'player-ctxmenu-out') return;
+  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
+  ctxMenu.value = false;
+  ctxMenuClosing.value = false;
 }
 
 function onCtxMenuEsc(e: KeyboardEvent) {
@@ -637,8 +682,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown, true);
-  document.removeEventListener('click', onCtxMenuDocClick);
+  document.removeEventListener('mousedown', onCtxMenuDocMouseDown, true);
   document.removeEventListener('keydown', onCtxMenuEsc);
+  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
   clearHideTimer();
   clearBufferingTimer();
 });
@@ -873,6 +919,20 @@ onUnmounted(() => {
   border-radius: var(--radius);
   padding: 4px;
   min-width: 180px;
+  transform-origin: top left;
+  animation: player-ctxmenu-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.player-context-menu.is-closing {
+  animation: player-ctxmenu-out 120ms cubic-bezier(0.7, 0, 0.84, 0) both;
+  pointer-events: none;
+}
+@keyframes player-ctxmenu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes player-ctxmenu-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
 }
 .player-context-item {
   display: block;

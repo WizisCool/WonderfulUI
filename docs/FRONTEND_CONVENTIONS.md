@@ -333,6 +333,9 @@ Context menu:
   - 在资源管理器中打开
   - 复制视频路径
 - Remove menu on outside click or Escape.
+- **Animation**: enter via `player-ctxmenu-in` (160 ms, `cubic-bezier(0.16, 1, 0.3, 1)`) and exit via `player-ctxmenu-out` (120 ms, `cubic-bezier(0.7, 0, 0.84, 0)`). Both reuse the `player-modal-in/-out` family of keyframes in the same file, keeping the motion vocabulary consistent. `v-show` + an `is-closing` class drives the exit; the element is fully hidden on `animationend` (filtered by `animationName === 'player-ctxmenu-out'`) with a 200 ms safety timeout. The global `prefers-reduced-motion` block in `assets/style.css` already collapses `animation-duration` to 1 ms.
+- **Outside-click contract**: register the doc listener on `mousedown` (capture phase) with `e.button === 0`, not on `click`. A right-click fires `mousedown → mouseup → click (button=2) → contextmenu` in that order — a `click` handler would race with the opening right-click and immediately close the menu. The `mousedown` capture with `button === 0` filter ignores the opening right-click and only acts on the next intentional left-click.
+- `onUnmounted` MUST remove both the `mousedown` (capture) and `keydown` listeners and clear the close-animation safety timer.
 
 Volume:
 
