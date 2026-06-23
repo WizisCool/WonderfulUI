@@ -34,7 +34,8 @@
 
   /* typography */
   --font-sans:    'MiSans', 'MiSansLatin', 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono:    'JetBrains Mono', 'Cascadia Code', Consolas, Menlo, monospace;
+  --font-mono:    'JetBrains Mono', 'Cascadia Code', Consolas, Menlo,
+                  'MiSans', 'MiSansLatin', 'PingFang SC', 'Microsoft YaHei', monospace;
 
   /* MiSans weight tokens */
   --w-medium:     380;

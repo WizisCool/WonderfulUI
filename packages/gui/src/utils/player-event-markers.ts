@@ -204,7 +204,7 @@ export function renderCanvasMarkers<T extends EventMarkerInput>(
     ctx.stroke();
 
     ctx.fillStyle = '#c2c2c2';
-    ctx.font = '9px sans-serif';
+    ctx.font = '9px MiSans, MiSansLatin, PingFang SC, Microsoft YaHei, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(layout.marker.type === 'death' ? '\u2715' : '\u271A', x, dotY);

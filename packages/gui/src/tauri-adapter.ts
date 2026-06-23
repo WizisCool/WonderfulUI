@@ -52,7 +52,7 @@ function svgData(label: string, bg: string, fg: string): string {
       <rect width="480" height="270" fill="${bg}"/>
       <path d="M0 218 120 112 216 164 314 66 480 206v64H0z" fill="${fg}" opacity=".34"/>
       <circle cx="382" cy="72" r="42" fill="${fg}" opacity=".5"/>
-      <text x="28" y="236" fill="#f2eee8" font-family="system-ui, sans-serif" font-size="38" font-weight="700">${label}</text>
+      <text x="28" y="236" fill="#f2eee8" font-family="MiSans, 'MiSansLatin', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="38" font-weight="700">${label}</text>
     </svg>`,
   )}`;
 }
