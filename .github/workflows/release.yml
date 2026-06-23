@@ -18,6 +18,15 @@ jobs:
         with:
           bun-version: latest
 
+      # Cache cargo registry + target. Key on Cargo.lock hash so a dep
+      # bump invalidates cleanly. Tauri pulls ~600 crates (libsqlite3-sys,
+      # webview2-com, tauri-codegen) and the release profile uses LTO;
+      # without this cache, every tag build re-codes from scratch.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: ${{ runner.os }}-release
+
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
       - run: bun run typecheck

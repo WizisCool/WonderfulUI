@@ -238,7 +238,9 @@ pub fn start_server(
 
     // 闭包里用 clone 拿一份 Sender —— 原始 stop_tx 还要存到 Inner
     // 里给 stop_server() 用（用户在 GUI 上点"停止"时用）。
-    let stop_tx_for_thread = stop_tx.clone();
+    // 闭包里 clone 一份 Receiver（Sender 由 start_server 末尾存到 Inner，
+    // 给 stop_server() 主动停机用，不传给 run_server）
+    let stop_rx_for_thread = stop_rx;
     thread::Builder::new()
         .name("wui-share-server".into())
         .spawn(move || {
@@ -248,8 +250,7 @@ pub fn start_server(
                 &token_for_thread,
                 &name_for_thread,
                 &app_for_thread,
-                stop_tx_for_thread, // Sender：handle_request 首次下载完用它发停机信号
-                stop_rx,           // Receiver：主循环用它等用户主动关
+                stop_rx_for_thread,
                 downloads_for_thread,
                 last_request_for_thread,
                 idle_timeout,
@@ -312,7 +313,6 @@ fn run_server(
     token: &str,
     video_name: &str,
     app: &AppHandle,
-    stop_tx: Sender<()>,
     stop_rx: std::sync::mpsc::Receiver<()>,
     downloads: Arc<AtomicU64>,
     last_request: Arc<Mutex<Instant>>,

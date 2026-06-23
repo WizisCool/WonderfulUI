@@ -26,6 +26,11 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: ${{ runner.os }}-manual
+
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
       - run: bun run typecheck
