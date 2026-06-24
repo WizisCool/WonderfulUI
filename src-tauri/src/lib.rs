@@ -54,6 +54,9 @@ pub fn run() {
     #[cfg(feature = "updater")]
     let app = app.plugin(tauri_plugin_updater::Builder::new().build());
 
+    #[cfg(feature = "process")]
+    let app = app.plugin(tauri_plugin_process::init());
+
     app_log::write(app_log::LogLevel::Info, "app", "WonderfulUI starting");
 
     app.run(tauri::generate_context!())

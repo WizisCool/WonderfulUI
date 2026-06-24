@@ -135,6 +135,7 @@ More detail: `docs/ARCHITECTURE.md`.
 - `docs/ARCHITECTURE.md` - runtime shape, Tauri commands, scaling plan, dev/test workflow, repo layout.
 - `docs/FRONTEND_CONVENTIONS.md` - stable DOM rendering, account sentinel, match/detail layout, asset cache, player rules, fonts/icons, event interaction flow.
 - `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, optional PRs, manual checks, and GitHub Actions releases.
+- `docs/UPDATER.md` - in-app self-update system (tauri-plugin-updater + GitHub Releases latest.json, signing keys, UpdateModal UI spec).
 - `DESIGN.md` - product visual system and UI constraints.
 - `PRODUCT.md` - product intent and user-facing behavior.
 
@@ -142,6 +143,7 @@ Before changing parser behavior, read `docs/ACLOS_FORMAT.md`.
 Before changing app structure or build workflow, read `docs/ARCHITECTURE.md`.
 Before changing GUI layout, DOM refresh, CSS, icons, player, or tooltips, read `docs/FRONTEND_CONVENTIONS.md` plus `DESIGN.md`.
 Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`. Version consistency is verified in CI via `scripts/check-versions.ts` — add new version-bearing files to both `check-versions.ts` and `version-bump.ts`.
+Before touching the updater (tauri.conf updater block, signing keys, release.yml latest.json, UpdateModal), read `docs/UPDATER.md`. The signing pubkey in `tauri.conf.json` must stay paired with the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret; the private key lives only at `~/.tauri/wonderfului.key` (never in repo).
 
 ## Development Workflow
 

@@ -32,13 +32,95 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib
-      - run: bun run build
+
+      # tauri build reads TAURI_SIGNING_PRIVATE_KEY / _PASSWORD from env
+      # and, when bundle.createUpdaterArtifacts=true, writes a minisign
+      # .sig next to the NSIS setup.exe (v2 updater format). The private
+      # key itself never enters the workflow file -- it lives only in
+      # repo secrets. See docs/UPDATER.md for the key-management contract.
+      - name: Build Tauri app (signing keys from secrets)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun run build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wonderful-ui-${{ github.ref_name }}
           path: target/release/bundle/
+
+      # Generate latest.json for tauri-plugin-updater. Schema and field
+      # semantics live in docs/UPDATER.md. We assume the v2 NSIS product
+      # layout is <productName>_<version>_x64-setup.exe(.sig) i.e.
+      # "WonderfulUI_0.1.5_x64-setup.exe" + ".exe.sig". The script
+      # globs *-setup.exe / *-setup.exe.sig, reads tauri.conf.json for
+      # the authoritative version, and pulls release notes from
+      # versions.json (releases["vX.Y.Z"].notes). If the on-disk
+      # filename ever drifts from the convention, the script logs a
+      # warning so the URL can be eyeballed. NOTES 产物文件名需实测核对
+      # on the first real release build.
+      - name: Generate latest.json
+        shell: pwsh
+        run: |
+          $nsisDir = "target/release/bundle/nsis"
+          $setupExe = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe" | Select-Object -First 1
+          $setupSig = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe.sig" | Select-Object -First 1
+          if (-not $setupExe) { Write-Error "No setup.exe found in $nsisDir"; exit 1 }
+          if (-not $setupSig) { Write-Error "No setup.exe.sig found in $nsisDir"; exit 1 }
+
+          # Authoritative version + productName from tauri.conf.json
+          # (avoids brittle filename parsing of e.g. a future
+          # <productName>-setup.exe or -amd64-setup.exe).
+          $tauriConf = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          $version = $tauriConf.version
+          $tag = "v$version"
+          $expectedPrefix = "$($tauriConf.productName)_${version}_x64-setup"
+          if ($setupExe.Name -notlike "${expectedPrefix}*") {
+            Write-Warning "Setup filename '$($setupExe.Name)' doesn't match expected '$expectedPrefix*'. NOTES 产物文件名需实测核对 -- verify latest.json's url field."
+          }
+
+          # minisign signature: .sig is the raw keybase-style text
+          # block; embed verbatim into the JSON payload.
+          $signature = (Get-Content -Path $setupSig.FullName -Raw).Trim()
+
+          # Release notes from versions.json releases.<tag>.notes.
+          # Fall back to a one-liner if the entry is missing or empty.
+          $notes = $null
+          if (Test-Path "versions.json") {
+            $versions = Get-Content "versions.json" -Raw | ConvertFrom-Json
+            $entry = $versions.releases."$tag"
+            if ($entry) { $notes = $entry.notes }
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            $notes = "WonderfulUI $tag"
+          }
+
+          # Convention URL:
+          #   https://github.com/<owner>/<repo>/releases/download/<tag>/<file>
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($setupExe.Name)"
+
+          # ISO8601 UTC, second precision (Tauri only reads the string).
+          $pubDate = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+          $latest = [ordered]@{
+            version  = $version
+            notes    = $notes
+            pub_date = $pubDate
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url       = $url
+              }
+            }
+          }
+          $json = $latest | ConvertTo-Json -Depth 6
+          # pwsh's -Encoding utf8 is no-BOM UTF-8 (unlike Windows
+          # PowerShell 5.1), which is what Tauri expects when it
+          # fetches + parses latest.json.
+          Set-Content -Path "latest.json" -Value $json -Encoding utf8 -NoNewline
+          Write-Host "Wrote latest.json:"
+          Get-Content latest.json
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -48,3 +130,5 @@ jobs:
           generate_release_notes: true
           files: |
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
+            latest.json

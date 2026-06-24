@@ -70,7 +70,7 @@
     </div>
     <div class="pane-foot">
       <button
-        class="pane-foot-item"
+        class="pane-foot-item pane-foot-item--gear"
         type="button"
         aria-label="设置"
         :data-tip="'设置'"
@@ -78,6 +78,11 @@
       >
         <WIcon icon="ph:gear" :size="14" />
         <span>设置</span>
+        <span
+          v-if="update.badge"
+          class="pane-foot-badge"
+          aria-hidden="true"
+        />
       </button>
       <span class="pane-foot-version">v{{ APP_VERSION }}</span>
     </div>
@@ -92,12 +97,14 @@ import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/accoun
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
 import { useUiStore } from '../../stores/ui.ts';
+import { useUpdateStore } from '../../stores/update.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 
 const account = useAccountStore();
 const filterStore = useFilterStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
+const update = useUpdateStore();
 
 const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
@@ -419,6 +426,18 @@ onUnmounted(() => {
 .pane-foot-item:hover {
   color: var(--ink);
   background: var(--surface-2);
+}
+.pane-foot-item--gear { position: relative; }
+.pane-foot-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  pointer-events: none;
 }
 .pane-foot-version {
   color: var(--ink-4);

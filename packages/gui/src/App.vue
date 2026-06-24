@@ -17,6 +17,7 @@
       </Teleport>
       <ToastHost />
       <SettingsView />
+      <UpdateModal />
     </template>
   </div>
 </template>
@@ -33,15 +34,18 @@ import ToastHost from './components/common/ToastHost.vue';
 import DetailView from './views/DetailView.vue';
 import SettingsView from './views/SettingsView.vue';
 import OnboardingView from './components/common/OnboardingView.vue';
+import UpdateModal from './components/update/UpdateModal.vue';
 import { watch, onMounted, onUnmounted, ref, computed } from 'vue';
 import { listen } from './tauri-adapter.ts';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
+import { useUpdateStore } from './stores/update.ts';
 import { useTooltip } from './composables/useTooltip.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
 const ui = useUiStore();
+const update = useUpdateStore();
 const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
 const booted = ref(false);
 const bootError = ref<string | null>(null);
@@ -120,6 +124,10 @@ async function runBoot() {
     }
     booted.value = true;
     bootRef.value?.complete();
+    // 启动静默更新检查。必须在 runBoot 显露 UI 之后调用，不与后台抓取竞争
+    // （CLAUDE.md / docs/UPDATER.md「启动检查时机」）。失败静默，只亮侧栏红点
+    // 不开弹窗；fire-and-forget，不阻塞 UI 显露后的稳定状态。
+    update.checkForUpdate(true).catch(() => {});
   } catch (e) {
     console.error('Boot failed:', e);
     bootError.value = (e as Error)?.message ?? String(e);

@@ -267,6 +267,18 @@
             <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI" target="_blank" rel="noopener noreferrer">GitHub</a>
             <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPL-3.0</a>
           </div>
+          <div class="settings-about-update">
+            <button
+              class="btn settings-action"
+              type="button"
+              :disabled="isUpdateBusy"
+              :aria-busy="String(isUpdateBusy)"
+              @click="onCheckUpdate"
+            >
+              <WIcon icon="ph:arrows-clockwise" :size="14" />
+              <span>{{ updateActionLabel }}</span>
+            </button>
+          </div>
         </div>
       </template>
     </main>
@@ -280,6 +292,7 @@ import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
 import { useUiStore } from '../../stores/ui.ts';
+import { useUpdateStore } from '../../stores/update.ts';
 import { invoke } from '../../tauri-adapter.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 import { fmtBytes, CHART_METRIC_LABELS, CHART_METRIC_EMPTY, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
@@ -289,6 +302,7 @@ const account = useAccountStore();
 const filter = useFilterStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
+const update = useUpdateStore();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 
@@ -358,6 +372,24 @@ const logPreviewText = computed(() => {
 });
 
 const logPreviewRef = ref<HTMLPreElement | null>(null);
+
+// 关于页「检查更新」按钮
+const isUpdateBusy = computed(() =>
+  update.status === 'downloading' || update.status === 'installing'
+);
+const updateActionLabel = computed(() => {
+  if (update.badge && update.update) {
+    return `有新版本 v${update.update.version} →`;
+  }
+  return '检查更新';
+});
+function onCheckUpdate() {
+  if (update.badge) {
+    update.openModal();
+  } else {
+    void update.checkForUpdate(false);
+  }
+}
 
 watch(logPreviewText, () => {
   nextTick(() => {
@@ -609,6 +641,11 @@ onUnmounted(() => {
   content: '\00B7';
   margin-right: 6px;
   color: var(--ink-4);
+}
+.settings-about-update {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
 }
 .settings-sub-line {
   display: inline-flex; align-items: center; gap: 4px;

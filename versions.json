@@ -1,6 +1,6 @@
 {
   "$schema": "https://example.com/wonderful-ui/versions.schema.json",
-  "current": "0.1.4",
+  "current": "0.1.5",
   "min_supported": "0.1.0",
   "releases": {
     "v0.1.0": {
@@ -54,6 +54,18 @@
     "v0.1.4": {
       "tag": "v0.1.4",
       "date": "2026-06-23",
+      "notes": "",
+      "min_supported_version": "0.1.0",
+      "assets": {
+        "windows-x86_64": {
+          "url": "",
+          "signature": ""
+        }
+      }
+    },
+    "v0.1.5": {
+      "tag": "v0.1.5",
+      "date": "2026-06-24",
       "notes": "",
       "min_supported_version": "0.1.0",
       "assets": {
