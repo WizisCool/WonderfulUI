@@ -26,8 +26,12 @@ bun run version:major    # 0.1.0 → 1.0.0
 6. 推送 main 分支和 tag
 7. CI（release.yml）自动构建并创建 GitHub Release（`generate_release_notes: true`）
 
-`scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的工作树上运行，
+`scripts/version-bump.ts` 会执行 `git add -A` **并 push**，因此只应在干净的工作树上运行，
 且工作树中只能包含本次发布需要提交的版本文件变更。
+
+**Agent 注意：** 除非用户明确要求执行完整远程发布（含 push），不要运行
+`bun run version:*`。默认只做本地改版本号 / commit / tag，把 push 命令交给用户。
+详见 `docs/AGENT_WORKFLOW.md` § Git Workflow。
 
 发布 notes（写入 `versions.json`，并进入应用内 `latest.json`）：
 

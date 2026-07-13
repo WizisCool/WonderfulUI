@@ -140,13 +140,31 @@ mostly solo project, do not create a topic branch, PR, or CI dependency unless
 the user asks for one, an external contributor is involved, or the change is
 large enough that review isolation is genuinely useful.
 
-Default maintainer loop:
+### Agents: commit vs push (hard default)
+
+| Action | Default |
+|---|---|
+| Edit / verify locally | Allowed when implementing the request |
+| `git commit` | Only when the user asks to commit, or a release step clearly requires a local commit |
+| `git push` to `main` or any remote | **Forbidden unless the user explicitly asks to push / publish / 推送** |
+| `git push origin v*` (tags) | Same: only with explicit publish intent |
+| Force-push / amend published commits | Never unless the user explicitly requests that risk |
+
+- Phrases like "提交", "做好", "按规范 commit" mean **local commit only**.
+- Do **not** treat release preparation, version bumps, or CI optimization as
+  implied permission to push. After local commits, report `git status` and the
+  exact push commands; let the user run them or say "push".
+- `scripts/version-bump.ts` auto-pushes `main` + the new tag. Agents must **not**
+  run it unless the user explicitly wants a full remote release bump. Prefer
+  manual version file edits + local commit/tag when only local release prep is
+  requested.
+
+Default maintainer loop (human or agent with explicit push permission):
 
 1. Work from the current branch after checking `git status --short --branch`.
 2. Keep each change small and locally verified.
-3. Commit directly when the user asks for a commit or when a release step
-   requires it.
-4. Push directly when the user asks, after local checks pass.
+3. Commit when the user asks for a commit or when a release step requires it.
+4. **Push only when the user explicitly asks**, after local checks pass.
 
 Use branches and PRs only for external contributions, risky experiments, or
 when the user explicitly wants a GitHub review flow. In those cases, prefer a
@@ -222,12 +240,16 @@ cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 bun run build
 ```
 
-5. Push `main` if the release commit is not already remote.
-6. Push the tag:
+5. **Only if the user asked to publish:** push `main` if the release commit is
+   not already remote, then push the tag:
 
 ```bash
+git push origin main
 git push origin vX.Y.Z
 ```
+
+Without an explicit push/publish request, stop after the local commit/tag and
+print the commands above for the user.
 
 `.github/workflows/release.yml` then runs the full validation/build sequence,
 uploads the bundle artifact, and creates the GitHub Release. A PR can still be

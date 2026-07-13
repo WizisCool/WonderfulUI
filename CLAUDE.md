@@ -27,6 +27,16 @@ This is the high-priority entry file for agents working in WonderfulUI. Keep it 
 - Do not remove pre-existing dead code unless asked.
 - The worktree may be dirty. Never revert changes you did not make.
 
+### Git / Remote
+
+- Local commits are fine when the user asks for a commit, or when a release step clearly requires one.
+- **Do not `git push` to `main` (or any remote) unless the user explicitly asks.**
+  - "提交 / commit / 做好" alone is **not** permission to push.
+  - Release wording ("发布 / 打 tag / 推送") counts only when it clearly includes publishing to the remote.
+- Do not push tags, force-push, or amend published history unless explicitly requested.
+- Prefer leaving the branch ahead of `origin` and reporting how to push, rather than pushing by default.
+- Details: `docs/AGENT_WORKFLOW.md` § Git Workflow.
+
 ### Goal-Driven Execution
 
 For multi-step work, state a brief plan with verification:
@@ -134,7 +144,7 @@ More detail: `docs/ARCHITECTURE.md`.
 - `docs/ACLOS_FORMAT.md` - WonderfulDb paths, format notes, snapshot nicknames, parser field semantics, rounds/clips/events.
 - `docs/ARCHITECTURE.md` - runtime shape, Tauri commands, scaling plan, dev/test workflow, repo layout.
 - `docs/FRONTEND_CONVENTIONS.md` - stable DOM rendering, account sentinel, match/detail layout, asset cache, player rules, fonts/icons, event interaction flow.
-- `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, optional PRs, manual checks, and GitHub Actions releases.
+- `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, optional PRs, manual checks, and GitHub Actions releases. Includes the hard default: no remote push without an explicit user request.
 - `docs/UPDATER.md` - in-app self-update system (tauri-plugin-updater + GitHub Releases latest.json, signing keys, UpdateModal UI spec).
 - `DESIGN.md` - product visual system and UI constraints.
 - `PRODUCT.md` - product intent and user-facing behavior.
@@ -142,7 +152,7 @@ More detail: `docs/ARCHITECTURE.md`.
 Before changing parser behavior, read `docs/ACLOS_FORMAT.md`.
 Before changing app structure or build workflow, read `docs/ARCHITECTURE.md`.
 Before changing GUI layout, DOM refresh, CSS, icons, player, or tooltips, read `docs/FRONTEND_CONVENTIONS.md` plus `DESIGN.md`.
-Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`. Version consistency is verified in CI via `scripts/check-versions.ts` — add new version-bearing files to both `check-versions.ts` and `version-bump.ts`.
+Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`. Version consistency is verified in CI via `scripts/check-versions.ts` — add new version-bearing files to both `check-versions.ts` and `version-bump.ts`. Never push `main`/tags unless the user explicitly asks.
 Before touching the updater (tauri.conf updater block, signing keys, release.yml latest.json, UpdateModal), read `docs/UPDATER.md`. The signing pubkey in `tauri.conf.json` must stay paired with the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret; the private key lives only at `~/.tauri/wonderfului.key` (never in repo).
 
 ## Development Workflow
