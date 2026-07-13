@@ -15,27 +15,46 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
 
 jobs:
   check:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # Reuse the same release-profile cache as cache-warm / Release so a
+      # manual full-build can hit warm deps when available.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          shared-key: ${{ runner.os }}-manual
+          shared-key: wui-release
+          cache-all-crates: true
+          cache-on-failure: true
 
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
       - run: bun run typecheck
       - run: bun run test
-      - run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+      - name: Cargo lib tests (debug)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - if: ${{ inputs['full-build'] }}
+        name: Full Tauri build
         run: bun run build

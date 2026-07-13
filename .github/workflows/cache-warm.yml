@@ -1,0 +1,75 @@
+name: Cache Warm
+
+# Populate GitHub Actions caches on the default branch so tag Release jobs
+# can restore them. GHA only shares caches created on the default branch
+# (main) across other refs; a rust-cache step that only runs on tags never
+# warms subsequent releases (repo cache count stays 0).
+#
+# Shared keys MUST stay in sync with release.yml:
+#   rust: shared-key wui-release
+#   bun:  ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "packages/gui/**"
+      - "bun.lock"
+      - "package.json"
+      - ".bun-version"
+      - ".github/workflows/cache-warm.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cache-warm-main
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  warm:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: wui-release
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - run: bun install --frozen-lockfile
+
+      # Frontend dist is a tauri-build input; building it once exercises the
+      # JS toolchain and keeps the warm path close to a real release build.
+      - name: Build frontend (Vite)
+        run: bun run --cwd packages/gui build
+
+      # Compile the release-profile crate graph (deps + lib). This is the
+      # expensive part of `tauri build` and is what tag jobs need restored.
+      # We intentionally skip NSIS packaging here (no signing secrets required).
+      - name: Cargo build release lib
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml

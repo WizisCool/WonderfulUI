@@ -6,6 +6,17 @@ on:
     tags:
       - 'v*'
 
+# Tag builds cannot *create* caches that later tags reliably reuse (GHA caches
+# are branch-scoped; only the default branch is a shared source). The
+# cache-warm workflow on main populates the same rust-cache / bun keys so
+# release jobs restore a warm target/. See docs/AGENT_WORKFLOW.md.
+
+env:
+  CARGO_TERM_COLOR: always
+  # With restored dep artifacts, non-incremental builds avoid writing huge
+  # incremental graphs that bloat the Windows cache for little gain.
+  CARGO_INCREMENTAL: "0"
+
 jobs:
   build:
     runs-on: windows-latest
@@ -13,25 +24,50 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Need full history for latest.json notes fallback (git log prevTag..tag).
+          fetch-depth: 0
+
+      # Disable the action's built-in rust-cache — we configure Swatinem
+      # explicitly with a shared-key that matches cache-warm.yml on main.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
-      # Cache cargo registry + target. Key on Cargo.lock hash so a dep
-      # bump invalidates cleanly. Tauri pulls ~600 crates (libsqlite3-sys,
-      # webview2-com, tauri-codegen) and the release profile uses LTO;
-      # without this cache, every tag build re-codes from scratch.
+      # Bun global install cache (not node_modules). Speeds frozen installs
+      # when the lockfile is unchanged.
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # Restore release-profile deps warmed on main (see cache-warm.yml).
+      # workspaces path must match the Cargo target used by tauri build.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          shared-key: ${{ runner.os }}-release
+          shared-key: wui-release
+          cache-all-crates: true
+          cache-on-failure: true
 
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
       - run: bun run typecheck
       - run: bun run test
-      - run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+
+      # Debug-profile unit tests only. A release-profile `cargo test` would
+      # recompile nearly everything that `tauri build` compiles again below
+      # (~10–20 min on a cold Windows runner). Lib tests are not
+      # opt-level-sensitive for this crate.
+      - name: Cargo lib tests (debug)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       # tauri build reads TAURI_SIGNING_PRIVATE_KEY / _PASSWORD from env
       # and, when bundle.createUpdaterArtifacts=true, writes a minisign
@@ -58,8 +94,7 @@ jobs:
       # the authoritative version, and pulls release notes from
       # versions.json (releases["vX.Y.Z"].notes). If the on-disk
       # filename ever drifts from the convention, the script logs a
-      # warning so the URL can be eyeballed. NOTES 产物文件名需实测核对
-      # on the first real release build.
+      # warning so the URL can be eyeballed.
       - name: Generate latest.json
         shell: pwsh
         run: |

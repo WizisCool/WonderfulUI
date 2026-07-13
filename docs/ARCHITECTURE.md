@@ -26,6 +26,7 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
 - **Frontend virtual scrolling**: match list renders only visible + buffer rows (~12 DOM nodes instead of hundreds), using `position: absolute` + `transform: translateY()` with a `.vlist-spacer` for scrollable height and rAF-batched scroll handler.
 - **In-app updater** (since v0.1.5): `tauri-plugin-updater` + `tauri-plugin-process` are default features. The GUI calls `check()` / `downloadAndInstall()` / `relaunch()` only through `packages/gui/src/stores/update.ts`. Manifest is GitHub Releases `latest.json` (signed NSIS setup). Details: `docs/UPDATER.md`.
+- **CI caches**: Release tags restore Bun + Rust release-profile caches warmed on `main` by `.github/workflows/cache-warm.yml` (GHA only shares default-branch caches with tags). See `docs/AGENT_WORKFLOW.md` § Release build speed.
 
 ## Parser Layout
 
