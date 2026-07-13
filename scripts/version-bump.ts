@@ -93,20 +93,30 @@ if (existsSync(versionTsPath)) {
 }
 
 // 9. update versions.json if it exists (moved from step 8)
+// notes: prefer WUI_RELEASE_NOTES env so release notes land in latest.json.
+// assets.url/signature are unused at runtime (CI writes latest.json); kept
+// empty for backward-compatible schema only.
 const versionsJsonPath = join(ROOT, 'versions.json');
 if (existsSync(versionsJsonPath)) {
   const versions = readJson(versionsJsonPath);
   versions.current = next;
   if (!versions.releases) versions.releases = {};
+  const notesFromEnv = (process.env.WUI_RELEASE_NOTES ?? '').trim();
   versions.releases[`v${next}`] = {
     tag: `v${next}`,
     date: new Date().toISOString().slice(0, 10),
-    notes: '',
+    notes: notesFromEnv,
     min_supported_version: '0.1.0',
     assets: { 'windows-x86_64': { url: '', signature: '' } },
   };
   writeJson(versionsJsonPath, versions);
   console.log(`  versions.json  ${current} -> ${next}`);
+  if (!notesFromEnv) {
+    console.log(
+      '  WARN versions.json notes empty. Set WUI_RELEASE_NOTES before bump, ' +
+        'or edit versions.json before push so in-app updater shows real notes.',
+    );
+  }
 }
 
 // 9b. update packages/parser/tests/cli.test.ts hardcoded version

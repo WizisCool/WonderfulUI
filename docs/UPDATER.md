@@ -2,7 +2,7 @@
 
 WonderfulUI 的应用内自更新方案。基于 `tauri-plugin-updater`（Tauri 2）+ GitHub Releases 托管，UI 与现有设计系统（暗色 oklch tokens、ShareModal 范式、MiSans 中文、`ph:*` 图标）一致。
 
-> 本文档是实施权威依据。决策点已与用户确认：GitHub Releases 托管 / 静默检查+侧栏红点 / 2026-06-24 生成的新签名密钥（旧的 `WUI_UPDATER_KEY` secret 已删除）。
+> 本文档描述**已落地**行为（自 v0.1.5 起）。决策点：GitHub Releases 托管 / 静默检查+侧栏红点+轻 toast / 2026-06-24 生成的签名密钥。
 
 ## 合规性
 
@@ -15,122 +15,117 @@ GitHub Release (latest.json + setup.exe + setup.exe.sig)
         ▲ HTTPS check()
 [src-tauri] tauri-plugin-updater + tauri-plugin-process
         ▲ invoke 经 Pinia store（组件不直接 invoke）
-[packages/gui] useUpdateStore → UpdateModal.vue + 侧栏红点徽标 + 关于页入口
+[packages/gui] useUpdateStore → UpdateModal.vue + 侧栏红点/版本入口 + 关于页
 ```
 
-- **检查触发**：① 启动 boot 抓取结束、UI 显露后静默检查一次（失败静默）；② 设置 →「关于」页「检查更新」手动检查。
+- **检查触发**：
+  1. 启动 `runBoot()` 显露 UI 之后静默检查一次（失败静默；成功有更新 → 红点 + toast「发现新版本 vX.Y.Z」，不自动开弹窗）
+  2. 设置 →「关于」→「检查更新」手动检查
+  3. 侧栏底部版本号点击 → 打开关于页并手动检查；有 badge 时直接开更新弹窗
+  4. 侧栏设置齿轮在有 badge 时优先打开更新弹窗
 - **更新执行**：`update.downloadAndInstall(progress回调)` → 安装 → `relaunch()`。
-- **安装模式**：perMachine NSIS + `installMode: "passive"`（NSIS 自带进度小窗 + 自动 UAC 提权，前端无需处理提权）。
+- **安装模式**：perMachine NSIS + `installMode: "passive"`（NSIS 进度小窗 + UAC 提权）。
 
-## 签名密钥（已落地 2026-06-24）
+## 签名密钥
 
-- 公钥已写入 `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`（可入库）。
-- 私钥保存在仓库外 `~/.tauri/wonderfului.key`（**绝不入库**）。
-- GitHub repo secrets：`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（仅 CI 用）。
-- 旧的 `WUI_UPDATER_KEY` secret 已删除（无对应公钥进过仓库，属未启用备用项，无遗留用户依赖）。
-- **铁律**：`tauri.conf.json` 公钥必须与签名私钥同一对；丢失私钥/密码则无法再向旧版本推送更新——务必离线备份 `~/.tauri/wonderfului.key` 与密码。
+- 公钥：`src-tauri/tauri.conf.json` → `plugins.updater.pubkey`（可入库）。
+- 私钥：仓库外 `~/.tauri/wonderfului.key`（**绝不入库**）。
+- GitHub secrets：`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+- **铁律**：公钥必须与签名私钥同一对；丢失私钥/密码则无法再向旧版本推送更新——务必离线备份。
 
 ## 后端 / 构建 / CI
 
-### tauri.conf.json（已完成）
-- `bundle.createUpdaterArtifacts: true`（v2 模式，Windows NSIS 产物 = `*-setup.exe` + `.exe.sig`，不打 `.nsis.zip`）。
-- `plugins.updater`: `endpoints` 指向 `https://github.com/WizisCool/WonderfulUI/releases/latest/download/latest.json`；`pubkey` 填公钥内容；`windows.installMode: "passive"`。
-- v2 无 `active` 开关——插件注册即生效，是否检查由前端 `check()` 决定。已移除旧的 `active/dialog` 字段。
+### tauri.conf.json
 
-### Cargo.toml（待办）
-- `[features] default = ["updater"]`（正式构建默认带更新能力）。
-- 新增 `tauri-plugin-process` 依赖（用于 `relaunch`）。
-- `lib.rs:54` 的 `#[cfg(feature="updater")]` 注册块已就绪；补注册 `tauri_plugin_process::init()`。
+- `bundle.createUpdaterArtifacts: true`（v2 模式，Windows NSIS 产物 = `WonderfulUI_<ver>_x64-setup.exe` + `.exe.sig`）。
+- `plugins.updater.endpoints`：**仅**生产 HTTPS  
+  `https://github.com/WizisCool/WonderfulUI/releases/latest/download/latest.json`
+- `pubkey` 非空；`windows.installMode: "passive"`。
+- **禁止**把 `http://localhost:...` 或 `dangerousInsecureTransportProtocol: true` 提交进仓库。本地联调请用临时改动且**不要提交**；`scripts/check-versions.ts` 会拦截。
 
-### capabilities/default.json（待办）
-- `permissions` 增加 updater 与 process 插件权限，以构建后 `gen/schemas` 生成的标识为准核对（如 `updater:default` / `process:default`）。
+### Cargo.toml / lib.rs / capabilities
 
-### release.yml（待办）
-1. `bun run build` 前注入 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets env。
-2. build 后读取 `target/release/bundle/nsis/*-setup.exe.sig` 内容。
-3. 生成 `latest.json`：
-   ```json
-   {
-     "version": "0.1.5",
-     "notes": "<来自 versions.json 该版本>",
-     "pub_date": "<ISO8601>",
-     "platforms": { "windows-x86_64": { "signature": "<.sig 内容>", "url": "<setup.exe Release URL>" } }
-   }
-   ```
-4. `softprops/action-gh-release` 附 `latest.json` + `*-setup.exe` + `*-setup.exe.sig`。
-- **核对**：v2 模式 NSIS 产物文件名需本地 `bun run build` 实测 `bundle/nsis/`。
+| 位置 | 状态 |
+|---|---|
+| `default = ["updater", "process"]` | 已启用 |
+| `tauri-plugin-updater` / `tauri-plugin-process` | optional deps，默认 feature 拉入 |
+| `lib.rs` `#[cfg(feature=...)]` 注册两插件 | 已落地 |
+| `capabilities/default.json` | `updater:default` + `process:default` |
 
-### 版本脚本（待办）
-- `versions.json` 仅维护 `notes` / `date`；`assets.url`/`signature` 不再手填，由 CI 在发布时回填 `latest.json`。
-- `scripts/check-versions.ts` 仍校验 9 处版本号一致（不涉及 latest.json）。
+### release.yml
 
-### NSIS 兼容
-- 自定义 `installer.nsi` 已含 `/UPDATE` 静默更新参数，updater passive 模式调起 setup.exe 时复用。
-- 覆盖安装走安装段，不触发 `un.RemoveAppData`（仅显式卸载才触发），用户数据安全。
+1. `bun run build` 注入签名 secrets。
+2. 生成 `latest.json`（version / notes / pub_date / platforms.windows-x86_64）。
+3. notes 优先级：`versions.json` → git log 自上 tag → 通用标题。
+4. 校验 latest.json 含 version / url / signature 后上传 Release。
+5. 产物：`*-setup.exe` + `*-setup.exe.sig` + `latest.json`。
+
+### 版本与 notes
+
+- `versions.json` 维护 `notes` / `date`；`assets.url`/`signature` 仅占位，运行时不读。
+- bump 可用环境变量 `WUI_RELEASE_NOTES` 写入 notes；空 notes 时脚本会 WARN。
+- `scripts/check-versions.ts` 校验 9 处版本号 + updater 生产 endpoint / pubkey / createUpdaterArtifacts。
+
+### NSIS
+
+- 自定义 `installer.nsi` 含 `/UPDATE`；passive 模式复用。
+- 覆盖安装走安装段，不触发 `un.RemoveAppData`。
 
 ## 前端
 
-### useUpdateStore (`packages/gui/src/stores/update.ts`，第 7 个 store)
+### useUpdateStore (`packages/gui/src/stores/update.ts`)
+
 ```ts
-state: {
-  status: 'idle' | 'available' | 'downloading' | 'installing' | 'error' | 'uptodate',
-  update: { version, date, body } | null,
-  progress: { downloaded, total, pct },   // pct = downloaded/total
-  error: string | null,
-  badge: boolean,                          // 侧栏红点：有可用更新且未处理
-}
-actions:
-  checkForUpdate(silent)   // silent=true(启动)失败静默; false(手动)失败 toast
-  startUpdate()            // downloadAndInstall + 进度回调 + relaunch
-  dismiss()                // 关闭弹窗，badge 保持
+status: 'idle' | 'checking' | 'available' | 'downloading' | 'installing' | 'error' | 'uptodate'
+errorKind: 'check' | 'download' | null   // 驱动 retry 分流
+update: { version, date, body } | null
+progress: { downloaded, total, pct }     // total===0 → UI 走 indeterminate
+error: string | null
+badge: boolean
+modalOpen: boolean
+
+checkForUpdate(silent)  // 并发 check 去重；silent 失败不改 status
+startUpdate()           // re-check 句柄 → downloadAndInstall → relaunch
+retry()                 // check 失败 → checkForUpdate；download 失败 → startUpdate
+dismiss()               // 仅 available/error 可关；下载中 no-op
 ```
-- 进度回调映射 `Started→total`、`Progress→downloaded+=chunk`、`Finished→installing`。
-- 所有 `@tauri-apps/plugin-updater` / `plugin-process` 调用封装在 store action 内，组件不直接 invoke。
 
-### UpdateModal.vue (`packages/gui/src/components/update/UpdateModal.vue`)
-遵循 ShareModal 范式：
-- `Teleport to="body"` + `<Transition name="update-modal">`。
-- backdrop：`fixed inset-0; flex center; background: oklch(0 0 0 / 0.66)`，**z-index: 1400**（高于 Settings 1300，低于 Toast 1500）。
-- 卡片：`width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 16px 48px rgba(0,0,0,0.5)`。
-- 动画：`cubic-bezier(0.16, 1, 0.3, 1)` 170ms，`scale(0.96) translateY(8px) → 1`；出口 120ms ease-in。`prefers-reduced-motion` 全局压缩到 1ms（项目已支持）。
-- 关闭契约：Esc（capture）+ backdrop `@click.self` + `×`（`ph:x`）——**仅 `available`/`error` 态可关**；`downloading`/`installing` 禁用关闭以防丢失 update 句柄。
+### UpdateModal.vue
 
-四态视图（同卡片内 `v-if` 切换，**无嵌套卡片**）：
-
-| 态 | 头部 | 主体 | 底部按钮 |
-|---|---|---|---|
-| `available` | `ph:arrows-clockwise` + "发现新版本" | 版本对比 `v{当前} → v{新版}`（当前 `--ink-3`，新版 `--accent` 加粗）；其下 release notes（`--font-sans`/MiSans，**非 mono**；`max-height:220px; overflow:auto; color:var(--ink-2); white-space:pre-wrap`） | `立即更新`(`.btn-primary`) + `稍后`(`.btn` ghost) |
-| `downloading` | "正在下载" + `pct%` | 复用 ShareModal/BootOverlay 进度条：6px 高、`border-radius:999px`、轨道 `var(--surface-2)`、填充 `var(--accent)`、`transform: scaleX(pct)`、`transform-origin:left`、`500ms cubic-bezier(0.4,0,0.2,1)`；下方 `已下载 X.X / Y.Y MB`（`--ink-3`、`--font-mono`） | 禁用「下载中…」(`.btn` disabled) |
-| `installing` | "正在安装" | 进度条切 **indeterminate shimmer**（复用 `share-progress-shimmer` 1.6s 循环光带）+ "安装完成后将自动重启" | 禁用「安装中…」或无 |
-| `error` | `ph:warning`(`--loss`色) + "更新失败" | 错误信息（`--ink-2`，可选中复制）；网络错误给"无法连接到更新服务器，请检查网络后重试" | `重试`(`.btn-primary`) + `关闭`(`.btn` ghost) |
-
-- `uptodate` 不开弹窗：手动检查命中时 `ui.showToast('已是最新版本', 'ok')`。
-- 焦点：弹窗挂载后聚焦主按钮。
-
-### 侧栏徽标 + 关于页入口
-- `AccountSidebar.vue` 齿轮 `ph:gear` 加红点：`position:absolute; 8px; border-radius:50%; background:var(--accent); border:2px solid var(--surface)`，`v-if="update.badge"`。
-- `SettingsModal.vue` 关于页加「检查更新」行：`.settings-action` 紧凑 bordered 按钮 + `ph:arrows-clockwise`，点击 → `update.checkForUpdate(false)`。`badge` 为 true 时文案变「有新版本 vX.Y.Z →」直接打开 `UpdateModal`。
+- z-index 1400；关闭契约同 v0.1.5（下载/安装中不可关）。
+- 主按钮使用全局 `btn btn-primary`。
+- `total === 0` 时下载态用 shimmer +「已下载 X.X MB」。
+- error 重试走 `store.retry()`，不一律 `startUpdate()`。
 
 ### 启动静默检查
-- `App.vue runBoot()` 显露 UI 之后调用 `update.checkForUpdate(true)`（**不与后台抓取竞争**，避开启动竞争坑；失败静默）。
 
-### 前端依赖
-- `packages/gui`：`bun add @tauri-apps/plugin-updater @tauri-apps/plugin-process`。
+- `App.vue runBoot()` 在 `booted = true` 之后 `checkForUpdate(true)`。
+- 不与后台 scrape 竞争；失败仅 `clientLog`。
+
+## 本地调试 updater（勿提交）
+
+临时把 endpoint 指到本地 static server 可以验证 UI，但：
+
+1. 不要提交 conf 改动（CI / check-versions 会失败）。
+2. 本地包需用同一私钥签名，否则校验失败。
+3. 测完立即 `git checkout -- src-tauri/tauri.conf.json`。
 
 ## 验证清单
+
 ```
-1. 密钥生成与配置（已完成）→ verify: gh secret list 含 TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
-2. tauri.conf.json updater 块（已完成）→ verify: 公钥非空
-3. Cargo.toml + lib.rs process 注册 → verify: cargo build --features updater 通过
-4. capabilities 权限 → verify: 启动无权限报错
-5. release.yml latest.json → verify: 触发 release 后 releases/latest/download/latest.json 可下载且合法
-6. update store + UpdateModal + 徽标 + 关于页 + 启动检查 → verify: bun run --cwd packages/gui test:components；bunx tauri dev 手动走 available→downloading→installing；断网走 error 重试
-7. 版本一致性 → verify: bun run scripts/check-versions.ts
+1. bun run scripts/check-versions.ts          → 版本 + endpoint 全绿
+2. 公钥与 secrets 成对                         → 已发布 v0.1.5+ 有 .sig
+3. cargo build / tauri build                   → feature updater 默认开
+4. 启动后有新版本 → 红点 + toast，点齿轮/版本进弹窗
+5. 关于页「检查更新」→ checking 文案 → available 弹窗
+6. 断网手动检查 → errorKind=check → 重试再 check
+7. 下载失败 → errorKind=download → 重试再 startUpdate
+8. 发布后 latest.json 可下载且 notes 非空（或 git log 回退）
 ```
 
 ## 风险备忘
-- **v2 NSIS 产物文件名**：文档对 v2 Windows 描述较简略，本地 `bun run build` 必须实测 `bundle/nsis/` 产物名。
-- **perMachine + UAC**：passive 模式弹 UAC 提权小窗（Windows 安全机制，不可绕过）；勿用 `quiet`（perMachine 写 Program Files 静默安装会失败）。
-- **启动检查时机**：必须在 `runBoot()` 显露 UI 之后，不与后台抓取竞争；失败静默。
-- **私钥丢失=无法再向旧版本推送更新**——离线备份 `~/.tauri/wonderfului.key` 与密码。
-- 不改 bundle id，无 WebView2 localStorage 迁移问题。
+
+- **perMachine + UAC**：passive 会弹 UAC，不可绕过；勿用 `quiet`。
+- **私钥丢失 = 无法向旧版本推送更新**。
+- **Content-Length 缺失**：进度走 indeterminate，不要误判为卡死。
+- 不改 bundle id；无 WebView2 localStorage 迁移问题。

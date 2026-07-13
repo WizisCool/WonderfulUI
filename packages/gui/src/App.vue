@@ -125,8 +125,8 @@ async function runBoot() {
     booted.value = true;
     bootRef.value?.complete();
     // 启动静默更新检查。必须在 runBoot 显露 UI 之后调用，不与后台抓取竞争
-    // （CLAUDE.md / docs/UPDATER.md「启动检查时机」）。失败静默，只亮侧栏红点
-    // 不开弹窗；fire-and-forget，不阻塞 UI 显露后的稳定状态。
+    // （CLAUDE.md / docs/UPDATER.md「启动检查时机」）。失败静默；成功有更新时
+    // 亮侧栏红点 + 轻 toast，不自动开弹窗。fire-and-forget。
     update.checkForUpdate(true).catch(() => {});
   } catch (e) {
     console.error('Boot failed:', e);

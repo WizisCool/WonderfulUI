@@ -244,6 +244,14 @@ A completed release must have:
 - a non-draft, non-prerelease GitHub Release unless intentionally marked
   otherwise
 - `WonderfulUI_*_x64-setup.exe`
+- `WonderfulUI_*_x64-setup.exe.sig` (updater signature)
+- `latest.json` downloadable from
+  `https://github.com/WizisCool/WonderfulUI/releases/latest/download/latest.json`
+
+Before tagging, fill `versions.json` → `releases.vX.Y.Z.notes` (or set
+`WUI_RELEASE_NOTES` when running `version-bump`) so the in-app updater shows
+real release notes. Empty notes fall back to git log subjects, then a generic
+title.
 
 ## Local Verification Matrix
 

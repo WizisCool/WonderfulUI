@@ -1,6 +1,6 @@
 {
   "$schema": "https://example.com/wonderful-ui/versions.schema.json",
-  "current": "0.1.5",
+  "current": "0.1.6",
   "min_supported": "0.1.0",
   "releases": {
     "v0.1.0": {
@@ -67,6 +67,18 @@
       "tag": "v0.1.5",
       "date": "2026-06-24",
       "notes": "",
+      "min_supported_version": "0.1.0",
+      "assets": {
+        "windows-x86_64": {
+          "url": "",
+          "signature": ""
+        }
+      }
+    },
+    "v0.1.6": {
+      "tag": "v0.1.6",
+      "date": "2026-07-14",
+      "notes": "- 修复更新弹窗主按钮样式，以及检查失败时「重试」误走下载的路径\n- 启动发现新版本时轻提示；侧栏设置齿轮 / 版本号可直达更新弹窗\n- 增加 checking 状态；下载体积未知时使用 indeterminate 进度\n- check-versions 拦截 localhost / 非 HTTPS endpoint；release 校验 latest.json\n- 同步 UPDATER / VERSIONING / AGENT_WORKFLOW 文档与已落地行为",
       "min_supported_version": "0.1.0",
       "assets": {
         "windows-x86_64": {

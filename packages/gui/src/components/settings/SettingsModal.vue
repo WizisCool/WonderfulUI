@@ -375,20 +375,24 @@ const logPreviewRef = ref<HTMLPreElement | null>(null);
 
 // 关于页「检查更新」按钮
 const isUpdateBusy = computed(() =>
-  update.status === 'downloading' || update.status === 'installing'
+  update.status === 'checking' ||
+  update.status === 'downloading' ||
+  update.status === 'installing'
 );
 const updateActionLabel = computed(() => {
+  if (update.status === 'checking') return '检查中…';
   if (update.badge && update.update) {
     return `有新版本 v${update.update.version} →`;
   }
+  if (update.status === 'uptodate') return '已是最新版本';
   return '检查更新';
 });
 function onCheckUpdate() {
-  if (update.badge) {
+  if (update.badge && update.update) {
     update.openModal();
-  } else {
-    void update.checkForUpdate(false);
+    return;
   }
+  void update.checkForUpdate(false);
 }
 
 watch(logPreviewText, () => {

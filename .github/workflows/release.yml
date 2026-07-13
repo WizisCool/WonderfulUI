@@ -84,8 +84,10 @@ jobs:
           # block; embed verbatim into the JSON payload.
           $signature = (Get-Content -Path $setupSig.FullName -Raw).Trim()
 
-          # Release notes from versions.json releases.<tag>.notes.
-          # Fall back to a one-liner if the entry is missing or empty.
+          # Release notes priority:
+          # 1) versions.json releases.<tag>.notes (authoritative for in-app UI)
+          # 2) git log subject lines since previous tag (better than a blank title)
+          # 3) generic one-liner
           $notes = $null
           if (Test-Path "versions.json") {
             $versions = Get-Content "versions.json" -Raw | ConvertFrom-Json
@@ -93,7 +95,18 @@ jobs:
             if ($entry) { $notes = $entry.notes }
           }
           if ([string]::IsNullOrWhiteSpace($notes)) {
+            $prevTag = git describe --tags --abbrev=0 "$tag^" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $prevTag) {
+              $log = git log --pretty=format:"- %s" "$prevTag..$tag" 2>$null
+              if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($log)) {
+                $notes = ($log -join "`n").Trim()
+                Write-Host "notes: fell back to git log $prevTag..$tag"
+              }
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($notes)) {
             $notes = "WonderfulUI $tag"
+            Write-Warning "versions.json notes empty and git log fallback failed; using generic title."
           }
 
           # Convention URL:
@@ -121,6 +134,13 @@ jobs:
           Set-Content -Path "latest.json" -Value $json -Encoding utf8 -NoNewline
           Write-Host "Wrote latest.json:"
           Get-Content latest.json
+
+          # Minimal schema guard so a bad manifest never ships.
+          $parsed = $json | ConvertFrom-Json
+          if (-not $parsed.version) { Write-Error "latest.json missing version"; exit 1 }
+          if (-not $parsed.platforms.'windows-x86_64'.url) { Write-Error "latest.json missing platform url"; exit 1 }
+          if (-not $parsed.platforms.'windows-x86_64'.signature) { Write-Error "latest.json missing platform signature"; exit 1 }
+          if ($parsed.version -ne $version) { Write-Error "latest.json version mismatch"; exit 1 }
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

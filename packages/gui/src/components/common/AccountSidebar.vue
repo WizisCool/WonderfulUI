@@ -72,9 +72,9 @@
       <button
         class="pane-foot-item pane-foot-item--gear"
         type="button"
-        aria-label="设置"
-        :data-tip="'设置'"
-        @click="settings.setOpen(true)"
+        :aria-label="settingsAriaLabel"
+        :data-tip="settingsTip"
+        @click="onSettingsClick"
       >
         <WIcon icon="ph:gear" :size="14" />
         <span>设置</span>
@@ -84,7 +84,15 @@
           aria-hidden="true"
         />
       </button>
-      <span class="pane-foot-version">v{{ APP_VERSION }}</span>
+      <button
+        class="pane-foot-version"
+        type="button"
+        :aria-label="versionAriaLabel"
+        :data-tip="versionTip"
+        @click="onVersionClick"
+      >
+        v{{ APP_VERSION }}
+      </button>
     </div>
   </aside>
 </template>
@@ -105,6 +113,46 @@ const filterStore = useFilterStore();
 const settings = useSettingsStore();
 const ui = useUiStore();
 const update = useUpdateStore();
+
+const settingsAriaLabel = computed(() =>
+  update.badge && update.update
+    ? `设置，有可用更新 v${update.update.version}`
+    : '设置',
+);
+const settingsTip = computed(() =>
+  update.badge && update.update
+    ? `设置 · 有新版本 v${update.update.version}`
+    : '设置',
+);
+const versionAriaLabel = computed(() =>
+  update.badge && update.update
+    ? `当前版本 v${APP_VERSION}，有新版本 v${update.update.version}`
+    : `当前版本 v${APP_VERSION}`,
+);
+const versionTip = computed(() =>
+  update.badge && update.update
+    ? `有新版本 v${update.update.version}`
+    : '检查更新',
+);
+
+function onSettingsClick() {
+  // 有可用更新时优先打开更新弹窗，减少「设置 → 关于」两步路径
+  if (update.badge && update.update) {
+    update.openModal();
+    return;
+  }
+  settings.setOpen(true);
+}
+
+function onVersionClick() {
+  if (update.badge && update.update) {
+    update.openModal();
+    return;
+  }
+  settings.setTab('about');
+  settings.setOpen(true);
+  void update.checkForUpdate(false);
+}
 
 const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
@@ -443,6 +491,15 @@ onUnmounted(() => {
   color: var(--ink-4);
   font-family: var(--font-sans);
   font-size: 12px;
-  user-select: text;
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 80ms ease-out, background 80ms ease-out;
+}
+.pane-foot-version:hover {
+  color: var(--ink-2);
+  background: var(--surface-2);
 }
 </style>

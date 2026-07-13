@@ -29,6 +29,19 @@ bun run version:major    # 0.1.0 → 1.0.0
 `scripts/version-bump.ts` 会执行 `git add -A`，因此只应在干净的工作树上运行，
 且工作树中只能包含本次发布需要提交的版本文件变更。
 
+发布 notes（写入 `versions.json`，并进入应用内 `latest.json`）：
+
+```bash
+# PowerShell
+$env:WUI_RELEASE_NOTES = @"
+- 修复项一
+- 新功能二
+"@
+bun run version:patch
+```
+
+或 bump 后、push 前手动编辑 `versions.json` → `releases.vX.Y.Z.notes`。
+
 ### 版本一致性检查
 
 `scripts/check-versions.ts` 在 CI 中自动运行（ci.yml 和 release.yml 均有），
@@ -44,6 +57,13 @@ bun run version:major    # 0.1.0 → 1.0.0
 - `versions.json`
 - `packages/parser/tests/cli.test.ts`（CLI 版本测试硬编码值）
 
+并额外校验生产 updater 配置：
+
+- `plugins.updater.endpoints` 含 GitHub `latest.json` HTTPS URL
+- 禁止 committed 的 `localhost` / `http://` endpoint
+- 禁止 `dangerousInsecureTransportProtocol: true`
+- `pubkey` 非空、`bundle.createUpdaterArtifacts: true`
+
 如需新增含版本号的文件，必须同步更新 `scripts/check-versions.ts` 和 `scripts/version-bump.ts`。
 
 ## GitHub Actions 发布
@@ -52,7 +72,7 @@ bun run version:major    # 0.1.0 → 1.0.0
 
 发布顺序：
 
-1. 在干净的 `main` 工作树 bump 版本。
+1. 在干净的 `main` 工作树 bump 版本（并写好 notes）。
 2. 本地运行与发布相关的验证。
 3. 推送 `main`。
 4. 推送 `vX.Y.Z` tag，触发 Release workflow。
@@ -61,25 +81,36 @@ Release workflow 会运行：
 
 ```bash
 bun install --frozen-lockfile
+bun run scripts/check-versions.ts
 bun run typecheck
 bun run test
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
-bun run build
+bun run build   # 需 TAURI_SIGNING_* secrets
 ```
 
-成功后会创建 GitHub Release，并上传 Windows x64 NSIS 安装器。
+成功后创建 GitHub Release，并上传：
 
-详细执行手册见 `docs/AGENT_WORKFLOW.md`。
+- Windows x64 NSIS 安装器 `WonderfulUI_*_x64-setup.exe`
+- 签名 `WonderfulUI_*_x64-setup.exe.sig`
+- 应用内更新清单 `latest.json`
 
-## 应用内更新（预留）
+详细执行手册见 `docs/AGENT_WORKFLOW.md`。自更新细节见 `docs/UPDATER.md`。
 
-Tauri 的 updater 插件已作为脚手架引入但**默认未启用**。详见：
+## 应用内更新（已启用）
 
-- `src-tauri/Cargo.toml` — `updater` feature（可选）
-- `src-tauri/tauri.conf.json` — `plugins.updater` 配置段
+自 v0.1.5 起，正式构建默认启用 `tauri-plugin-updater` + `tauri-plugin-process`：
 
-启用后需配置签名密钥和更新 endpoint。
+| 配置 | 位置 |
+|---|---|
+| feature 默认开 | `src-tauri/Cargo.toml` `default = ["updater", "process"]` |
+| endpoint / pubkey | `src-tauri/tauri.conf.json` `plugins.updater` |
+| 权限 | `src-tauri/capabilities/default.json` |
+| UI / store | `packages/gui/src/stores/update.ts`、`components/update/UpdateModal.vue` |
+| 发布清单 | CI 生成并上传 `latest.json` |
+
+私钥仅存 `~/.tauri/wonderfului.key` 与 GitHub secrets，**绝不入库**。
 
 ## 版本清单
 
-根目录下的 `versions.json` 记录每个发布的版本信息，作为未来 updater manifest 的模板。
+根目录 `versions.json` 记录每个发布的 `tag` / `date` / `notes`。  
+`notes` 是应用内更新说明的首选来源；`assets.url` / `signature` 字段为历史占位，运行时不读（签名与下载 URL 由 CI 写入 `latest.json`）。

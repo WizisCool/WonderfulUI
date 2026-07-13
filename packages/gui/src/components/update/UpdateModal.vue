@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 应用内自更新弹窗（v1，Task #7）。
+// 应用内自更新弹窗。
 //
 // 设计要点：
 // - 模态范式沿用 ShareModal / SettingsView：Teleport to body + Transition + 卡片。
@@ -7,10 +7,8 @@
 //   （× 不渲染、Esc 拦截但不 dismiss、backdrop @click.self 短路），
 //   防止半途丢弃 update 句柄导致用户卡在中间态。
 // - 进度条：transform scaleX（非 width），符合项目 GPU compositing 规范。
-// - indeterminate shimmer 复用 ShareModal 的 1.6s 循环光带思路，名称重命名
-//   update-progress-shimmer 以避免命名冲突。
-// - 焦点：mount 后聚焦当前态的主按钮（available → 立即更新 / error → 重试）；
-//   status 变化时若模态仍开且 new state closeable，重新聚焦。
+// - contentLength 缺失时下载态走 indeterminate shimmer，避免卡在 0%。
+// - 焦点：mount 后聚焦当前态的主按钮（available → 立即更新 / error → 重试）。
 
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import WIcon from '../common/WIcon.vue';
@@ -32,6 +30,9 @@ const isCloseable = computed(
 
 const pctInt = computed(() => Math.floor(update.progress.pct));
 
+/** Content-Length 缺失时 total 为 0，改走 indeterminate。 */
+const hasKnownTotal = computed(() => update.progress.total > 0);
+
 function fmtMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1);
 }
@@ -39,20 +40,16 @@ function fmtMB(bytes: number): string {
 const downloadedMB = computed(() => fmtMB(update.progress.downloaded));
 const totalMB = computed(() => fmtMB(update.progress.total));
 
-// 网络错误的额外提示：store 友好文案是“无法连接到更新服务器”，
-// UI 追加“请检查网络后重试”让用户知道下一步。
-const isNetworkError = computed(
+const showNetworkHint = computed(
   () =>
     update.status === 'error' &&
-    update.error === '无法连接到更新服务器',
+    (update.errorKind === 'check' || update.errorKind === 'download'),
 );
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
   if (!update.modalOpen) return;
   if (!isCloseable.value) {
-    // 下载/安装中拦截 Esc：preventDefault + stopPropagation，
-    // 既不 dismiss 也不让其他组件（播放器等）误消费。
     e.preventDefault();
     e.stopPropagation();
     return;
@@ -73,6 +70,10 @@ function focusPrimary() {
   });
 }
 
+function onRetry() {
+  void update.retry();
+}
+
 watch(
   () => update.status,
   () => {
@@ -83,7 +84,6 @@ watch(
 );
 
 onMounted(() => {
-  // Esc 键关闭模态（capture 阶段拦截，参考 SettingsView）。
   document.addEventListener('keydown', onKeydown, true);
   if (isCloseable.value) {
     focusPrimary();
@@ -100,8 +100,12 @@ onUnmounted(() => {
   <Teleport to="body">
     <Transition name="update-modal">
       <div v-if="isOpen" class="update-modal-backdrop" @click.self="onBackdrop">
-        <section class="update-modal-card" role="dialog" aria-modal="true">
-          <!-- × 按钮：仅 closeable 态渲染；downloading/installing 隐藏避免诱惑 -->
+        <section
+          class="update-modal-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="update-modal-title"
+        >
           <button
             v-if="isCloseable"
             class="update-modal-close"
@@ -118,7 +122,7 @@ onUnmounted(() => {
               <div class="update-modal-head-icon" aria-hidden="true">
                 <WIcon icon="ph:arrows-clockwise" :size="18" />
               </div>
-              <h2 class="update-modal-title">发现新版本</h2>
+              <h2 id="update-modal-title" class="update-modal-title">发现新版本</h2>
             </header>
             <div class="update-modal-version-row">
               <span class="update-modal-version-current">v{{ APP_VERSION }}</span>
@@ -134,7 +138,7 @@ onUnmounted(() => {
             </div>
             <footer class="update-modal-foot">
               <button
-                class="btn update-modal-btn update-modal-btn--primary"
+                class="btn btn-primary update-modal-btn"
                 type="button"
                 ref="primaryBtnRef"
                 @click="update.startUpdate()"
@@ -151,14 +155,15 @@ onUnmounted(() => {
             </footer>
           </template>
 
-          <!-- downloading: 进度条 + 大小 -->
+          <!-- downloading: 有 total 用确定进度，否则 indeterminate -->
           <template v-else-if="update.status === 'downloading'">
             <header class="update-modal-head">
-              <h2 class="update-modal-title">正在下载</h2>
-              <span class="update-modal-pct">{{ pctInt }}%</span>
+              <h2 id="update-modal-title" class="update-modal-title">正在下载</h2>
+              <span v-if="hasKnownTotal" class="update-modal-pct">{{ pctInt }}%</span>
             </header>
             <div class="update-modal-progress">
               <div
+                v-if="hasKnownTotal"
                 class="update-modal-progress-fill"
                 :style="{
                   transform: `scaleX(${Math.max(
@@ -167,11 +172,21 @@ onUnmounted(() => {
                   )})`,
                 }"
               />
+              <div
+                v-else
+                class="update-modal-progress-shimmer"
+                aria-hidden="true"
+              />
             </div>
             <div class="update-modal-size">
-              <span class="update-modal-size-num">已下载 {{ downloadedMB }}</span>
-              <span class="update-modal-size-sep">/</span>
-              <span class="update-modal-size-num">{{ totalMB }} MB</span>
+              <template v-if="hasKnownTotal">
+                <span class="update-modal-size-num">已下载 {{ downloadedMB }}</span>
+                <span class="update-modal-size-sep">/</span>
+                <span class="update-modal-size-num">{{ totalMB }} MB</span>
+              </template>
+              <template v-else>
+                <span class="update-modal-size-num">已下载 {{ downloadedMB }} MB</span>
+              </template>
             </div>
             <footer class="update-modal-foot update-modal-foot--center">
               <button class="btn update-modal-btn" type="button" disabled>
@@ -183,7 +198,7 @@ onUnmounted(() => {
           <!-- installing: indeterminate shimmer -->
           <template v-else-if="update.status === 'installing'">
             <header class="update-modal-head">
-              <h2 class="update-modal-title">正在安装</h2>
+              <h2 id="update-modal-title" class="update-modal-title">正在安装</h2>
             </header>
             <div class="update-modal-progress">
               <div class="update-modal-progress-shimmer" aria-hidden="true" />
@@ -196,7 +211,7 @@ onUnmounted(() => {
             </footer>
           </template>
 
-          <!-- error: 重试 / 关闭 -->
+          <!-- error: 重试按 errorKind 分流（store.retry） -->
           <template v-else-if="update.status === 'error'">
             <header class="update-modal-head">
               <div
@@ -205,18 +220,18 @@ onUnmounted(() => {
               >
                 <WIcon icon="ph:warning" :size="18" />
               </div>
-              <h2 class="update-modal-title">更新失败</h2>
+              <h2 id="update-modal-title" class="update-modal-title">更新失败</h2>
             </header>
             <div class="update-modal-error-msg">{{ update.error }}</div>
-            <div v-if="isNetworkError" class="update-modal-error-hint">
+            <div v-if="showNetworkHint" class="update-modal-error-hint">
               请检查网络后重试
             </div>
             <footer class="update-modal-foot">
               <button
-                class="btn update-modal-btn update-modal-btn--primary"
+                class="btn btn-primary update-modal-btn"
                 type="button"
                 ref="primaryBtnRef"
-                @click="update.startUpdate()"
+                @click="onRetry"
               >
                 重试
               </button>
@@ -226,6 +241,21 @@ onUnmounted(() => {
                 @click="update.dismiss()"
               >
                 关闭
+              </button>
+            </footer>
+          </template>
+
+          <!-- checking: 手动检查中（极少弹窗，但 openModal 后可能见到） -->
+          <template v-else-if="update.status === 'checking'">
+            <header class="update-modal-head">
+              <h2 id="update-modal-title" class="update-modal-title">正在检查更新</h2>
+            </header>
+            <div class="update-modal-progress">
+              <div class="update-modal-progress-shimmer" aria-hidden="true" />
+            </div>
+            <footer class="update-modal-foot update-modal-foot--center">
+              <button class="btn update-modal-btn" type="button" disabled>
+                检查中…
               </button>
             </footer>
           </template>
@@ -239,9 +269,7 @@ onUnmounted(() => {
 /* 视觉词汇表（完全沿用 ShareModal / SettingsView / BootOverlay）：
    - backdrop oklch(0 0 0 / 0.66) + 150/120ms
    - 卡片 var(--surface) + var(--border) + var(--radius-lg) + 0 16px 48px shadow
-   - 进度条参考 .boot-progress（BootOverlay）：
-     height 6px, border-radius 999px, accent fill, 500ms cubic-bezier(0.4,0,0.2,1)
-   - 动效 cubic-bezier(0.16, 1, 0.3, 1) 170ms / 120ms ease-in
+   - 进度条参考 .boot-progress（BootOverlay）
    - z-index 1400（Settings 1300 之上, Toast 1500 之下）*/
 .update-modal-backdrop {
   position: fixed;
@@ -279,7 +307,6 @@ onUnmounted(() => {
   animation: update-modal-out 120ms ease-in both;
 }
 
-/* 关闭按钮 —— 仅 closeable 态渲染（× 隐藏避免诱惑）*/
 .update-modal-close {
   position: absolute;
   top: 10px;
@@ -303,12 +330,11 @@ onUnmounted(() => {
   color: var(--ink);
 }
 
-/* 头部：图标方块 + 标题（available/error）；download/install 时只有标题 */
 .update-modal-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 28px; /* 给右上角 × 留出空间（隐藏态也保留避免布局抖动）*/
+  padding-right: 28px;
 }
 .update-modal-head-icon {
   display: inline-flex;
@@ -341,7 +367,6 @@ onUnmounted(() => {
   color: var(--accent);
 }
 
-/* 版本对比行：v0.1.4 → v0.1.5 */
 .update-modal-version-row {
   display: flex;
   align-items: center;
@@ -362,7 +387,6 @@ onUnmounted(() => {
   font-weight: var(--w-bold);
 }
 
-/* release notes：MiSans（非 mono）, 220px max-height, scrollable */
 .update-modal-notes {
   max-height: 220px;
   overflow: auto;
@@ -394,9 +418,6 @@ onUnmounted(() => {
   background-clip: padding-box;
 }
 
-/* 进度条 —— 完全沿用 BootOverlay .boot-progress 范式
-   （6px 高 / 999px 圆角 / --surface-2 轨道 / --accent 填充 /
-     transform: scaleX / 500ms cubic-bezier(0.4,0,0.2,1)）*/
 .update-modal-progress {
   position: relative;
   width: 100%;
@@ -415,8 +436,6 @@ onUnmounted(() => {
   transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform;
 }
-/* indeterminate 等待光带：左→右循环（installing 态）
-   复用 ShareModal 思路，名称独立避免命名冲突 */
 .update-modal-progress-shimmer {
   position: absolute;
   top: 0;
@@ -434,7 +453,6 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-/* 下载大小行：mono 数字 */
 .update-modal-size {
   display: flex;
   align-items: baseline;
@@ -451,14 +469,12 @@ onUnmounted(() => {
   color: var(--ink-4);
 }
 
-/* 安装提示 */
 .update-modal-hint {
   font-size: 12px;
   color: var(--ink-3);
   text-align: center;
 }
 
-/* 错误态文案 —— loss 色弱化背景块 + ink-2 主文 */
 .update-modal-error-msg {
   padding: 10px 12px;
   background: oklch(0.66 0.18 25 / 0.08);
@@ -478,7 +494,6 @@ onUnmounted(() => {
   margin-top: -4px;
 }
 
-/* 底部按钮行 */
 .update-modal-foot {
   display: flex;
   align-items: center;
@@ -496,9 +511,7 @@ onUnmounted(() => {
   opacity: 0.65;
   cursor: default;
 }
-/* .update-modal-btn--primary 不另设样式，.btn-primary 全局类已带 bg/color/hover */
 
-/* keyframes —— 命名空间独立于 share-modal / settings-modal */
 @keyframes update-backdrop-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -520,10 +533,6 @@ onUnmounted(() => {
   100% { transform: translateX(250%); }
 }
 
-/* prefers-reduced-motion 全局已在 assets/style.css 末尾统一压到 1ms，
-   scoped 不重复声明 */
-
-/* 窄屏：把卡片收到视口宽度 */
 @media (max-width: 480px) {
   .update-modal-backdrop { padding: 16px; }
   .update-modal-card { width: calc(100vw - 24px); }
