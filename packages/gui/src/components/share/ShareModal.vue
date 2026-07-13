@@ -15,8 +15,10 @@
 // - QR 点击复制链接：整块 QR 框是 <button>，点击后 1.5s 显示"已复制 ✓"。
 
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import WIcon from '../common/WIcon.vue';
 import { useShareStore } from '../../stores/share.ts';
 import { useUiStore } from '../../stores/ui.ts';
+import { SHARE_ICON } from '../../share/icons.ts';
 import { listen } from '../../tauri-adapter.ts';
 import { clientLog } from '../../utils/client-log.ts';
 
@@ -166,9 +168,7 @@ function close() {
             <header class="share-modal-head">
               <div class="share-modal-brand">
                 <span class="share-modal-brand-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
-                  </svg>
+                  <WIcon :icon="SHARE_ICON" :size="18" />
                 </span>
                 <h2 class="share-modal-title">快传</h2>
               </div>
@@ -491,13 +491,6 @@ function close() {
 @keyframes share-progress-shimmer {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(250%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .share-modal-progress-shimmer,
-  .share-modal-progress-fill {
-    animation-duration: 1ms !important;
-    transition-duration: 1ms !important;
-  }
 }
 
 .share-modal-state {

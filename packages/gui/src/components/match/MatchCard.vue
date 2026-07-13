@@ -1,18 +1,16 @@
 <template>
   <div
-    ref="rootEl"
+    :id="optionId"
     class="match-row"
     :class="{ 'is-selected': isSelected, 'is-focused': isFocused }"
     :data-match-id="match.matches_id"
     :data-tip="tooltipText"
     role="option"
-    :tabindex="isFocused ? 0 : -1"
+    tabindex="-1"
     :aria-selected="String(isSelected)"
     :aria-label="rowAriaLabel"
     @click="$emit('click')"
     @dblclick="$emit('dblclick')"
-    @keydown.enter.prevent="$emit('click')"
-    @keydown.space.prevent="$emit('click')"
   >
     <div class="match-cover" aria-hidden="true">
       <img
@@ -87,12 +85,15 @@ import WIcon from '../common/WIcon.vue';
 import { convertFileSrc } from '../../tauri-adapter.ts';
 import { useAccountStore } from '../../stores/account.ts';
 import { agentCn, mapCn, modeCn, fmtScore } from '../../utils/filters.ts';
+import { matchOptionId } from '../../utils/match-listbox.ts';
+import { resolveMatchAssetSrc } from '../../utils/valorant-assets.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
 const props = defineProps<{
   match: MatchRecord;
   isSelected: boolean;
-  isFocused: boolean;
+  /** Keyboard active option — only true while the listbox owns focus. */
+  isFocused?: boolean;
   accountLabel: string;
 }>();
 
@@ -101,10 +102,10 @@ defineEmits<{
   dblclick: [];
 }>();
 
-const rootEl = ref<HTMLElement | null>(null);
-defineExpose({ rootEl });
-
 const account = useAccountStore();
+
+// Real DOM id required by listbox aria-activedescendant.
+const optionId = computed(() => matchOptionId(props.match.matches_id));
 
 const mapBgFailed = ref(false);
 const heroFailed = ref(false);
@@ -136,29 +137,15 @@ const heroHue = computed(() => {
   return String(hue);
 });
 
-const mapSrc = computed(() => {
-  if (mapBgFailed.value) return null;
-  const url = props.match.career?.map_image as string | undefined;
-  if (!url) return null;
-  const local = account.assetPathCache.get(url);
-  return local ? convertFileSrc(local) : url;
-});
-
-const heroSrc = computed(() => {
-  if (heroFailed.value) return null;
-  const url = props.match.career?.hero_image as string | undefined;
-  if (!url) return null;
-  const local = account.assetPathCache.get(url);
-  return local ? convertFileSrc(local) : null;
-});
-
-const modeIconSrc = computed(() => {
-  if (modeIconFailed.value) return null;
-  const url = props.match.career?.game_mode_icon;
-  if (typeof url !== 'string' || !url) return null;
-  const local = account.assetPathCache.get(url);
-  return local ? convertFileSrc(local) : url;
-});
+const mapSrc = computed(() =>
+  resolveMatchAssetSrc(props.match, 'map_image', account.assetPathCache, convertFileSrc, mapBgFailed.value),
+);
+const heroSrc = computed(() =>
+  resolveMatchAssetSrc(props.match, 'hero_image', account.assetPathCache, convertFileSrc, heroFailed.value),
+);
+const modeIconSrc = computed(() =>
+  resolveMatchAssetSrc(props.match, 'game_mode_icon', account.assetPathCache, convertFileSrc, modeIconFailed.value),
+);
 
 const badge = computed(() => {
   const achv = account.matchAchievements.get(props.match.matches_id);
@@ -211,17 +198,17 @@ function onModeIconError() { modeIconFailed.value = true; }
   background: var(--surface-2);
   border-color: var(--accent);
 }
-.match-row:focus-visible,
-.match-row.is-focused {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
+/*
+ * Keyboard-active option only (aria-activedescendant + keyboard modality).
+ * Mouse selection uses .is-selected alone — never stack a second ring on click.
+ * Use a cool inset ring (not accent red) so it never reads as "double select".
+ */
+.match-row.is-focused:not(.is-selected) {
+  box-shadow: inset 0 0 0 2px var(--ink-2);
 }
-.match-row:focus-visible:not(:focus),
-.match-row.is-focused:not(:focus-visible) {
-  /* Keep programmatic focus indicator even when :focus-visible doesn't match
-     (e.g. arrow-key navigation reaches a row via focus()). */
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
+/* Active + selected: slightly brighter inset, still not a second accent outline */
+.match-row.is-selected.is-focused {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ink) 70%, transparent);
 }
 .match-cover {
   width: 88px; height: 72px;

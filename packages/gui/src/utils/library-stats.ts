@@ -1,12 +1,12 @@
-import * as echarts from 'echarts/core';
-import { PieChart } from 'echarts/charts';
-import { LegendComponent, TooltipComponent } from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
+/**
+ * Library stats types + pure helpers for settings charts.
+ *
+ * Rendering goes through `vue-echarts` (`AccountShareChart.vue` and future
+ * settings charts). Keep this module free of DOM / ECharts instances — only
+ * data shaping and option builders so unit tests stay pure.
+ */
 
-// Register only the chart / components / renderer this module actually uses.
-// ECharts 5+ tree-shaking: nothing else is needed for the single donut chart
-// in SettingsModal. ~1MB saved vs. `import * as echarts from 'echarts'`.
-echarts.use([PieChart, LegendComponent, TooltipComponent, CanvasRenderer]);
+import type { EChartsCoreOption } from 'echarts/core';
 
 export type ChartMetric = 'video' | 'match';
 
@@ -18,11 +18,6 @@ export const CHART_METRIC_LABELS: Record<ChartMetric, string> = {
 export const CHART_METRIC_EMPTY: Record<ChartMetric, string> = {
   video: '暂无视频',
   match: '暂无对局',
-};
-
-const CHART_METRIC_TOOLTIP: Record<ChartMetric, string> = {
-  video: '视频',
-  match: '对局',
 };
 
 /** Mirrors the Rust `LibraryStats` struct (camelCase via serde). */
@@ -79,264 +74,290 @@ export function fmtBytes(bytes: number): string {
   return `${safeBytes} B`;
 }
 
-function cssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
-}
-
-function chartPalette(): string[] {
-  return [
-    cssVar('--accent', '#e34b43'),
-    'oklch(0.70 0.14 45)',
-    'oklch(0.62 0.13 210)',
-    'oklch(0.68 0.12 300)',
-    'oklch(0.75 0.12 180)',
-    'oklch(0.60 0.14 330)',
-    'oklch(0.65 0.10 80)',
-    'oklch(0.55 0.10 160)',
-  ];
-}
-
-function truncateLegendName(name: string): string {
-  return name.length > 12 ? `${name.slice(0, 11)}…` : name;
-}
-
 function shortOpenid(openid: string): string {
   return openid.length > 6 ? openid.slice(-6) : openid;
 }
 
-function countFor(account: AccountStat, metric: ChartMetric): number {
+export function countFor(account: AccountStat, metric: ChartMetric): number {
   return metric === 'video' ? account.videoCount : account.matchCount;
 }
 
-function tooltipPosition(
-  _point: number[],
-  _params: unknown,
-  _dom: unknown,
-  _rect: unknown,
-  size: { contentSize: number[]; viewSize: number[] },
-): [number, number] {
-  const contentWidth = size.contentSize[0] ?? 0;
-  const contentHeight = size.contentSize[1] ?? 0;
-  const viewWidth = size.viewSize[0] ?? 0;
-  const viewHeight = size.viewSize[1] ?? 0;
-  const x = Math.min(viewWidth - contentWidth - 8, Math.round(viewWidth * 0.54));
-  const y = Math.round((viewHeight - contentHeight) / 2);
-  return [Math.max(8, x), Math.max(8, Math.min(viewHeight - contentHeight - 8, y))];
-}
-
-function chartSignature(stats: LibraryStats, metric: ChartMetric, reducedMotion: boolean): string {
-  return `${metric}|motion:${reducedMotion ? 'reduced' : 'full'}|${stats.accounts
-    .map(a => `${a.openid}:${a.label}:${a.videoCount}:${a.matchCount}:${a.parseError ?? ''}`)
-    .join(';')}`;
-}
-
-let accountVideoChart: echarts.ECharts | null = null;
-let accountVideoResizeObserver: ResizeObserver | null = null;
-let accountVideoHost: HTMLElement | null = null;
-let accountVideoSignature: string | null = null;
-
 export interface AccountChartSlice {
+  /** Unique key for legend / series data (disambiguated when labels collide). */
   name: string;
+  /** User-facing label (no openid suffix). */
   displayLabel: string;
   value: number;
+  openid: string;
 }
 
+/** Build chart slices for accounts with value > 0, sorted by value desc. */
 export function accountChartSlices(accounts: AccountStat[], metric: ChartMetric): AccountChartSlice[] {
+  const nonzero = accounts.filter(a => countFor(a, metric) > 0);
   const labelCounts = new Map<string, number>();
-  for (const account of accounts) {
+  for (const account of nonzero) {
     labelCounts.set(account.label, (labelCounts.get(account.label) ?? 0) + 1);
   }
-  return accounts.map(account => {
+  const slices = nonzero.map(account => {
     const label = account.label;
     const duplicate = (labelCounts.get(label) ?? 0) > 1;
     return {
       name: duplicate ? `${label} · ${shortOpenid(account.openid)}` : label,
       displayLabel: label,
       value: countFor(account, metric),
+      openid: account.openid,
     };
   });
+  slices.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'zh-CN'));
+  return slices;
 }
 
-function buildChartOption(
+export function chartTotal(slices: readonly AccountChartSlice[]): number {
+  return slices.reduce((sum, s) => sum + s.value, 0);
+}
+
+/**
+ * Warm palette as **sRGB hex only**.
+ * ECharts paints on Canvas2D; WebView2/Chromium canvas often fails to parse
+ * `oklch(...)` (and other modern CSS color functions) for `fillStyle`, so the
+ * largest slice (accent) can render fully transparent — a huge “missing” arc
+ * that still receives tooltip hits. Never feed oklch/color-mix into ECharts.
+ */
+export const CHART_PALETTE = [
+  '#e34b43', // accent red (≈ --accent)
+  '#d4894a', // warm orange
+  '#3d9bb8', // cyan
+  '#b06bc9', // purple
+  '#3cb89a', // teal
+  '#c45a8c', // magenta
+  '#c4a24a', // gold
+  '#4a9b6e', // green
+] as const;
+
+export function truncateLegendName(name: string, max = 12): string {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
+}
+
+/**
+ * Resolve a CSS custom property to a canvas-safe color.
+ * Prefer computed rgb()/hex; if the cascade still yields oklch/color-mix,
+ * fall back to the provided hex (WebView2 canvas cannot paint those).
+ */
+function readCssVar(name: string, fallbackHex: string): string {
+  if (typeof document === 'undefined') return fallbackHex;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw) return fallbackHex;
+  if (/^#([0-9a-f]{3,8})$/i.test(raw)) return raw;
+  if (/^rgba?\(/i.test(raw) || /^hsla?\(/i.test(raw)) return raw;
+  // oklch / lab / color-mix / etc. → not reliable on Canvas2D
+  if (/oklch|oklab|lab\(|lch\(|color-mix|color\(/i.test(raw)) return fallbackHex;
+
+  // Force the browser to resolve the token through a throwaway element.
+  try {
+    const probe = document.createElement('span');
+    probe.style.color = raw;
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    if (resolved && resolved !== 'rgba(0, 0, 0, 0)' && resolved !== 'transparent') {
+      return resolved;
+    }
+  } catch {
+    /* use fallback */
+  }
+  return fallbackHex;
+}
+
+/**
+ * ECharts option for the account-share donut (资料库概览).
+ * Pure enough for unit tests that only assert series data / legend names;
+ * color tokens fall back when `document` is missing (bun:test).
+ */
+export function buildAccountShareChartOption(
   accounts: AccountStat[],
   metric: ChartMetric,
-  palette: string[],
-  reducedMotion: boolean,
-): echarts.EChartsCoreOption {
+): { option: EChartsCoreOption; total: number; label: string; emptyLabel: string } {
   const slices = accountChartSlices(accounts, metric);
-  const total = slices.reduce((sum, account) => sum + account.value, 0);
-  const valuesByName = new Map(slices.map(account => [account.name, account.value]));
-  const metricLabel = CHART_METRIC_LABELS[metric];
-  const tooltipUnit = CHART_METRIC_TOOLTIP[metric];
+  const total = chartTotal(slices);
+  const label = CHART_METRIC_LABELS[metric];
+  const emptyLabel = CHART_METRIC_EMPTY[metric];
+  const valuesByName = new Map(slices.map(s => [s.name, s.value]));
   const hasData = total > 0;
 
-  return {
-    color: palette,
-    animation: !reducedMotion,
-    animationDuration: reducedMotion ? 0 : 360,
+  // Hex fallbacks match DESIGN tokens; never pass unresolved oklch to canvas.
+  const surface = readCssVar('--surface', '#231d1a');
+  const surface3 = readCssVar('--surface-3', '#302923');
+  const border = readCssVar('--border', '#4a403a');
+  const borderSoft = readCssVar('--border-soft', '#423831');
+  const ink = readCssVar('--ink', '#efe9e1');
+  const ink2 = readCssVar('--ink-2', '#c6bfb6');
+  const ink3 = readCssVar('--ink-3', '#918982');
+  const ink4 = readCssVar('--ink-4', '#665e59');
+  // Font family is not a paint color — raw CSS value is fine.
+  const fontSans =
+    (typeof document !== 'undefined'
+      ? getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim()
+      : '') || 'sans-serif';
+
+  const option: EChartsCoreOption = {
+    color: [...CHART_PALETTE],
+    /*
+     * Motion vocabulary (quiet, app-owned):
+     * - Enter: short expansion of the ring (~480ms, cubicOut)
+     * - Metric switch: soft morph (~360ms)
+     * - Hover: tiny radial lift (scaleSize 3) + sibling dim, ~180ms state ease
+     * Anti-flicker still required: tooltip never captures pointer; scale stays small.
+     */
+    animation: true,
+    animationDuration: 480,
+    animationDurationUpdate: 360,
     animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicInOut',
+    // Hover / blur state transitions — smooth but short so it never feels laggy.
     stateAnimation: {
-      duration: 0,
+      duration: 180,
+      easing: 'cubicOut',
     },
     tooltip: {
       trigger: 'item',
-      renderMode: 'richText',
+      enterable: false,
+      showDelay: 0,
+      // Tiny hide delay avoids edge jitter when the pointer grazes pad gaps.
+      hideDelay: 40,
+      // Keep tooltip fade short; long opacity ramps reintroduce enter/leave loops.
+      transitionDuration: 0.08,
+      // CRITICAL: tooltip must not steal the pointer (classic pie flicker).
+      extraCssText: 'pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.45);',
+      // Park tooltip off the active wedge.
+      position: (
+        point: number[],
+        _params: unknown,
+        _dom: unknown,
+        _rect: unknown,
+        size: { contentSize: number[]; viewSize: number[] },
+      ) => {
+        const [px = 0, py = 0] = point;
+        const cw = size.contentSize[0] ?? 0;
+        const ch = size.contentSize[1] ?? 0;
+        const vw = size.viewSize[0] ?? 0;
+        const vh = size.viewSize[1] ?? 0;
+        // Prefer a bit further out so a small hover-scale never covers the tip.
+        let x = px + 18;
+        let y = py - ch / 2;
+        if (x + cw > vw - 6) x = Math.max(6, px - cw - 18);
+        if (y < 6) y = 6;
+        if (y + ch > vh - 6) y = Math.max(6, vh - ch - 6);
+        return [x, y];
+      },
       confine: true,
-      position: tooltipPosition,
-      borderColor: cssVar('--border', '#4a403a'),
-      backgroundColor: cssVar('--surface-3', '#302923'),
+      borderColor: border,
+      backgroundColor: surface3,
       textStyle: {
-        color: cssVar('--ink', '#efe9e1'),
-        fontFamily: cssVar('--font-sans', 'sans-serif'),
+        color: ink,
+        fontFamily: fontSans,
         fontSize: 12,
       },
       formatter: (params: unknown) => {
-        const item = params as { data?: { displayLabel?: string }; name?: string; value?: number; percent?: number };
-        return `${item.data?.displayLabel ?? item.name ?? '账号'}\n${tooltipUnit} ${item.value ?? 0} · ${item.percent ?? 0}%`;
+        const item = params as {
+          data?: { displayLabel?: string };
+          name?: string;
+          value?: number;
+          percent?: number;
+        };
+        const title = item.data?.displayLabel ?? item.name ?? '账号';
+        return `${title}<br/>${label} ${item.value ?? 0} · ${item.percent ?? 0}%`;
       },
     },
     legend: {
       type: 'scroll',
       orient: 'vertical',
-      right: 4,
+      right: 8,
       top: 'middle',
-      height: 164,
+      height: 168,
       itemWidth: 8,
       itemHeight: 8,
+      itemGap: 8,
       icon: 'circle',
+      pageIconColor: ink2,
+      pageIconInactiveColor: ink4,
+      pageTextStyle: { color: ink3 },
       formatter: (name: string) => {
         const count = valuesByName.get(name);
-        return count === undefined ? truncateLegendName(name) : `${truncateLegendName(name)}  ${count}`;
+        const short = truncateLegendName(name);
+        return count === undefined ? short : `${short}  ${count}`;
       },
       textStyle: {
-        color: cssVar('--ink-2', '#c6bfb6'),
-        fontFamily: cssVar('--font-sans', 'sans-serif'),
+        color: ink2,
+        fontFamily: fontSans,
         fontSize: 11,
       },
-      pageIconColor: cssVar('--ink-2', '#c6bfb6'),
-      pageIconInactiveColor: cssVar('--ink-4', '#665e59'),
-      pageTextStyle: {
-        color: cssVar('--ink-3', '#918982'),
-      },
     },
-    series: [{
-      name: `账号${metricLabel}`,
-      type: 'pie',
-      radius: ['54%', '78%'],
-      center: ['35%', '51%'],
-      avoidLabelOverlap: true,
-      minAngle: 4,
-      padAngle: 1.2,
-      itemStyle: {
-        borderColor: cssVar('--surface', '#231d1a'),
-        borderWidth: 2,
-        borderRadius: 2,
+    series: [
+      {
+        name: `账号${label}`,
+        type: 'pie',
+        radius: ['54%', '78%'],
+        // Leave room for the right-side scroll legend.
+        center: ['34%', '50%'],
+        avoidLabelOverlap: true,
+        minAngle: 4,
+        padAngle: 1.4,
+        // Grow-from-center on first paint; quieter than a full spin.
+        animationType: 'expansion',
+        animationTypeUpdate: 'transition',
+        animationDuration: 480,
+        animationDurationUpdate: 360,
+        animationEasing: 'cubicOut',
+        animationEasingUpdate: 'cubicInOut',
+        // Mild stagger so slices settle in sequence without a circus.
+        animationDelay: (idx: number) => Math.min(idx * 28, 200),
+        animationDelayUpdate: (idx: number) => Math.min(idx * 16, 120),
+        // Subtle lift + sibling dim. scaleSize stays small (px) so hit-region
+        // shift is negligible; tooltip still uses pointer-events:none.
+        emphasis: {
+          disabled: false,
+          scale: true,
+          scaleSize: 3,
+          focus: 'self',
+          itemStyle: {
+            shadowBlur: 0,
+            borderColor: ink,
+            borderWidth: 2,
+          },
+        },
+        blur: {
+          itemStyle: {
+            opacity: 0.55,
+          },
+        },
+        itemStyle: {
+          borderColor: surface,
+          borderWidth: 2,
+          borderRadius: 3,
+        },
+        // Center total is a Vue overlay — never series.label (joins hover state).
+        label: { show: false },
+        labelLine: { show: false },
+        data: hasData
+          ? slices.map(s => ({
+              name: s.name,
+              value: s.value,
+              displayLabel: s.displayLabel,
+            }))
+          : [
+              {
+                name: emptyLabel,
+                value: 1,
+                displayLabel: emptyLabel,
+                itemStyle: { color: borderSoft },
+                tooltip: { show: false },
+                emphasis: { disabled: true },
+              },
+            ],
       },
-      emphasis: {
-        disabled: true,
-      },
-      label: {
-        show: false,
-      },
-      labelLine: {
-        show: false,
-      },
-      data: hasData
-        ? slices.map(account => ({
-            name: account.name,
-            value: account.value,
-            displayLabel: account.displayLabel,
-          }))
-        : [{
-            name: CHART_METRIC_EMPTY[metric],
-            value: 1,
-            itemStyle: { color: cssVar('--border-soft', '#423831') },
-          }],
-      animation: !reducedMotion,
-      animationDuration: reducedMotion ? 0 : 360,
-      animationEasing: 'cubicOut',
-    }],
+    ],
   };
-}
 
-export function mountAccountVideoChart(
-  host: HTMLElement,
-  stats: LibraryStats,
-  metric: ChartMetric = 'video',
-): { total: number; label: string; emptyLabel: string } {
-  if (!host.isConnected) {
-    disposeAccountVideoChart();
-    return { total: 0, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
-  }
-
-  // Guard against zero-size containers: ECharts init reads
-  // clientWidth/clientHeight once and the chart stays at 0×0
-  // forever.  Defer init until the host has real dimensions so the
-  // chart is always visible.
-  if (host.clientWidth === 0 || host.clientHeight === 0) {
-    // Only defer if we haven't already disposed — avoids spinning
-    // indefinitely on an element that will never get size.
-    if (accountVideoChart) {
-      disposeAccountVideoChart();
-    }
-    requestAnimationFrame(() => {
-      if (host.isConnected && (host.clientWidth > 0 || host.clientHeight > 0)) {
-        mountAccountVideoChart(host, stats, metric);
-      }
-    });
-    return { total: 0, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
-  }
-
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const sig = chartSignature(stats, metric, reducedMotion);
-  if (accountVideoChart && accountVideoHost === host && accountVideoSignature === sig) {
-    const accounts = [...stats.accounts].filter(a => countFor(a, metric) > 0);
-    const total = accounts.reduce((sum, a) => sum + countFor(a, metric), 0);
-    return { total, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
-  }
-
-  if (!accountVideoChart || accountVideoHost !== host) {
-    disposeAccountVideoChart();
-    accountVideoChart = echarts.init(host, undefined, {
-      renderer: 'canvas',
-    });
-    accountVideoHost = host;
-  }
-
-  const accounts = [...stats.accounts]
-    .filter(account => countFor(account, metric) > 0)
-    .sort((a, b) => countFor(b, metric) - countFor(a, metric));
-  const option = buildChartOption(accounts, metric, chartPalette(), reducedMotion);
-  accountVideoChart.setOption(option, {
-    notMerge: true,
-    lazyUpdate: false,
-  });
-  accountVideoSignature = sig;
-
-  const total = accounts.reduce((sum, account) => sum + countFor(account, metric), 0);
-
-  const instance = accountVideoChart;
-  if (!accountVideoResizeObserver && 'ResizeObserver' in window) {
-    accountVideoResizeObserver = new ResizeObserver(() => {
-      if (accountVideoChart === instance) instance.resize();
-    });
-    accountVideoResizeObserver.observe(host);
-  }
-  window.requestAnimationFrame(() => {
-    if (accountVideoChart === instance) instance.resize();
-  });
-
-  return { total, label: CHART_METRIC_LABELS[metric], emptyLabel: CHART_METRIC_EMPTY[metric] };
-}
-
-export function disposeAccountVideoChart(): void {
-  accountVideoResizeObserver?.disconnect();
-  accountVideoResizeObserver = null;
-  if (accountVideoChart) {
-    accountVideoChart.dispose();
-    accountVideoChart = null;
-  }
-  accountVideoHost = null;
-  accountVideoSignature = null;
+  return { option, total, label, emptyLabel };
 }

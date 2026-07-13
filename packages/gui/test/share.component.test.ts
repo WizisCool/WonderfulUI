@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest';
-import { listAvailablePlatforms, openShareMenu } from '../src/share/index.ts';
+import { listAvailablePlatforms, openShareMenu, SHARE_ICON } from '../src/share/index.ts';
 import { sharePlatforms } from '../src/share/registry.ts';
 
 describe('share center framework', () => {
@@ -9,6 +9,11 @@ describe('share center framework', () => {
     const p = sharePlatforms['lan-qr']!;
     expect(p.id).toBe('lan-qr');
     expect(p.label).toContain('快传');
+    expect(p.icon).toBe(SHARE_ICON);
+  });
+
+  test('canonical 快传 icon is unified (share-network)', () => {
+    expect(SHARE_ICON).toBe('ph:share-network');
   });
 
   test('listAvailablePlatforms returns the lan-qr platform when available', () => {

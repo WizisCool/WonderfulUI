@@ -271,8 +271,12 @@ export async function parseSnapshotDbBuffer(buf: Uint8Array, openid: string): Pr
   const list = (raw[expectedKey] ?? Object.values(raw).find(v => Array.isArray(v))) as unknown;
   if (!Array.isArray(list)) return empty;
 
+  // nick/tag: prefer chronologically latest record (matches_time / ss_time)
+  // so renames win over first-wins stale data. GUI also has a Rust-side
+  // ACLOS LocalStorage/log fallback when snapshot has no nick at all.
   let nick: string | undefined;
   let tag: string | undefined;
+  let nickTime = Number.NEGATIVE_INFINITY;
   const achievements: SnapshotAchievement[] = [];
 
   for (const rec of list) {
@@ -280,11 +284,15 @@ export async function parseSnapshotDbBuffer(buf: Uint8Array, openid: string): Pr
     const snap = (rec as Record<string, unknown>).snapshot;
     if (snap == null || typeof snap !== 'object') continue;
     const s = snap as Record<string, unknown>;
-    // nick/tag: pick from the first record that has them
-    if (!nick && !tag) {
-      const n = typeof s.ss_nick === 'string' && s.ss_nick.trim() ? s.ss_nick.trim() : undefined;
-      const t = typeof s.ss_nick_id === 'string' && s.ss_nick_id.trim() ? s.ss_nick_id.trim() : undefined;
-      if (n || t) { nick = n; tag = t; }
+    const recObj = rec as Record<string, unknown>;
+    const recTimeRaw = recObj.matches_time ?? s.ss_time;
+    const recTime = typeof recTimeRaw === 'number' ? recTimeRaw : Number(recTimeRaw) || 0;
+    const n = typeof s.ss_nick === 'string' && s.ss_nick.trim() ? s.ss_nick.trim() : undefined;
+    const t = typeof s.ss_nick_id === 'string' && s.ss_nick_id.trim() ? s.ss_nick_id.trim() : undefined;
+    if ((n || t) && recTime >= nickTime) {
+      nickTime = recTime;
+      if (n) nick = n;
+      if (t) tag = t;
     }
     // MVP/SVP: only collect pure achievement records (ss_type === "match")
     const achv = typeof s.ss_achieve_type === 'string' ? s.ss_achieve_type : '';

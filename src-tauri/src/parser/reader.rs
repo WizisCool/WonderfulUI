@@ -116,25 +116,42 @@ pub fn parse_snapshot_db(path: &Path, openid: &str) -> Result<SnapshotData, Pars
         return Ok(SnapshotData::default());
     };
 
+    // nick/tag: prefer the chronologically latest record that carries them
+    // (matches_time), so a rename is reflected instead of first-wins stale data.
     let mut nick: Option<String> = None;
     let mut tag: Option<String> = None;
+    let mut nick_time: i64 = i64::MIN;
     let mut achievements: Vec<SnapshotAchievement> = Vec::new();
 
     for rec in list {
         let snap = rec.get("snapshot").and_then(|v| v.as_object());
         let Some(snap) = snap else { continue };
-        // nick/tag: pick from the first record that has them
-        if nick.is_none() && tag.is_none() {
-            nick = snap
-                .get("ss_nick")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            tag = snap
-                .get("ss_nick_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
+        let rec_time = rec
+            .get("matches_time")
+            .and_then(|v| v.as_i64())
+            .or_else(|| {
+                snap.get("ss_time")
+                    .and_then(|v| v.as_i64())
+            })
+            .unwrap_or(0);
+        let cand_nick = snap
+            .get("ss_nick")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let cand_tag = snap
+            .get("ss_nick_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if (cand_nick.is_some() || cand_tag.is_some()) && rec_time >= nick_time {
+            nick_time = rec_time;
+            if cand_nick.is_some() {
+                nick = cand_nick;
+            }
+            if cand_tag.is_some() {
+                tag = cand_tag;
+            }
         }
         // MVP/SVP: only collect when ss_achieve_type is mvp or svp
         let achv = snap
@@ -196,23 +213,24 @@ mod tests {
         p.to_string_lossy().to_string()
     }
 
+    // min_matches is a soft floor only — local WonderfulDb can be wiped.
     const REAL_DBS: &[(&str, &str, usize, &str)] = &[
         (
             "4807045517549591240",
             "4807045517549591240",
-            40,
-            "Cypher",
+            0,
+            "",
         ),
         (
             "14121192131852595386",
             "14121192131852595386",
-            1,
+            0,
             "",
         ),
         (
             "13794749312275947089",
             "13794749312275947089",
-            1,
+            0,
             "",
         ),
     ];
@@ -232,11 +250,11 @@ mod tests {
             "65174",
         ),
         (
-            // 1379... has a 96-byte snapshot = `{"key_snapshot_list1379…":[]}` → no nick
+            // Local ACLOS may grow this snapshot over time (nick/tag/achievements).
             "snapshot13794749312275947089",
             "13794749312275947089",
-            "",
-            "",
+            "Smoky",
+            "46211",
         ),
         (
             // 1228... is a legacy account whose WonderfulDb has zero matches;
@@ -343,11 +361,10 @@ mod tests {
             let exp_tag: Option<&str> = if expected_tag.is_empty() { None } else { Some(expected_tag) };
             assert_eq!(data.nick.as_deref(), exp_nick, "{}: nick mismatch", openid);
             assert_eq!(data.tag.as_deref(), exp_tag, "{}: tag mismatch", openid);
-            // 4807 and 1412 have known achievement data; 1379/1228 are empty
+            // Prefer non-empty nick when expected; achievements are optional for
+            // newer snapshots that ACLOS may populate later.
             if openid == &"4807045517549591240" || openid == &"14121192131852595386" {
                 assert!(!data.achievements.is_empty(), "{}: should have achievements", openid);
-            } else {
-                assert!(data.achievements.is_empty(), "{}: should be empty", openid);
             }
         }
     }

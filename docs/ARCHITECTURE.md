@@ -44,6 +44,7 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - `src-tauri/src/library/db.rs` - SQLite path resolution, schema migration, library view loading, and full-match lookup from stored `raw_json`.
 - `src-tauri/src/library/events.rs` - Rust mirror of the visible-event state machine for kill/death filtering, dedup keys, playback seek offsets, and SQL event rows.
 - `src-tauri/src/library/scraper.rs` - read-only ACLOS WonderfulDb source adapter. This is the only production layer that calls `parser::parse_wonderful_db` / `parser::parse_snapshot_db`.
+- `src-tauri/src/library/aclos_identity.rs` - account nick/#tag from ACLOS Chromium Local Storage LevelDB (`ACLOS_USER_ROLES_INFO`, `acloshighlight_user_<openid>` via `rusty-leveldb`), then snapshot, then log harvest. Achievements remain snapshot-only.
 - `src-tauri/src/library/model.rs` - library-facing IPC aliases. It currently reuses parser shapes so the frontend does not need a migration.
 
 Tauri command handlers should not directly parse WonderfulDb files. They should refresh or read the SQLite library.

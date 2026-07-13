@@ -41,10 +41,14 @@
       :class="{ 'is-empty': accountMatches.length === 0, 'is-loading': isBootLoading }"
       role="listbox"
       ref="listRef"
-      :aria-activedescendant="focusedId ?? undefined"
+      tabindex="0"
+      :aria-activedescendant="activeDescendantId"
       :aria-label="`高光对局列表,共 ${filteredMatches.length} 条`"
       @scroll="onScroll"
       @keydown="onListKeydown"
+      @pointerdown="onListPointerDown"
+      @focus="listFocused = true"
+      @blur="onListBlur"
     >
       <template v-if="isBootLoading">
         <div class="empty empty-loading">
@@ -61,12 +65,11 @@
         <div class="vlist-spacer" :style="{ height: totalHeight + 'px' }" />
         <MatchCard
           v-for="item in visibleMatches"
-          :ref="(el) => registerCardRef(item.match.matches_id, el)"
           :key="item.match.matches_id"
           :match="item.match"
           :style="{ position: 'absolute', top: '0', left: '0', right: '0', transform: 'translateY(' + item.y + 'px)' }"
           :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
-          :is-focused="item.match.matches_id === focusedId"
+          :is-focused="showKeyboardActive && item.match.matches_id === focusedId"
           :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
           @click="onRowActivate(item.match)"
           @dblclick="playFirst(item.match)"
@@ -81,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
 import { useAccountStore } from '../stores/account.ts';
@@ -91,9 +94,16 @@ import { usePlayerStore } from '../stores/player.ts';
 import { useUiStore } from '../stores/ui.ts';
 import { useVirtualScroll, ROW_HEIGHT } from '../composables/useVirtualScroll.ts';
 import MatchCard from '../components/match/MatchCard.vue';
+import {
+  isListboxActivateKey,
+  isListboxNavKey,
+  listboxNavAlwaysScroll,
+  matchOptionId,
+  nextListboxIndex,
+  reconcileFocusedId,
+  scrollTopToRevealIndex,
+} from '../utils/match-listbox.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
-
-type MatchCardInstance = InstanceType<typeof MatchCard> & { rootEl: HTMLElement | null };
 
 const router = useRouter();
 const account = useAccountStore();
@@ -120,135 +130,109 @@ const filteredMatches = computed(() => filter.applyToMatches(account.matches, ac
 // boot-time loading view would never be visible.
 const isBootLoading = computed(() => account.scraping);
 
-const { totalHeight, visibleMatches, onScroll, scrollToIndex } = useVirtualScroll(filteredMatches, listRef);
+const { totalHeight, visibleMatches, onScroll } = useVirtualScroll(filteredMatches, listRef);
 
 const scanLabel = computed(() => filter.refreshScanMode === 'full' ? '全量扫描' : '增量扫描');
 
-// Keyboard listbox navigation
-// focusedId follows the currently-focused option; it uses aria-activedescendant
-// (the listbox itself stays unfocused) so virtual-scroll range changes do not
-// yank focus out of the listbox.
+// ─── ARIA listbox (aria-activedescendant, single pattern) ───────────────────
+// Focus ALWAYS stays on `.match-list`. Options are never focused — virtual
+// scroll can unmount them without stealing keyboard focus. See match-listbox.ts.
+//
+// Visual keyboard ring uses "modality" (like :focus-visible): pointer down
+// clears it, arrow/home/end/page keys re-enable it. Mouse click only shows
+// .is-selected (accent border) — never a second pink/ink ring.
 const focusedId = ref<string | null>(null);
-const cardRefs = new Map<string, MatchCardInstance>();
+const listFocused = ref(false);
+const keyboardModality = ref(false);
 
-function registerCardRef(id: string, el: Element | null) {
-  if (el) {
-    cardRefs.set(id, el as unknown as MatchCardInstance);
-  } else {
-    cardRefs.delete(id);
-  }
-}
+const showKeyboardActive = computed(
+  () => listFocused.value && keyboardModality.value,
+);
 
-// Keep focusedId valid when the underlying list changes
-// focusedId drives aria-activedescendant + which row gets tabindex=0.
-// Keep it null until the user actually interacts: seeding it to the first
-// row on mount was painting a red outline (= same color as .is-selected)
-// on a row the user had never touched, which read as "first row is
-// permanently selected".
+const activeDescendantId = computed(() => {
+  // Only expose activedescendant while the listbox owns focus (APG).
+  if (!listFocused.value || !focusedId.value) return undefined;
+  if (!filteredMatches.value.some(m => m.matches_id === focusedId.value)) return undefined;
+  return matchOptionId(focusedId.value);
+});
+
+// Keep focusedId valid when the underlying list changes. Never seed the first
+// row on mount — that painted a permanent "selected" look on row 0.
 watch(filteredMatches, (list) => {
-  if (list.length === 0) {
-    focusedId.value = null;
-    return;
-  }
-  if (focusedId.value && list.some(m => m.matches_id === focusedId.value)) {
-    return; // current focus is still in the list
-  }
-  // Re-anchor only when there is a real selection (user clicked a row
-  // earlier). Otherwise stay null until the user actually navigates.
-  const sel = detail.selectedMatch?.matches_id;
-  focusedId.value = sel && list.some(m => m.matches_id === sel) ? sel : null;
+  focusedId.value = reconcileFocusedId(
+    focusedId.value,
+    detail.selectedMatch?.matches_id,
+    list.map(m => m.matches_id),
+  );
 }, { immediate: true });
 
+function onListPointerDown() {
+  // Mouse / pen / touch: selection chrome only, no keyboard active ring.
+  keyboardModality.value = false;
+}
+
+function onListBlur() {
+  listFocused.value = false;
+  keyboardModality.value = false;
+}
+
 function onRowActivate(m: MatchRecord) {
+  focusedId.value = m.matches_id;
+  // Pointer path already cleared keyboardModality via pointerdown.
+  // Keep DOM focus on the listbox so the next Arrow key works without re-Tab.
+  listRef.value?.focus({ preventScroll: true });
   router.push({ name: 'detail', params: { id: m.matches_id } });
 }
 
-function focusIndex(index: number, opts: { scroll?: 'auto' | 'always' } = {}) {
+function pageSize(): number {
+  const el = listRef.value;
+  if (!el || el.clientHeight <= 0) return 5;
+  return Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1);
+}
+
+function moveActiveToIndex(index: number, forceScroll = false) {
   const list = filteredMatches.value;
   if (list.length === 0) return;
   const clamped = Math.max(0, Math.min(list.length - 1, index));
   const target = list[clamped]!;
   focusedId.value = target.matches_id;
-  const shouldScroll = opts.scroll === 'always' || shouldScrollIntoView(clamped);
-  if (shouldScroll) {
-    scrollToIndex(visibleRowIndexFor(clamped));
-  }
-  // After Vue has rendered the new visible range, move focus to the row.
-  nextTick(() => {
-    const el = cardRefs.get(target.matches_id)?.rootEl;
-    if (el && document.activeElement !== el) el.focus({ preventScroll: true });
-  });
-}
-
-function visibleRowIndexFor(filteredIndex: number): number {
-  // filteredMatches and the virtual scroll share the same ordering, so the
-  // filtered index equals the scroll index. (Filtered list length === scroll
-  // length because useVirtualScroll is fed filteredMatches directly.)
-  return filteredIndex;
-}
-
-function shouldScrollIntoView(filteredIndex: number): boolean {
+  keyboardModality.value = true;
   const el = listRef.value;
-  if (!el) return false;
-  const top = filteredIndex * ROW_HEIGHT;
-  const bottom = top + ROW_HEIGHT;
-  const viewTop = el.scrollTop;
-  const viewBottom = viewTop + el.clientHeight;
-  if (top < viewTop) return true;
-  if (bottom > viewBottom) return true;
-  return false;
+  if (!el) return;
+  const nextTop = scrollTopToRevealIndex(
+    clamped,
+    ROW_HEIGHT,
+    el.scrollTop,
+    el.clientHeight,
+    forceScroll,
+  );
+  if (nextTop !== null) el.scrollTop = nextTop;
 }
 
 function onListKeydown(e: KeyboardEvent) {
   const list = filteredMatches.value;
   if (list.length === 0) return;
+
+  if (isListboxActivateKey(e.key)) {
+    const id = focusedId.value;
+    if (!id) return;
+    const m = list.find(row => row.matches_id === id);
+    if (!m) return;
+    e.preventDefault();
+    // Enter/Space from keyboard keep keyboard modality (ring may match selection).
+    keyboardModality.value = true;
+    onRowActivate(m);
+    return;
+  }
+
+  if (!isListboxNavKey(e.key)) return;
+
   const currentIdx = list.findIndex(m => m.matches_id === focusedId.value);
-  // When no row is focused yet, ArrowDown lands on the first row and
-  // ArrowUp lands on the last (so the user always gets a meaningful move
-  // from the initial Tab into the listbox). Home/End behave normally.
-  const noFocus = currentIdx < 0;
-  const safeIdx = noFocus ? -1 : currentIdx;
-
-  let nextIdx: number | null = null;
-  switch (e.key) {
-    case 'ArrowDown': nextIdx = noFocus ? 0 : safeIdx + 1; break;
-    case 'ArrowUp':   nextIdx = noFocus ? list.length - 1 : safeIdx - 1; break;
-    case 'Home':      nextIdx = 0; break;
-    case 'End':       nextIdx = list.length - 1; break;
-    case 'PageDown': {
-      const el = listRef.value;
-      const page = el ? Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1) : 5;
-      nextIdx = safeIdx + page;
-      break;
-    }
-    case 'PageUp': {
-      const el = listRef.value;
-      const page = el ? Math.max(1, Math.floor(el.clientHeight / ROW_HEIGHT) - 1) : 5;
-      nextIdx = safeIdx - page;
-      break;
-    }
-    case 'Enter':
-    case ' ': {
-      // MatchCard's own keydown already handled click emission; nothing more
-      // to do here.
-      return;
-    }
-    default:
-      return;
-  }
-  e.preventDefault();
+  const nextIdx = nextListboxIndex(e.key, currentIdx, list.length, pageSize());
   if (nextIdx === null) return;
-  // Always clamp and scroll on Page/Home/End so the user lands inside the view
-  // even when the focused row is currently visible.
-  focusIndex(nextIdx, { scroll: e.key === 'PageDown' || e.key === 'PageUp' || e.key === 'Home' || e.key === 'End' ? 'always' : 'auto' });
+  e.preventDefault();
+  moveActiveToIndex(nextIdx, listboxNavAlwaysScroll(e.key));
 }
-
-// Make the listbox itself focusable so it can receive keydown
-onMounted(() => {
-  if (listRef.value) {
-    listRef.value.tabIndex = 0;
-  }
-});
 
 async function onScrape() {
   if (filter.refreshScanMode === 'full') ui.showScanOverlay();
@@ -331,10 +315,11 @@ function playFirst(m: MatchRecord) {
   transform-box: fill-box;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pane-head-action.is-loading svg {
-    animation-duration: 1600ms;
-  }
+/* Listbox owns focus; option active state is painted on MatchCard.
+   Suppress the container outline so it does not double with the row ring. */
+.match-list:focus,
+.match-list:focus-visible {
+  outline: none;
 }
 
 /* Empty state lives inside .match-list (was previously a sibling of it,
@@ -367,10 +352,5 @@ function playFirst(m: MatchRecord) {
 }
 @keyframes empty-spin {
   to { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .empty-spinner :deep(svg) {
-    animation-duration: 1600ms;
-  }
 }
 </style>

@@ -34,6 +34,11 @@ export interface SharePlatform {
   readonly label: string;
   /** 副标题，描述约束或外部依赖（如 "需 Win11 资源管理器"）。 */
   readonly description: string;
+  /**
+   * Iconify icon id for menus / toolbars.
+   * Prefer `SHARE_ICON` from `./icons.ts` for 快传 so all entry points match.
+   */
+  readonly icon?: string;
   /** 平台是否可用（Win11 才有 Share ribbon / Windows 才有剪贴板等）。 */
   isAvailable(): boolean;
   /** 触发分享。失败必须返回 {kind:'failed', reason:'...'}，不要 throw。 */

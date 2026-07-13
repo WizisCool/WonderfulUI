@@ -15,7 +15,7 @@
         <WIcon icon="ph:x" :size="16" />
       </button>
 
-      <div class="player-stage" @click.stop="togglePlay" @contextmenu.prevent="openContextMenu">
+      <div class="player-stage" @click.stop="onStageClick" @contextmenu.prevent="openContextMenu">
         <video
           ref="videoRef"
           class="player-video"
@@ -95,22 +95,38 @@
       </div>
     </div>
 
-    <div
-      v-show="ctxMenu"
-      class="player-context-menu"
-      :class="{ 'is-closing': ctxMenuClosing }"
-      :style="ctxMenuStyle"
-      ref="ctxMenuRef"
-      @contextmenu.stop.prevent
-      @animationend="onCtxMenuAnimEnd"
-    >
-      <button
-        v-for="item in ctxMenuItems"
-        :key="item.label"
-        class="player-context-item"
-        @click="item.action()"
-      >{{ item.label }}</button>
-    </div>
+    <!--
+      Teleport: in fullscreen the menu must live under fullscreenElement
+      (sibling of .player-modal is outside the fullscreen tree and invisible).
+      Otherwise mount on body so fixed coords match the viewport.
+    -->
+    <Teleport :to="ctxMenuTeleportTo">
+      <div
+        v-show="ctxMenu"
+        class="player-context-menu"
+        :class="{ 'is-closing': ctxMenuClosing }"
+        :style="ctxMenuStyle"
+        ref="ctxMenuRef"
+        role="menu"
+        aria-label="视频操作"
+        @contextmenu.stop.prevent
+        @animationend="onCtxMenuAnimEnd"
+        @keydown="onCtxMenuKeydown"
+      >
+        <button
+          v-for="item in ctxMenuItems"
+          :key="item.id"
+          type="button"
+          role="menuitem"
+          class="player-context-item"
+          :disabled="item.disabled"
+          @click="item.action()"
+        >
+          <WIcon :icon="item.icon" :size="14" />
+          <span>{{ item.label }}</span>
+        </button>
+      </div>
+    </Teleport>
 
     <ShareModal
       v-if="shareOpen"
@@ -128,9 +144,11 @@ import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
+import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
+import { SHARE_ICON } from '../../share/icons.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
 
 const player = usePlayerStore();
@@ -259,38 +277,291 @@ const bufferedStyle = computed(() => ({
   transform: `scaleX(${lastBufferedPct.value / 100})`,
 }));
 
-// context menu
-// `ctxMenu` drives v-show; `ctxMenuClosing` flips on close so the
-// `is-closing` class can play the exit animation before the element is
-// hidden. We only set `ctxMenu = false` once the animation has settled,
-// with a 200 ms safety timeout in case animationend never fires (matches
-// the date-picker pattern at utils/date-picker.ts:246).
+// ─── Context menu ──────────────────────────────────────────────────────────
+// `ctxMenu` drives v-show; `ctxMenuClosing` plays exit animation before hide.
+// Outside close: mousedown capture + button===0 (NOT click — right-click race).
+// Listeners are bound once via bindCtxMenuListeners / unbindCtxMenuListeners.
 const ctxMenu = ref(false);
 const ctxMenuClosing = ref(false);
 const ctxMenuX = ref(0);
 const ctxMenuY = ref(0);
 const ctxMenuRef = ref<HTMLElement | null>(null);
+/** Teleport target: fullscreen element when active, else body. */
+const ctxMenuTeleportTo = ref<string | HTMLElement>('body');
 let ctxMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+let ctxMenuListenersBound = false;
+/**
+ * After an outside left-click dismisses the menu, the same gesture still
+ * synthesizes a `click` on whatever is under the cursor (the stage toggles
+ * play). OS menus and major players treat dismiss as non-activating —
+ * swallow that one click (and any same-tick stage clicks while closing).
+ */
+let suppressStageClickUntil = 0;
+let killClickThrough: ((e: MouseEvent) => void) | null = null;
 
 const ctxMenuStyle = computed(() => ({
   left: `${ctxMenuX.value}px`,
   top: `${ctxMenuY.value}px`,
 }));
 
-const ctxMenuItems = computed(() => [
-  {
-    label: '在系统播放器中打开',
-    action: () => { invoke('play_video', { path: videoPath.value }).catch(() => {}); closeCtxMenu(); },
-  },
-  {
-    label: '在资源管理器中打开',
-    action: () => { invoke('reveal_in_explorer', { path: videoPath.value }).catch(() => {}); closeCtxMenu(); },
-  },
-  {
-    label: '复制视频路径',
-    action: () => { navigator.clipboard.writeText(videoPath.value); ui.showToast('已复制路径'); closeCtxMenu(); },
-  },
-]);
+interface CtxMenuItem {
+  id: string;
+  label: string;
+  icon: string;
+  disabled?: boolean;
+  action: () => void;
+}
+
+const ctxMenuItems = computed((): CtxMenuItem[] => {
+  const path = videoPath.value;
+  const missing = !path;
+  return [
+    {
+      id: 'system-player',
+      label: '在系统播放器中打开',
+      icon: 'ph:monitor-play',
+      disabled: missing,
+      action: () => {
+        if (!path) return;
+        invoke('play_video', { path })
+          .then(() => closeCtxMenu())
+          .catch((e) => {
+            ui.showToast(`打开系统播放器失败: ${e}`, 'error');
+            closeCtxMenu();
+          });
+      },
+    },
+    {
+      id: 'explorer',
+      label: '在资源管理器中打开',
+      icon: 'ph:folder-open',
+      disabled: missing,
+      action: () => {
+        if (!path) return;
+        invoke('reveal_in_explorer', { path })
+          .then(() => closeCtxMenu())
+          .catch((e) => {
+            ui.showToast(`打开资源管理器失败: ${e}`, 'error');
+            closeCtxMenu();
+          });
+      },
+    },
+    {
+      id: 'copy-path',
+      label: '复制视频路径',
+      icon: 'ph:copy',
+      disabled: missing,
+      action: () => {
+        if (!path) return;
+        void navigator.clipboard.writeText(path)
+          .then(() => {
+            ui.showToast('已复制路径');
+            closeCtxMenu();
+          })
+          .catch(() => {
+            ui.showToast('复制路径失败', 'error');
+            closeCtxMenu();
+          });
+      },
+    },
+    {
+      id: 'share',
+      label: '快传',
+      icon: SHARE_ICON,
+      disabled: missing,
+      action: () => {
+        closeCtxMenu();
+        onShare();
+      },
+    },
+  ];
+});
+
+function syncCtxMenuTeleport() {
+  const fs = document.fullscreenElement;
+  ctxMenuTeleportTo.value = (fs as HTMLElement | null) ?? 'body';
+}
+
+function bindCtxMenuListeners() {
+  if (ctxMenuListenersBound) return;
+  document.addEventListener('mousedown', onCtxMenuDocMouseDown, true);
+  document.addEventListener('keydown', onCtxMenuEsc, true);
+  window.addEventListener('resize', onCtxMenuViewportChange);
+  window.addEventListener('scroll', onCtxMenuViewportChange, true);
+  document.addEventListener('fullscreenchange', onCtxMenuFullscreenChange);
+  ctxMenuListenersBound = true;
+}
+
+function unbindCtxMenuListeners() {
+  if (!ctxMenuListenersBound) return;
+  document.removeEventListener('mousedown', onCtxMenuDocMouseDown, true);
+  document.removeEventListener('keydown', onCtxMenuEsc, true);
+  window.removeEventListener('resize', onCtxMenuViewportChange);
+  window.removeEventListener('scroll', onCtxMenuViewportChange, true);
+  document.removeEventListener('fullscreenchange', onCtxMenuFullscreenChange);
+  ctxMenuListenersBound = false;
+}
+
+function applyCtxMenuPosition(clientX: number, clientY: number) {
+  const el = ctxMenuRef.value;
+  const menuW = el?.offsetWidth || 200;
+  const menuH = el?.offsetHeight || 160;
+  // Fullscreen may use a subset of the window; still use visual viewport size.
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const placed = placeMenuNearCursor(
+    { x: clientX, y: clientY },
+    { width: menuW, height: menuH },
+    { width: vw, height: vh },
+  );
+  ctxMenuX.value = placed.x;
+  ctxMenuY.value = placed.y;
+}
+
+function openContextMenu(e: MouseEvent) {
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
+  ctxMenuClosing.value = false;
+  syncCtxMenuTeleport();
+  // Seed position immediately; refine after layout with real menu size.
+  ctxMenuX.value = e.clientX;
+  ctxMenuY.value = e.clientY;
+  ctxMenu.value = true;
+  bindCtxMenuListeners();
+  nextTick(() => {
+    applyCtxMenuPosition(e.clientX, e.clientY);
+    // Focus first enabled item for keyboard users (best-effort in tests/DOM).
+    try {
+      const first = ctxMenuRef.value?.querySelector<HTMLElement>(
+        '[role="menuitem"]:not([disabled])',
+      );
+      first?.focus({ preventScroll: true });
+    } catch {
+      /* happy-dom / detached focus may throw — ignore */
+    }
+  });
+}
+
+function closeCtxMenu(opts: { swallowClickThrough?: boolean } = {}) {
+  if (!ctxMenu.value && !ctxMenuClosing.value) return;
+  if (!ctxMenu.value) return;
+  if (opts.swallowClickThrough) armClickThroughGuard();
+  ctxMenuClosing.value = true;
+  if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
+  ctxMenuCloseTimer = setTimeout(() => {
+    ctxMenu.value = false;
+    ctxMenuClosing.value = false;
+    ctxMenuCloseTimer = null;
+  }, 200);
+  unbindCtxMenuListeners();
+}
+
+/**
+ * Industry pattern (native OS menus, Material/Radix dismiss, video players):
+ * the pointer gesture that dismisses a floating menu must not activate the
+ * control underneath. We (1) mark a short suppress window for stage click,
+ * (2) capture the following `click` once and stop it.
+ */
+function armClickThroughGuard() {
+  suppressStageClickUntil = performance.now() + 400;
+  if (killClickThrough) {
+    document.removeEventListener('click', killClickThrough, true);
+    killClickThrough = null;
+  }
+  killClickThrough = (ev: MouseEvent) => {
+    // Only the completing click of this dismiss gesture.
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.stopImmediatePropagation();
+    if (killClickThrough) {
+      document.removeEventListener('click', killClickThrough, true);
+      killClickThrough = null;
+    }
+  };
+  document.addEventListener('click', killClickThrough, true);
+  // Safety: never leave a permanent click sink if mouseup happens elsewhere.
+  window.setTimeout(() => {
+    if (killClickThrough) {
+      document.removeEventListener('click', killClickThrough, true);
+      killClickThrough = null;
+    }
+  }, 500);
+}
+
+function onStageClick() {
+  // Menu open/closing, or the dismiss-click guard: never toggle play.
+  if (ctxMenu.value || ctxMenuClosing.value) return;
+  if (performance.now() < suppressStageClickUntil) return;
+  togglePlay();
+}
+
+function onCtxMenuDocMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return;
+  if (ctxMenuRef.value?.contains(e.target as Node)) return;
+  // Dismiss only — do not let this gesture reach stage togglePlay.
+  closeCtxMenu({ swallowClickThrough: true });
+}
+
+function onCtxMenuAnimEnd(e: AnimationEvent) {
+  if (!ctxMenuClosing.value) return;
+  if (e.animationName !== 'player-ctxmenu-out') return;
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
+  ctxMenu.value = false;
+  ctxMenuClosing.value = false;
+}
+
+function onCtxMenuEsc(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeCtxMenu();
+}
+
+function onCtxMenuViewportChange() {
+  // Not a pointer dismiss — no click-through risk.
+  if (ctxMenu.value) closeCtxMenu();
+}
+
+function onCtxMenuFullscreenChange() {
+  syncCtxMenuTeleport();
+  // Fullscreen tree change invalidates fixed placement — close rather than guess.
+  if (ctxMenu.value) closeCtxMenu();
+}
+
+function onCtxMenuKeydown(e: KeyboardEvent) {
+  const items = Array.from(
+    ctxMenuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [],
+  );
+  if (items.length === 0) return;
+  const active = document.activeElement as HTMLElement | null;
+  const idx = items.findIndex(el => el === active);
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = items[(idx + 1 + items.length) % items.length]!;
+    next.focus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = items[(idx - 1 + items.length) % items.length]!;
+    prev.focus();
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    items[0]!.focus();
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    items[items.length - 1]!.focus();
+  }
+}
+
+// Close menu when the open video changes (seek context / next clip).
+watch(() => player.video?.video_id, () => {
+  if (ctxMenu.value) closeCtxMenu();
+});
 
 function fmtTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00';
@@ -381,6 +652,16 @@ function togglePlay() {
 }
 
 function doClose() {
+  if (ctxMenu.value) {
+    // Force-hide without waiting for exit anim — the whole player is leaving.
+    unbindCtxMenuListeners();
+    if (ctxMenuCloseTimer) {
+      clearTimeout(ctxMenuCloseTimer);
+      ctxMenuCloseTimer = null;
+    }
+    ctxMenu.value = false;
+    ctxMenuClosing.value = false;
+  }
   closing.value = true;
   setTimeout(() => {
     clearHideTimer();
@@ -560,65 +841,24 @@ function toggleFullscreen() {
   }
 }
 
-function openContextMenu(e: MouseEvent) {
-  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
-  ctxMenuClosing.value = false;
-  ctxMenu.value = true;
-  ctxMenuX.value = e.clientX;
-  ctxMenuY.value = e.clientY;
-  // Use `mousedown` (left button only), not `click`. A right-click fires
-  // `mousedown → mouseup → click (button=2) → contextmenu` in that order.
-  // If we listened for `click`, the right-click that just opened the menu
-  // would also fire `click` after `contextmenu`, and the doc handler
-  // would see the target is outside the menu and immediately close it.
-  // `mousedown` happens *before* `contextmenu` for a right-click, so a
-  // capture-phase listener registered in `nextTick` still races with the
-  // opening mousedown — `button === 0` filters out everything but the
-  // next genuine left-click.
-  nextTick(() => {
-    document.addEventListener('mousedown', onCtxMenuDocMouseDown, true);
-    document.addEventListener('keydown', onCtxMenuEsc);
-  });
-}
-
-function closeCtxMenu() {
-  if (!ctxMenu.value) return;
-  ctxMenuClosing.value = true;
-  // Hide it after the exit animation (160/120ms) finishes, or fall back
-  // to 200 ms in case animationend never fires.
-  if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
-  ctxMenuCloseTimer = setTimeout(() => {
-    ctxMenu.value = false;
-    ctxMenuClosing.value = false;
-    ctxMenuCloseTimer = null;
-  }, 200);
-  document.removeEventListener('mousedown', onCtxMenuDocMouseDown, true);
-  document.removeEventListener('keydown', onCtxMenuEsc);
-}
-
-function onCtxMenuDocMouseDown(e: MouseEvent) {
-  if (e.button !== 0) return; // ignore right/middle clicks
-  if (!ctxMenuRef.value?.contains(e.target as Node)) closeCtxMenu();
-}
-
-function onCtxMenuAnimEnd(e: AnimationEvent) {
-  // Only react to our own keyframes; ignore bubbled events from descendants.
-  if (!ctxMenuClosing.value) return;
-  if (e.animationName !== 'player-ctxmenu-out') return;
-  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
-  ctxMenu.value = false;
-  ctxMenuClosing.value = false;
-}
-
-function onCtxMenuEsc(e: KeyboardEvent) {
-  if (e.key === 'Escape') closeCtxMenu();
-}
-
 // Keyboard
 function onKeydown(e: KeyboardEvent) {
   // AGENTS.md: only handle keys while the player is actually open; otherwise
   // a stale listener can swallow events from the underlying app.
   if (!player.isOpen) return;
+  // Context menu owns Escape / arrows while open (stopPropagation on its
+  // capture listener). Still early-return here as a second guard.
+  if (ctxMenu.value && !ctxMenuClosing.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeCtxMenu();
+      return;
+    }
+    // Don't steal arrow keys / space while menu items are focused.
+    if (e.target instanceof HTMLElement && e.target.closest('.player-context-menu')) {
+      return;
+    }
+  }
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   // The progress slider handles its own arrow / page / home / end keys
@@ -701,9 +941,15 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown, true);
-  document.removeEventListener('mousedown', onCtxMenuDocMouseDown, true);
-  document.removeEventListener('keydown', onCtxMenuEsc);
-  if (ctxMenuCloseTimer) { clearTimeout(ctxMenuCloseTimer); ctxMenuCloseTimer = null; }
+  unbindCtxMenuListeners();
+  if (killClickThrough) {
+    document.removeEventListener('click', killClickThrough, true);
+    killClickThrough = null;
+  }
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
   clearHideTimer();
   clearBufferingTimer();
 });
@@ -954,21 +1200,30 @@ onUnmounted(() => {
   to   { opacity: 0; transform: scale(0.97); }
 }
 .player-context-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 6px 12px;
   text-align: left;
   font: inherit;
   font-size: 13px;
+  font-family: var(--font-sans);
   color: var(--ink-2);
   background: transparent;
   border: 0;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 80ms ease-out;
+  transition: background 80ms ease-out, color 80ms ease-out;
 }
-.player-context-item:hover {
+.player-context-item:hover:not(:disabled),
+.player-context-item:focus-visible:not(:disabled) {
   background: var(--surface-3);
   color: var(--ink);
+  outline: none;
+}
+.player-context-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 </style>

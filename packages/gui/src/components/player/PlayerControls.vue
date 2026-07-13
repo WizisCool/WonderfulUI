@@ -40,8 +40,8 @@
       <button class="ctrl-btn player-ctrl-explorer" title="在资源管理器中打开" @click.stop="$emit('explorer')">
         <WIcon icon="ph:folder-open" :size="16" />
       </button>
-      <button class="ctrl-btn player-ctrl-share" title="快传（扫码下载）" @click.stop="$emit('share')">
-        <WIcon icon="ph:share" :size="16" />
+      <button class="ctrl-btn player-ctrl-share" title="快传（扫码下载）" aria-label="快传" @click.stop="$emit('share')">
+        <WIcon :icon="SHARE_ICON" :size="SHARE_ICON_SIZE" />
       </button>
       <button class="ctrl-btn player-ctrl-fullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" @click.stop="$emit('fullscreen')">
         <WIcon v-if="isFullscreen" icon="ph:arrows-in" :size="16" />
@@ -55,6 +55,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import ProgressBar from './ProgressBar.vue';
+import { SHARE_ICON, SHARE_ICON_SIZE } from '../../share/icons.ts';
 import { EVENT_PREROLL_MS } from '../../utils/event-time.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 

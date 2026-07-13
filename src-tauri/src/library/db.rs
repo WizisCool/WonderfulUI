@@ -233,6 +233,8 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
          WHERE openid = ?1
          ORDER BY matches_id",
     )?;
+    // Hide empty WonderfulDb shells (0 highlight matches) — they are openid
+    // noise. Still show accounts with parse_error so users can see failures.
     let mut accounts_stmt = conn.prepare(
         "SELECT
             a.openid,
@@ -246,6 +248,8 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
          LEFT JOIN matches m ON m.openid = a.openid
          LEFT JOIN account_preferences p ON p.openid = a.openid
          GROUP BY a.openid, a.source_path, a.nick, a.tag, a.parse_error, p.custom_name, p.sort_order
+         HAVING COUNT(m.id) > 0
+            OR (a.parse_error IS NOT NULL AND TRIM(a.parse_error) <> '')
          ORDER BY
             CASE WHEN p.sort_order IS NULL THEN 1 ELSE 0 END,
             p.sort_order,
@@ -448,6 +452,19 @@ mod tests {
             [],
         )
         .expect("accounts inserted");
+        // Empty shells are hidden from the library view — seed one match each
+        // so preferences/order still apply to real highlight accounts.
+        for (id, openid) in [("m-a", "a"), ("m-b", "b"), ("m-c", "c")] {
+            let raw = format!(
+                r#"{{"openID":"{openid}","matches_id":"{id}","matches_time":1,"videos":[]}}"#
+            );
+            conn.execute(
+                "INSERT INTO matches(id, source_id, source_match_id, openid, matches_time, stats_json, raw_json, last_seen_at)
+                 VALUES(?1, 'aclos_wonderfuldb', ?1, ?2, 1, '{{}}', ?3, 1)",
+                rusqlite::params![id, openid, raw],
+            )
+            .expect("match inserted");
+        }
 
         set_account_custom_name(&conn, "b", Some("  主账号  ")).expect("rename saved");
         save_account_order(&conn, &["c".into(), "b".into()]).expect("order saved");

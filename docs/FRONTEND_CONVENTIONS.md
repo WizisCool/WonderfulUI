@@ -13,6 +13,22 @@ This document holds GUI implementation conventions that are too detailed for `AG
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
 - **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
+
+### Match listbox keyboard / a11y (do not re-break)
+
+The middle-column match list is a real **ARIA listbox** using the **`aria-activedescendant` pattern only**. Pure helpers live in `packages/gui/src/utils/match-listbox.ts` (unit-tested); HomeView wires them.
+
+Hard rules:
+
+1. **Focus stays on `.match-list`** (`tabindex="0"`). Never call `el.focus()` on a `MatchCard` / option. Virtual scroll unmounts off-screen rows; focusing a row will lose keyboard control when it leaves the buffer.
+2. **Do not mix roving tabindex with activedescendant.** Options always have `tabindex="-1"`. The active option is tracked by `focusedId` and exposed as `aria-activedescendant={matchOptionId(focusedId)}` **only while the listbox is focused**.
+3. **Every option needs a stable DOM `id`** via `matchOptionId(matches_id)` so activedescendant resolves. Do not invent ad-hoc ids in the component.
+4. **Selection ≠ keyboard active.** `.is-selected` = detail selection (accent border only). `.is-focused` = keyboard-active ring, gated by **keyboard modality** (set on arrow/home/end/page; cleared on pointerdown/blur). Mouse click must **not** paint `.is-focused` — stacking an ink/pink ring on the accent border looked like a UI bug (double chrome).
+5. **Do not seed `focusedId` to the first row on mount.** Start `null`. Reconcile with `reconcileFocusedId` when the filtered list changes (keep previous if still present, else selected match, else null).
+6. **Enter / Space on the listbox activate `focusedId`.** Click also sets `focusedId` and re-focuses the listbox so arrows keep working.
+7. Navigation math (arrows, Home/End, PageUp/Down, scroll reveal) must go through `nextListboxIndex` / `scrollTopToRevealIndex` — extend those helpers + their unit tests rather than inlining more switch cases in HomeView.
+
+Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.component.test.ts` “listbox a11y” block.
 - **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but is empty (e.g. user logged in but has no matches yet) — they point at ACLOS as the data source rather than dumping raw paths.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
@@ -61,7 +77,7 @@ Use the pattern from `date-picker.ts`:
 - Any code that iterates real accounts or filters by `openID` must skip or special-case the sentinel.
 - It is fixed at the top of the account pane. Drag sorting and manual rename apply only to real accounts.
 - Manual account display names come from SQLite `account_preferences.custom_name` (`customName` over IPC) and override snapshot nick/tag only in WonderfulUI.
-- Account drag sorting uses SortableJS on `.account-sortable-list` with `.account-grip` as the handle, not custom pointer math. Keep `__all__` outside that sortable container and fixed at the top, persist only real account ids, and use Sortable's forced fallback path in WebView2 so the dragged clone follows the pointer reliably. Style `chosen` / `ghost` / `drag` / `fallback` classes so users see both the grabbed row and its drop position while neighboring rows animate out of the way. Respect `prefers-reduced-motion`.
+- Account drag sorting uses SortableJS on `.account-sortable-list` with `.account-grip` as the handle, not custom pointer math. Keep `__all__` outside that sortable container and fixed at the top, persist only real account ids, and use Sortable's forced fallback path in WebView2 so the dragged clone follows the pointer reliably. Style `chosen` / `ghost` / `drag` / `fallback` classes so users see both the grabbed row and its drop position while neighboring rows animate out of the way.
 
 ## Match and Detail Semantics
 
@@ -171,7 +187,6 @@ Account list uses a custom tooltip, not native `title=`.
 - **Cursor tracking**: mousemove inside the target updates the tooltip's horizontal anchor to the mouse X. The tooltip does not follow vertically — keeps element-bound feel.
 - **Arrow**: a `.floating-arrow` div (8×8 rotated square) is appended to the tooltip, positioned on the edge facing the anchor.
 - **Entrance**: 80ms `cubic-bezier(0.16, 1, 0.3, 1)` scale+opacity (`@keyframes tooltip-in`). Hides with 50ms opacity transition.
-- Respects `prefers-reduced-motion: reduce` (animation collapsed).
 - **Event placement for markers**: when the progress track is near the viewport top (`MARKER_OVERHEAD_PX` threshold), markers flip to the `bottom` of the track with reversed stems.
 - Color tokens: `--marker-kill`, `--marker-death`, `--marker-kill-bg`, `--marker-death-bg` etc. in `:root`.
 
@@ -181,9 +196,15 @@ Account list uses a custom tooltip, not native `title=`.
 - The sidebar-bottom settings button opens a centered settings modal, not a side drawer.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
-- The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus an ECharts donut chart showing per-account video-count share. It is a library composition view, not a storage/disk-usage view.
-- The `资料库概览` chart is mounted by `mountAccountVideoChart` from `packages/gui/src/utils/library-stats.ts` via a Vue `ref` on the chart container. The chart center overlay (total count + label) is rendered as a Vue template element, not via DOM manipulation. `mountAccountVideoChart` returns `{ total, label, emptyLabel }` for the reactive overlay. Dispose the chart when the settings tab leaves `资料库` or the modal closes; do not leave hidden canvas instances around.
-- Known handoff (2026-06-21): the ECharts donut hover tooltip can visually flicker during continuous mouse movement. Prefer official ECharts tooltip/emphasis/graphic options over custom tooltip implementations, click-only fallbacks, or disabling hover wholesale. Current investigation found that putting the fixed center total in the pie `series.label` makes it participate in slice hover state; keep fixed center totals in a static ECharts `graphic` layer instead. HTML tooltip placement over or near the donut may also interfere with hover hit testing; evaluate official `tooltip.position`, `confine`, and `renderMode` options without requiring Browser Skill-only workflows.
+- The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus a donut chart of per-account share. It is a library composition view, not a storage/disk-usage view.
+- **Settings charts stack:** Apache ECharts + `vue-echarts` (not hand-rolled SVG, not imperative `echarts.init` singletons).
+  - Register modules once in `packages/gui/src/charts/register.ts` (pie/bar/line + grid/tooltip/legend/dataset/dataZoom already registered for future settings widgets).
+  - Pure option builders live next to data helpers (`buildAccountShareChartOption` in `library-stats.ts`). Keep them free of DOM instances so `bun test` can cover them.
+  - UI shell: `AccountShareChart.vue` — `<VChart autoresize :option="…" />` with a **sibling** center overlay for totals (never pie `series.label`, which joins hover state).
+  - Tab switches / modal close unmount the component; `vue-echarts` disposes the instance. Do not reintroduce module-level chart handles.
+  - Prefer extending ECharts options (bar for scan history, line for trends) over adding a second chart library.
+  - **Pie motion:** quiet enter (`animationType: 'expansion'`, ~480ms) + short hover state (~180ms). Subtle `emphasis.scale` is OK with **`scaleSize ≤ 4`** if tooltip stays `pointer-events:none`, `enterable: false`, short `transitionDuration`, and tip parked off the wedge. Sibling dim: `focus: 'self'` + `blur.opacity ≈ 0.55`. Keep center totals as Vue overlay (keyed on metric for a soft re-fade).
+  - **Canvas color space:** ECharts draws with Canvas2D. Do **not** pass `oklch(...)`, `color-mix(...)`, or unresolved CSS variables into `option.color` / `itemStyle`. WebView2 may paint those as transparent (huge “missing” slice that still tooltips). Use hex/rgb palette (`CHART_PALETTE`) and canvas-safe token resolution.
 - Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the match-list header refresh button / settings full-scan action are the scan controls.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
 - Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库`, `日志`, and `关于`.
@@ -195,7 +216,7 @@ Account list uses a custom tooltip, not native `title=`.
 - Keep the modal at a fixed desktop size so page changes do not resize the window. Small viewports may clamp via max-width/max-height.
 - Escape and backdrop click close the modal; Tab focus must stay inside it while open.
 - Settings modal z-index is 1300, above event modals (1100) and the player (1200). Toasts sit above it so scan feedback remains visible.
-- Settings modal motion should stay quiet: short backdrop fade plus subtle translate/scale on the modal. Keep open/close around 120-170 ms and respect `prefers-reduced-motion`.
+- Settings modal motion should stay quiet: short backdrop fade plus subtle translate/scale on the modal. Keep open/close around 120-170 ms.
 
 ## Share ("快传") Modal
 
@@ -220,7 +241,7 @@ Account list uses a custom tooltip, not native `title=`.
   - Card: `170ms cubic-bezier(0.16, 1, 0.3, 1)`, `scale(0.96→1) translateY(8→0)` in; reverse on close
   - Status dot pulse: `1.2s ease-in-out infinite`, keyframe drives both `box-shadow` halo size and `transform: scale()` for a subtle breathing effect
   - Progress bar shimmer: `1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite`, `translateX(-100% → 250%)` — never animates `width`
-  - All motion respects `prefers-reduced-motion` (1 ms duration override)
+  - Motion is app-owned (not gated on OS `prefers-reduced-motion`)
 
 ## Date Range Picker
 
@@ -274,6 +295,8 @@ Icons come from @iconify/vue (Phosphor set), via the shared `WIcon` wrapper at `
 - Import `WIcon` from `../common/WIcon.vue` (or appropriate relative path).
 - Usage: `<WIcon icon="ph:play" :size="16" />` where `icon` is the full @iconify icon name and `size` maps to `width`/`height`.
 - Do NOT import raw lucide icons or use `createElement()` for SVG icons.
+- **Offline bundle (required for Tauri):** `main.ts` calls `registerAppIcons()` which loads a Phosphor subset from `packages/gui/src/icons/ph-local.ts` via `addCollection`. Without this, late-mounted UI (player controls, 快传 modal) fetches `api.iconify.design` and shows empty boxes when offline. When adding a new `ph:*` icon, append its name to `scripts/extract-ph-icons.mjs` and run `bun run --cwd packages/gui icons:extract`.
+- 快传 brand icon is always `SHARE_ICON` (`ph:share-network`) from `packages/gui/src/share/icons.ts`.
 - Do NOT use Unicode symbol glyphs for controls.
 
 Brand lockup:
@@ -350,17 +373,17 @@ Loading overlay:
 - Visibility uses `opacity: 0; pointer-events: none` instead of `display: none`. The element stays in the render tree so showing it during seek is instantaneous (no layout flash).
 - Seek-induced frame gaps are covered by `.player-video { background-color: #000 }`, not by the loading overlay. No JS timing involved.
 
-Context menu:
+Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 
-- Fixed-position custom `.player-context-menu`.
-- Items:
-  - 在系统播放器中打开
-  - 在资源管理器中打开
-  - 复制视频路径
-- Remove menu on outside click or Escape.
-- **Animation**: enter via `player-ctxmenu-in` (160 ms, `cubic-bezier(0.16, 1, 0.3, 1)`) and exit via `player-ctxmenu-out` (120 ms, `cubic-bezier(0.7, 0, 0.84, 0)`). Both reuse the `player-modal-in/-out` family of keyframes in the same file, keeping the motion vocabulary consistent. `v-show` + an `is-closing` class drives the exit; the element is fully hidden on `animationend` (filtered by `animationName === 'player-ctxmenu-out'`) with a 200 ms safety timeout. The global `prefers-reduced-motion` block in `assets/style.css` already collapses `animation-duration` to 1 ms.
-- **Outside-click contract**: register the doc listener on `mousedown` (capture phase) with `e.button === 0`, not on `click`. A right-click fires `mousedown → mouseup → click (button=2) → contextmenu` in that order — a `click` handler would race with the opening right-click and immediately close the menu. The `mousedown` capture with `button === 0` filter ignores the opening right-click and only acts on the next intentional left-click.
-- `onUnmounted` MUST remove both the `mousedown` (capture) and `keydown` listeners and clear the close-animation safety timer.
+- Fixed-position `.player-context-menu`, **Teleported** to `document.fullscreenElement` when fullscreen, otherwise `body` (menu must not stay a sibling of the fullscreen modal — it would be invisible).
+- Items (icons via `WIcon`): 系统播放器 / 资源管理器 / 复制路径 / **快传**. Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard).
+- Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`).
+- Close on: left mousedown outside, Escape (**menu first**, not the player), scroll, resize, fullscreenchange, video change, player close.
+- **Dismiss ≠ activate (click-through):** OS menus and major players treat the left-click that closes a context menu as dismiss-only. After outside `mousedown` closes the menu, arm a one-shot capture `click` killer + a short `suppressStageClickUntil` window so `.player-stage` does **not** `togglePlay` on that same gesture. Esc/scroll/resize closes do not need the guard.
+- **Animation**: `player-ctxmenu-in` 160 ms / `player-ctxmenu-out` 120 ms; `v-show` + `is-closing`; `animationend` filtered by `animationName === 'player-ctxmenu-out'`; 200 ms safety timeout.
+- **Outside-click contract**: document `mousedown` capture + `e.button === 0` only (never `click` — right-click race). Bind/unbind via a single `ctxMenuListenersBound` flag (idempotent; re-open must not stack listeners).
+- Light a11y: `role="menu"` / `menuitem`, focus first item on open, ↑↓/Home/End move focus.
+- Pure geometry tests: `packages/gui/test/context-menu.test.ts`.
 
 Volume:
 

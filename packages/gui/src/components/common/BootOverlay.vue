@@ -266,9 +266,4 @@ defineExpose({ start, update, complete, dispose });
   margin-top: 4px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .boot-progress-fill {
-    transition-duration: 1ms;
-  }
-}
 </style>

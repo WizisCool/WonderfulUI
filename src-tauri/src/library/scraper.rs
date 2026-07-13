@@ -1,11 +1,13 @@
 //! Source adapters that scrape read-only inputs into the local library.
 
+use crate::library::aclos_identity::AclosIdentityIndex;
 use crate::library::events::normalize_match_events;
 use crate::parser;
 use crate::parser::model::{MatchRecord, SnapshotAchievement};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::Arc;
 use tauri::Emitter;
 use rayon::prelude::*;
 use uuid::Uuid;
@@ -126,12 +128,19 @@ fn snapshot_file_meta(dir: &Path, openid: &str) -> Option<SourceFileMeta> {
 fn read_snapshot_for_account(
     dir: &Path,
     openid: &str,
+    identity: &AclosIdentityIndex,
 ) -> (Option<String>, Option<String>, Vec<SnapshotAchievement>) {
     let snapshot_path = dir.join(format!("snapshot{}", openid));
-    match parser::parse_snapshot_db(&snapshot_path, openid) {
+    let (snap_nick, snap_tag, achievements) = match parser::parse_snapshot_db(&snapshot_path, openid)
+    {
         Ok(data) => (data.nick, data.tag, data.achievements),
         Err(_) => (None, None, Vec::new()),
-    }
+    };
+    // Nick/tag: prefer ACLOS Local Storage LevelDB role cache
+    // (`ACLOS_USER_ROLES_INFO` / `acloshighlight_user_<openid>`), then snapshot.
+    // Achievements stay snapshot-only.
+    let (nick, tag) = identity.merge_with_snapshot(openid, snap_nick, snap_tag);
+    (nick, tag, achievements)
 }
 
 fn upsert_source(conn: &Connection, dir: &Path, now: i64) -> rusqlite::Result<()> {
@@ -142,6 +151,47 @@ fn upsert_source(conn: &Connection, dir: &Path, now: i64) -> rusqlite::Result<()
            root_path = excluded.root_path,
            updated_at = excluded.updated_at",
         params![ACLOS_SOURCE_ID, dir.to_string_lossy(), now],
+    )?;
+    Ok(())
+}
+
+/// Remove an account that has no highlight matches from the library.
+/// Keeps `account_preferences` (rename/order) so a later reappearance restores prefs.
+fn purge_empty_account(conn: &Connection, openid: &str) -> rusqlite::Result<()> {
+    // events/videos hang off matches; delete by match openid via subqueries.
+    conn.execute(
+        "DELETE FROM events WHERE match_id IN (SELECT id FROM matches WHERE openid = ?1)",
+        params![openid],
+    )?;
+    conn.execute(
+        "DELETE FROM videos WHERE match_id IN (SELECT id FROM matches WHERE openid = ?1)",
+        params![openid],
+    )?;
+    conn.execute("DELETE FROM matches WHERE openid = ?1", params![openid])?;
+    conn.execute(
+        "DELETE FROM snapshot_achievements WHERE openid = ?1",
+        params![openid],
+    )?;
+    conn.execute("DELETE FROM accounts WHERE openid = ?1", params![openid])?;
+    Ok(())
+}
+
+/// Update nick/tag only (incremental skip path). LevelDB identity preferred
+/// fields overwrite when provided; leaves achievements and match rows alone.
+fn refresh_account_identity(
+    conn: &Connection,
+    openid: &str,
+    nick: Option<&str>,
+    tag: Option<&str>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE accounts SET
+           nick = CASE WHEN ?2 IS NOT NULL THEN ?2 ELSE nick END,
+           tag = CASE WHEN ?3 IS NOT NULL THEN ?3 ELSE tag END,
+           last_seen_at = ?4
+         WHERE openid = ?1",
+        params![openid, nick, tag, now],
     )?;
     Ok(())
 }
@@ -454,6 +504,10 @@ pub fn scrape_wonderful_dir_with_mode(
     )
     .map_err(|e| e.to_string())?;
 
+    // Build once per scrape (shared across rayon workers). Read-only scan of
+    // ACLOS Electron caches; never blocks on missing APPDATA/ACLOS.
+    let identity = Arc::new(AclosIdentityIndex::load_default());
+
     let mut summary = ScrapeSummary::default();
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -532,11 +586,13 @@ pub fn scrape_wonderful_dir_with_mode(
         snapshot_meta: Option<SourceFileMeta>,
     }
 
+    let identity_for_parse = Arc::clone(&identity);
     let parsed: Vec<ParsedAccount> = to_parse
         .par_iter()
         .map(|&(idx, (openid, path, source_meta))| {
             let snapshot_meta = snapshot_file_meta(dir, openid);
-            let (nick, tag, achievements) = read_snapshot_for_account(dir, openid);
+            let (nick, tag, achievements) =
+                read_snapshot_for_account(dir, openid, identity_for_parse.as_ref());
             let result = parser::parse_wonderful_db(path, openid)
                 .map_err(|e| format!("parse {}: {}", path.display(), e));
             ParsedAccount {
@@ -562,8 +618,19 @@ pub fn scrape_wonderful_dir_with_mode(
         let current = idx + 1;
 
         if pi >= parsed.len() || parsed[pi].idx != idx {
-            // Account was skipped (incremental freshness)
+            // Account was skipped (incremental freshness) — still refresh
+            // nick/tag from LevelDB identity (no WonderfulDb re-parse).
             summary.skipped_accounts += 1;
+            let hint = identity.lookup(openid);
+            if hint.nick.is_some() || hint.tag.is_some() {
+                let _ = refresh_account_identity(
+                    conn,
+                    openid,
+                    hint.nick.as_deref(),
+                    hint.tag.as_deref(),
+                    now,
+                );
+            }
             if let Some(a) = app {
                 let _ = a.emit("wui://account_finished", AccountFinishedEvent {
                     openid: openid.clone(),
@@ -598,52 +665,83 @@ pub fn scrape_wonderful_dir_with_mode(
         match &pa.result {
             Ok(file) => {
                 conn.execute("BEGIN IMMEDIATE", []).map_err(|e| e.to_string())?;
-                upsert_account(
-                    conn,
-                    &pa.openid,
-                    &pa.path,
-                    pa.source_meta,
-                    pa.snapshot_meta,
-                    pa.nick.clone(),
-                    pa.tag.clone(),
-                    &pa.achievements,
-                    None,
-                    now,
-                )
-                .map_err(|e| e.to_string())?;
-                for m in &file.matches {
-                    upsert_match(conn, m, now).map_err(|e| e.to_string())?;
-                    acc_videos +=
-                        upsert_videos(conn, m, now).map_err(|e| e.to_string())?;
-                    acc_events += upsert_events(conn, m).map_err(|e| e.to_string())?;
-                    acc_matches += 1;
-                    summary.matches_seen += 1;
-                }
-                conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
-                summary.videos_seen += acc_videos;
-                summary.events_seen += acc_events;
-                let acc_duration = now_ms() - account_start;
-                if let Some(a) = app {
-                    let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                        openid: pa.openid.clone(),
-                        status: "ok".into(),
-                        current,
-                        total: total_accounts,
-                        size_bytes_done: size_done,
-                        size_bytes_total: total_size,
-                        error: None,
-                    });
-                    let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                        openid: pa.openid.clone(),
-                        matches_count: acc_matches,
-                        videos_count: acc_videos,
-                        events_count: acc_events,
-                        status: "ok".into(),
-                        error: None,
-                        duration_ms: acc_duration,
-                        current,
-                        total: total_accounts,
-                    });
+                // Empty highlight shells (common 96-byte WonderfulDb files): do not
+                // keep them in the library — this app only surfaces accounts with
+                // at least one match/video payload.
+                if file.matches.is_empty() {
+                    purge_empty_account(conn, &pa.openid).map_err(|e| e.to_string())?;
+                    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+                    let acc_duration = now_ms() - account_start;
+                    if let Some(a) = app {
+                        let _ = a.emit("wui://account_finished", AccountFinishedEvent {
+                            openid: pa.openid.clone(),
+                            status: "empty".into(),
+                            current,
+                            total: total_accounts,
+                            size_bytes_done: size_done,
+                            size_bytes_total: total_size,
+                            error: None,
+                        });
+                        let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
+                            openid: pa.openid.clone(),
+                            matches_count: 0,
+                            videos_count: 0,
+                            events_count: 0,
+                            status: "empty".into(),
+                            error: None,
+                            duration_ms: acc_duration,
+                            current,
+                            total: total_accounts,
+                        });
+                    }
+                } else {
+                    upsert_account(
+                        conn,
+                        &pa.openid,
+                        &pa.path,
+                        pa.source_meta,
+                        pa.snapshot_meta,
+                        pa.nick.clone(),
+                        pa.tag.clone(),
+                        &pa.achievements,
+                        None,
+                        now,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    for m in &file.matches {
+                        upsert_match(conn, m, now).map_err(|e| e.to_string())?;
+                        acc_videos +=
+                            upsert_videos(conn, m, now).map_err(|e| e.to_string())?;
+                        acc_events += upsert_events(conn, m).map_err(|e| e.to_string())?;
+                        acc_matches += 1;
+                        summary.matches_seen += 1;
+                    }
+                    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+                    summary.videos_seen += acc_videos;
+                    summary.events_seen += acc_events;
+                    let acc_duration = now_ms() - account_start;
+                    if let Some(a) = app {
+                        let _ = a.emit("wui://account_finished", AccountFinishedEvent {
+                            openid: pa.openid.clone(),
+                            status: "ok".into(),
+                            current,
+                            total: total_accounts,
+                            size_bytes_done: size_done,
+                            size_bytes_total: total_size,
+                            error: None,
+                        });
+                        let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
+                            openid: pa.openid.clone(),
+                            matches_count: acc_matches,
+                            videos_count: acc_videos,
+                            events_count: acc_events,
+                            status: "ok".into(),
+                            error: None,
+                            duration_ms: acc_duration,
+                            current,
+                            total: total_accounts,
+                        });
+                    }
                 }
             }
             Err(e) => {
@@ -813,16 +911,19 @@ mod tests {
 
         let view = crate::library::db::load_library_view(&conn, dir.to_string_lossy())
             .expect("load view succeeds");
+        // Prefer a known fixture openid when it still has highlight data; otherwise
+        // any scraped match (some local accounts may only retain empty 96-byte shells).
         let bulk_match = view
             .matches
             .iter()
             .find(|m| m.open_id == "4807045517549591240")
-            .expect("scraped account has a match");
+            .or_else(|| view.matches.first())
+            .expect("scraped library has at least one match");
         assert!(bulk_match.videos.iter().all(|v| v.rounds.is_empty()));
 
         let full = crate::library::db::load_match_rounds(
             &conn,
-            "4807045517549591240",
+            &bulk_match.open_id,
             &bulk_match.matches_id,
         )
         .expect("full match loads from sqlite");

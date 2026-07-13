@@ -1,21 +1,43 @@
 /**
  * pure functions for filter state, matching, and persistence.
+ *
+ * Map/agent labels & image URLs are dispatched only via valorant-assets.ts
+ * (resolveMatch*). Re-exports keep existing import sites stable.
  */
 import type { MatchRecord } from '@wonderful-ui/parser';
+import {
+  lookupMapAsset,
+  resolveMatchAgentLabel,
+  resolveMatchHeroImage,
+  resolveMatchMapImage,
+  resolveMatchMapLabel,
+} from './valorant-assets.ts';
 
 // ─── display-name helpers ─────────────────────────────────
 
 export function fmtMap(mapId: string): string {
+  const asset = lookupMapAsset(mapId);
+  if (asset) return asset.cn;
   const parts = mapId.split('/');
   return parts[parts.length - 1] ?? mapId;
 }
 
 export function agentCn(m: MatchRecord): string {
-  return (m.career?.hero_name as string) || m.agent.agent_name;
+  return resolveMatchAgentLabel(m);
 }
 
 export function mapCn(m: MatchRecord): string {
-  return (m.career?.map_name as string) || fmtMap(m.map.map_id);
+  return resolveMatchMapLabel(m);
+}
+
+/** Remote map cover URL (career → table). Prefer resolveMatchMapImage in new code. */
+export function mapImageUrl(m: MatchRecord): string | undefined {
+  return resolveMatchMapImage(m);
+}
+
+/** Remote hero portrait URL (career → table). Prefer resolveMatchHeroImage in new code. */
+export function heroImageUrl(m: MatchRecord): string | undefined {
+  return resolveMatchHeroImage(m);
 }
 
 export function modeCn(m: MatchRecord): string {

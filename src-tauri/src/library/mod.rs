@@ -1,3 +1,4 @@
+pub mod aclos_identity;
 pub mod db;
 pub mod events;
 pub mod model;

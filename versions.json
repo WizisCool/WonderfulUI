@@ -1,6 +1,6 @@
 {
   "$schema": "https://example.com/wonderful-ui/versions.schema.json",
-  "current": "0.1.6",
+  "current": "0.1.7",
   "min_supported": "0.1.0",
   "releases": {
     "v0.1.0": {
@@ -79,6 +79,18 @@
       "tag": "v0.1.6",
       "date": "2026-07-14",
       "notes": "- 修复更新弹窗主按钮样式，以及检查失败时「重试」误走下载的路径\n- 启动发现新版本时轻提示；侧栏设置齿轮 / 版本号可直达更新弹窗\n- 增加 checking 状态；下载体积未知时使用 indeterminate 进度\n- check-versions 拦截 localhost / 非 HTTPS endpoint；release 校验 latest.json\n- 同步 UPDATER / VERSIONING / AGENT_WORKFLOW 文档与已落地行为",
+      "min_supported_version": "0.1.0",
+      "assets": {
+        "windows-x86_64": {
+          "url": "",
+          "signature": ""
+        }
+      }
+    },
+    "v0.1.7": {
+      "tag": "v0.1.7",
+      "date": "2026-07-13",
+      "notes": "- 资料库：LevelDB 优先昵称、隐藏 0 对局空壳账号、解析失败账号仍可见\n- 地图/特工：统一远程资源解析与本地缓存；国服特殊模式地图名（渔市/商街等）\n- 设置概览：ECharts+vue-echarts 环形图（canvas 安全色、防闪烁、克制动效）\n- 播放器右键菜单：全屏/Esc/定位/错误提示/快传入口；关菜单不误触播放\n- 图标：本地 Phosphor 子集离线注册；快传图标统一 share-network\n- 动效：不跟随 Windows「动画效果」系统设置\n- 测试：夹具断言适配本地 ACLOS 数据漂移",
       "min_supported_version": "0.1.0",
       "assets": {
         "windows-x86_64": {

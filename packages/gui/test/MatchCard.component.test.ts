@@ -22,9 +22,14 @@ function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
   } as MatchRecord;
 }
 
-function mountCard(match: MatchRecord, accountLabel = 'test', isSelected = false) {
+function mountCard(
+  match: MatchRecord,
+  accountLabel = 'test',
+  isSelected = false,
+  isFocused = false,
+) {
   return mount(MatchCard, {
-    props: { match, isSelected, accountLabel },
+    props: { match, isSelected, isFocused, accountLabel },
     global: {
       plugins: [createTestingPinia({
         createSpy: vi.fn,
@@ -33,6 +38,7 @@ function mountCard(match: MatchRecord, accountLabel = 'test', isSelected = false
           account: {
             accounts: [],
             assetPathCache: new Map(),
+            matchAchievements: new Map(),
           },
         },
       })],
@@ -119,12 +125,27 @@ describe('MatchCard', () => {
   });
 
   test('shows map fallback when no image available', () => {
-    const wrapper = mountCard(mkMatch());
+    // Unknown map_id + empty career → no CDN/career URL → cover fallback glyph.
+    const wrapper = mountCard(mkMatch({
+      map: { map_id: '/Game/Maps/DoesNotExist/Nope' },
+      career: { hero_name: '黑梦', map_name: '', map_image: '', hero_image: '' },
+    }));
     expect(wrapper.find('.cover-bg-fallback').exists()).toBe(true);
   });
 
   test('has data-match-id attribute', () => {
     const wrapper = mountCard(mkMatch({ matches_id: 'abc-123' }));
     expect(wrapper.find('.match-row').attributes('data-match-id')).toBe('abc-123');
+  });
+
+  test('exposes stable option id for aria-activedescendant', () => {
+    const wrapper = mountCard(mkMatch({ matches_id: 'abc-123' }));
+    expect(wrapper.find('.match-row').attributes('id')).toBe('wui-match-opt-abc-123');
+    expect(wrapper.find('.match-row').attributes('tabindex')).toBe('-1');
+  });
+
+  test('is-focused paints keyboard active class', () => {
+    const wrapper = mountCard(mkMatch(), 'test', false, true);
+    expect(wrapper.find('.match-row').classes()).toContain('is-focused');
   });
 });

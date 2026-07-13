@@ -99,7 +99,7 @@ WonderfulUI is a private Valorant highlights library. It feels like opening a pe
 
 The palette is deep warm dark, tinted a few degrees toward red. A single saturated accent (Signal Red, the Valorant red) marks selection, focus, and primary action. It appears on less than 8% of the surface; its rarity is the point. Neutral layers carry the structure: four surface depths distinguished purely by lightness, no shadows. The result reads as a dark-room archive, not a dashboard.
 
-This system explicitly rejects AI-SaaS clichés (purple-blue gradients, glassmorphism defaults, hero-metric templates), Windows Explorer utilitarianism (gray panels, 8px grids, sharp borders), and Steam/Epic marketplace patterns (purchase buttons, ratings, wishlists). It also rejects decorative motion: transitions are short (80–100 ms), convey only state change, and collapse to instant under `prefers-reduced-motion`.
+This system explicitly rejects AI-SaaS clichés (purple-blue gradients, glassmorphism defaults, hero-metric templates), Windows Explorer utilitarianism (gray panels, 8px grids, sharp borders), and Steam/Epic marketplace patterns (purchase buttons, ratings, wishlists). It also rejects decorative motion: transitions are short (80–100 ms) and convey only state change. Motion is **app-owned** — do not gate UI transitions on OS `prefers-reduced-motion` (Windows Accessibility "动画效果"); that setting targets shell chrome, and honoring it forced every component to maintain reduce overrides.
 
 **Key Characteristics:**
 - Dark warm-gray foundation with a single Valorant-red accent at ≤8% surface coverage.
@@ -235,7 +235,7 @@ Custom fixed-position tooltip replacing native `title=` bubbles:
 - **Smart positioning** via `@floating-ui/dom`: flipped to the best available side (top/bottom/left/right) with viewport edge detection.
 - **Cursor tracking**: the tooltip's horizontal axis tracks the mouse X inside the target, so it feels connected without jittery full tracking.
 - **Arrow indicator**: 8×8 ⬥ on the edge facing the anchor, matching background and border.
-- **Entrance**: 80ms `cubic-bezier(0.16, 1, 0.3, 1)` scale(0.96→1) with opacity fade; collapses to instant under `prefers-reduced-motion: reduce`.
+- **Entrance**: 80ms `cubic-bezier(0.16, 1, 0.3, 1)` scale(0.96→1) with opacity fade.
 
 ### Toast
 Bottom-center notification bar:
@@ -267,8 +267,7 @@ also lives here and should use a restrained outline/ghost button, not a full
 red primary button.
 
 **Motion:** 120-170ms fade/translate/scale only. The effect should make the
-modal feel responsive, not decorative. Collapse to near-instant under
-`prefers-reduced-motion`.
+modal feel responsive, not decorative. App-owned — not gated on OS reduced-motion.
 
 **Z-axis:** Above event modals and the player; toasts remain above settings so
 scan feedback is visible.
@@ -277,11 +276,11 @@ scan feedback is visible.
 
 The PlayerModal is the primary justified modal — video playback requires focused viewing, unobtrusive controls, and cursor-aware features (right-click context menu). It replaces the system default player as the primary playback path while keeping the system player accessible via right-click fallback.
 
-**Shape:** 16:9 modal centered on an opaque 70% black backdrop. Max 80vw × 80vh. Panel Top (`--surface-3`) background, 1px Line border, 10px (`--radius-lg`) radius. **No box-shadow, no backdrop-filter blur.** Entrance: 260ms ease-out opacity + scale(0.96→1); exit: 140ms ease-in reverse. Both collapse to instant under `prefers-reduced-motion`.
+**Shape:** 16:9 modal centered on an opaque 70% black backdrop. Max 80vw × 80vh. Panel Top (`--surface-3`) background, 1px Line border, 10px (`--radius-lg`) radius. **No box-shadow, no backdrop-filter blur.** Entrance: 260ms ease-out opacity + scale(0.96→1); exit: 140ms ease-in reverse.
 
 **Stage:** 16:9 video container. `<video>` element uses `object-fit: fill` to stretch 4:3 ACLOS source (1440×1080 @ 60 fps H.264) to fill the 16:9 frame.
 
-**Controls bar:** Absolute bottom, gradient overlay (opaque at bottom, transparent at top). 3s auto-hide when playing (YouTube-style); always visible when paused or on hover. Fade transition: 200ms ease-out on opacity; collapsed to ≤1ms under `prefers-reduced-motion`.
+**Controls bar:** Absolute bottom, gradient overlay (opaque at bottom, transparent at top). 3s auto-hide when playing (YouTube-style); always visible when paused or on hover. Fade transition: 200ms ease-out on opacity.
 
 **Control row (left to right):** Play/Pause (32x32 icon button) - Progress bar (Panel background, Signal Red fill, 8px thumb) - Time display (JetBrains Mono 12px) - Volume (32x32 icon button + 60x4px slider, localStorage-persisted) - Explorer button (32x32) - Share placeholder (disabled) - Fullscreen (32x32 icon button, Maximize2/Minimize2).
 
@@ -312,7 +311,7 @@ The PlayerModal is the primary justified modal — video playback requires focus
 - **Do** convey depth through tonal layers (Bunker → Panel → Panel Raised → Panel Top). Shadows only on tooltips and toasts.
 - **Do** deliver win/loss as icon + color together. The W/L letter in the result pill is the color-blind-safe fallback.
 - **Do** use 80–100ms ease-out transitions for state changes. No choreography, no staggered reveals.
-- **Do** collapse all motion to ≤1ms under `prefers-reduced-motion: reduce`.
+- **Do** keep motion app-owned: do not add `@media (prefers-reduced-motion)` overrides or gate JS animation on the OS setting (Windows "动画效果"). Prefer short durations over dual code paths.
 - **Do** use MiSans for all UI text; JetBrains Mono for KDA, timestamps, and codes.
 - **Do** keep line length ≤75ch for prose. Data rows and tables may run wider.
 - **Do** respect the weight tokens: `var(--w-medium)` (380), `var(--w-semibold)` (520), `var(--w-bold)` (630).

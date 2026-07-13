@@ -19,6 +19,12 @@ Every change must preserve the project safety boundary:
 - Treat ACLOS `WonderfulDb` and `snapshot<openid>` files as read-only source
   data.
 - Keep production paths portable; do not commit user-specific absolute paths.
+- **Do not hard-code machine-local identity or paths as “fixes”.** Real openids,
+  nicks, tags, match ids, or `D:\`/`Z:\` paths that only exist on the current
+  developer PC must not appear in production code as special cases. Ship
+  generic parsers and fallbacks only. Optional fixture openids in tests that
+  skip when missing are fine; `if (thisAccount) showThisName` is not.
+  See `CLAUDE.md` § No Machine-Local Hardcoding.
 
 Work from the current worktree, not memory. Start each task with:
 
@@ -54,7 +60,9 @@ Use this loop for new features, bug fixes, UI polish, and refactors:
 2. Reproduce or specify -> verify: failing test, visible symptom, or concrete acceptance criteria
 3. Implement surgically -> verify: changed lines map to the request
 4. Run checks -> verify: smallest relevant set first, broader checks before release-impacting work
-5. Review diff -> verify: no generated files, unrelated cleanup, secrets, or user-specific paths
+5. Review diff -> verify: no generated files, unrelated cleanup, secrets,
+   user-specific absolute paths, or hard-coded openid/nick/tag “fixes” for
+   one machine
 6. Commit or hand off -> verify: local checks are recorded, optional remote checks only when useful
 ```
 

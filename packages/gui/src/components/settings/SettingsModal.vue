@@ -131,21 +131,11 @@
                 v-motion
                 :initial="{ opacity: 0, scale: 0.96 }"
                 :enter="{ opacity: 1, scale: 1, transition: { delay: 180, duration: 300 } }"
-                class="stats-video-chart"
-                id="stats-account-video-chart"
-                ref="chartRef"
-                role="img"
-                :aria-label="chartAriaLabel"
               >
-                <div class="stats-video-chart-center" aria-hidden="true">
-                  <template v-if="chartOverlay.total > 0">
-                    <span class="stats-video-chart-center-number">{{ chartOverlay.total }}</span>
-                    <span class="stats-video-chart-center-label">{{ chartOverlay.label }}</span>
-                  </template>
-                  <template v-else>
-                    <span class="stats-video-chart-center-empty">{{ chartOverlay.emptyLabel }}</span>
-                  </template>
-                </div>
+                <AccountShareChart
+                  :accounts="statsData.accounts"
+                  :metric="settings.chartMetric"
+                />
               </div>
             </div>
             <div v-if="chartNotices.length > 0" class="stats-video-notice">
@@ -286,8 +276,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { computed, ref, watch, onMounted, nextTick } from 'vue';
 import WIcon from '../common/WIcon.vue';
+import AccountShareChart from './AccountShareChart.vue';
 import { useAccountStore } from '../../stores/account.ts';
 import { useFilterStore } from '../../stores/filter.ts';
 import { useSettingsStore } from '../../stores/settings.ts';
@@ -295,7 +286,7 @@ import { useUiStore } from '../../stores/ui.ts';
 import { useUpdateStore } from '../../stores/update.ts';
 import { invoke } from '../../tauri-adapter.ts';
 import { APP_VERSION } from '../../utils/version.ts';
-import { fmtBytes, CHART_METRIC_LABELS, CHART_METRIC_EMPTY, mountAccountVideoChart, disposeAccountVideoChart } from '../../utils/library-stats.ts';
+import { fmtBytes } from '../../utils/library-stats.ts';
 import type { LibraryStats } from '../../utils/library-stats.ts';
 
 const account = useAccountStore();
@@ -306,23 +297,11 @@ const update = useUpdateStore();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 
-const chartRef = ref<HTMLElement | null>(null);
-
-const chartOverlay = ref<{ total: number; label: string; emptyLabel: string }>({
-  total: 0,
-  label: CHART_METRIC_LABELS.video,
-  emptyLabel: CHART_METRIC_EMPTY.video,
-});
-
 const statsData = computed<LibraryStats | null>(() => settings.statsData);
 const statsError = computed(() => settings.statsError);
 
 const statsTotalMatches = computed(() =>
   (statsData.value?.accounts ?? []).reduce((sum, a) => sum + a.matchCount, 0)
-);
-
-const chartAriaLabel = computed(() =>
-  `按账号展示${CHART_METRIC_LABELS[settings.chartMetric]}数量占比的饼图`
 );
 
 const chartNotices = computed(() => {
@@ -442,23 +421,6 @@ watch(() => settings.activeTab, (tab) => {
   if (tab === 'logs') {
     settings.fetchLogs();
   }
-});
-
-watch([statsData, () => settings.chartMetric], () => {
-  // flush: 'post' + immediate: chartRef is always populated when
-  // this runs.  On first render with cached Pinia state the v-else
-  // block that contains chartRef already rendered; on first-ever
-  // open (statsData=null) fetchLibraryStats sets it later and this
-  // fires again after the re-render.
-  nextTick(() => {
-    if (chartRef.value && statsData.value) {
-      chartOverlay.value = mountAccountVideoChart(chartRef.value, statsData.value, settings.chartMetric);
-    }
-  });
-}, { flush: 'post', immediate: true });
-
-onUnmounted(() => {
-  disposeAccountVideoChart();
 });
 </script>
 
@@ -924,51 +886,6 @@ onUnmounted(() => {
   color: var(--ink-3);
   font-size: 11px;
 }
-.stats-video-chart {
-  position: relative;
-  width: 100%;
-  height: 224px;
-  min-height: 224px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: color-mix(in oklch, var(--bg), transparent 38%);
-}
-.stats-video-chart svg path {
-  transition: opacity 100ms ease-out;
-  cursor: pointer;
-}
-.stats-video-chart svg path:hover {
-  opacity: 0.75;
-}
-.stats-video-chart-center {
-  position: absolute;
-  left: 35%;
-  top: 51%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  pointer-events: none;
-  text-align: center;
-  line-height: 1.1;
-}
-.stats-video-chart-center-number {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: var(--w-semibold);
-  color: var(--ink);
-}
-.stats-video-chart-center-label {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--ink-2);
-}
-.stats-video-chart-center-empty {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--ink-3);
-}
 .stats-video-notice {
   display: flex;
   align-items: center;
@@ -995,22 +912,6 @@ onUnmounted(() => {
 @media (max-width: 760px) {
   .stats-video-summary {
     grid-template-columns: 1fr;
-  }
-  .stats-video-chart {
-    height: 280px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .settings-action.is-loading svg {
-    animation-duration: 1ms;
-    animation-iteration-count: 1;
-  }
-  .settings-nav-item,
-  .settings-row,
-  .settings-action,
-  .settings-segment-btn {
-    transition-duration: 1ms;
   }
 }
 

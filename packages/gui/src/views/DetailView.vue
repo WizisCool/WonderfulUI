@@ -198,6 +198,7 @@ import { useAccountStore } from '../stores/account.ts';
 import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
 import { agentCn, mapCn, modeCn, fmtScore, kdaRatio, fmtMatchDuration } from '../utils/filters.ts';
+import { resolveMatchAssetSrc } from '../utils/valorant-assets.ts';
 import { normalizeMatchEvents, type NormalizedMatchEvent } from '../utils/match-events.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 import EventListModal from '../components/event/EventListModal.vue';
@@ -259,21 +260,17 @@ const heroHue = computed(() => {
   return String(hue);
 });
 
-const heroSrc = computed(() => {
-  if (!match.value || heroFailed.value) return null;
-  const url = match.value.career?.hero_image as string | undefined;
-  if (!url) return null;
-  const local = account.assetPathCache.get(url);
-  return local ? convertFileSrc(local) : null;
-});
+const heroSrc = computed(() =>
+  match.value
+    ? resolveMatchAssetSrc(match.value, 'hero_image', account.assetPathCache, convertFileSrc, heroFailed.value)
+    : null,
+);
 
-const modeIconSrc = computed(() => {
-  if (!match.value || modeIconFailed.value) return null;
-  const url = match.value.career?.game_mode_icon;
-  if (typeof url !== 'string' || !url) return null;
-  const local = account.assetPathCache.get(url);
-  return local ? convertFileSrc(local) : url;
-});
+const modeIconSrc = computed(() =>
+  match.value
+    ? resolveMatchAssetSrc(match.value, 'game_mode_icon', account.assetPathCache, convertFileSrc, modeIconFailed.value)
+    : null,
+);
 
 const montages = computed(() =>
   match.value ? match.value.videos.filter(v => MONTAGE_TYPES.has(v.video_type)) : []

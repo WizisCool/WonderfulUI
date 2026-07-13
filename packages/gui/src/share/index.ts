@@ -52,3 +52,4 @@ export function openShareMenu(
 }
 
 export type { ShareContext, ShareResult, SharePlatform } from './types.ts';
+export { SHARE_ICON, SHARE_ICON_SIZE } from './icons.ts';

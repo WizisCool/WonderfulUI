@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   EMPTY_FILTERS, activeFilterCount,
   FilterState, kdaOf, kdOf, matchDurationSec, normalizeVisibleFilters, videoTotalDuration,
+  agentCn, mapCn, mapImageUrl, heroImageUrl, fmtMap,
 } from '../src/utils/filters.ts';
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
 import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
@@ -324,5 +325,47 @@ describe('fuse.js text search', () => {
   test('empty query returns all', () => {
     const fs: FilterState = { ...EMPTY_FILTERS, query: '' };
     expect(applyFilters(all, fs).length).toBe(3);
+  });
+});
+
+describe('career-missing map/agent fallbacks', () => {
+  test('mapCn/fmtMap resolve Skirmish_A and RangeV2', () => {
+    expect(fmtMap('/Game/Maps/Duel/Duel_1/Skirmish_A')).toBe('斗牛 1');
+    expect(fmtMap('/Game/Maps/Duel/Duel_Heady/Skirmish_E')).toBe('斗牛 5');
+    expect(fmtMap('/Game/Maps/PovegliaV2/RangeV2')).toBe('训练场');
+    expect(fmtMap('/Game/Maps/HURM/HURM_Helix/HURM_Helix')).toBe('渔市');
+    expect(fmtMap('/Game/Maps/HURM/HURM_Alley/HURM_Alley')).toBe('商街');
+    expect(fmtMap('/Game/Maps/HURM/HURM_Bowl/HURM_Bowl')).toBe('古城');
+    expect(fmtMap('/Game/Maps/HURM/HURM_Yard/HURM_Yard')).toBe('小镇');
+    expect(fmtMap('/Game/Maps/HURM/HURM_HighTide/HURM_HighTide')).toBe('乱次元');
+  });
+
+  test('agentCn falls back to CN when career.hero_name empty', () => {
+    const m = mkMatch({
+      agent: { agent_id: 'x', agent_name: 'Jett' },
+      career: { hero_name: '', map_name: '', map_image: '', hero_image: '' },
+      map: { map_id: '/Game/Maps/Duel/Duel_1/Skirmish_A' },
+    });
+    expect(agentCn(m)).toBe('捷风');
+    expect(mapCn(m)).toBe('斗牛 1');
+    expect(heroImageUrl(m)).toContain('headicon');
+    expect(mapImageUrl(m)).toContain('skirmish_a');
+  });
+
+  test('career values win for text and images when present', () => {
+    const m = mkMatch({
+      agent: { agent_id: 'x', agent_name: 'Jett' },
+      career: {
+        hero_name: '自定义',
+        map_name: '自定义图',
+        map_image: 'https://example.com/m.png',
+        hero_image: 'https://example.com/h.png',
+      },
+      map: { map_id: '/Game/Maps/Ascent/Ascent' },
+    });
+    expect(agentCn(m)).toBe('自定义');
+    expect(mapCn(m)).toBe('自定义图');
+    expect(mapImageUrl(m)).toBe('https://example.com/m.png');
+    expect(heroImageUrl(m)).toBe('https://example.com/h.png');
   });
 });

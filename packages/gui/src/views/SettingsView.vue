@@ -96,15 +96,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true));
   to   { opacity: 0; transform: translateY(4px) scale(0.99); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .settings-modal-backdrop,
-  .settings-modal-backdrop.is-closing,
-  .settings-modal,
-  .settings-modal-backdrop.is-closing .settings-modal {
-    animation-duration: 1ms;
-  }
-}
-
 @media (max-width: 760px) {
   .settings-modal-backdrop { padding: 12px; }
   .settings-modal {

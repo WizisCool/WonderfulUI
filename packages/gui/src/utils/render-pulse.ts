@@ -6,9 +6,9 @@ let pulseElement: HTMLElement | null = null;
 let activeAnimation: Animation | null = null;
 
 function shouldPulse(): boolean {
-  return typeof window !== 'undefined'
-    && !!document.body
-    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Always pulse when DOM is ready — do not gate on OS prefers-reduced-motion
+  // (Windows "动画效果" would otherwise skip the WebView2 compositor kick).
+  return typeof window !== 'undefined' && !!document.body;
 }
 
 function pulseDuration(durationMs: number): number {

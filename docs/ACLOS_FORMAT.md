@@ -24,7 +24,7 @@ The snapshot file is optional. Missing, empty, corrupt, or undecryptable snapsho
 
 ## Portability Contract
 
-Production code must not hard-code user-specific paths.
+Production code must not hard-code user-specific paths **or per-machine identity**.
 
 - Default `WonderfulDb` directory is derived from `process.env.USERPROFILE ?? process.env.HOME`.
 - CLI `scan` and `show` accept an explicit `<path-to-db>` argument.
@@ -32,6 +32,9 @@ Production code must not hard-code user-specific paths.
 - ACLOS is Windows-only, so this app targets Windows.
 - Non-default ACLOS layouts require the user to choose the directory manually.
 - Video paths are stored by ACLOS inside the JSON. The app displays and opens them as-is; it does not rewrite `Z:\...` or local paths.
+- Do **not** commit openid → nick maps, special cases for one PC’s accounts, or
+  absolute media roots as product logic. Nickname resolution must stay format-
+  driven (snapshot fields, generic ACLOS cache/log heuristics, user rename).
 
 ## Known Local Paths
 
@@ -46,7 +49,9 @@ These are based on the default ACLOS installation.
 | asar package | `<ACLOS install dir>\ACLOS\Launcher\resources\app.asar` |
 | ACLOS debug log | `%AppData%\Roaming\ACLOS\logs\highlight.log` |
 
-Known account IDs from local fixtures:
+Known account IDs below are **optional local fixtures** for developer machines
+that happen to have those WonderfulDb files (tests skip if absent). They are
+**not** product constants and must not be special-cased in release code:
 
 - `4807045517549591240`
 - `14121192131852595386`
@@ -64,33 +69,63 @@ Known account IDs from local fixtures:
 
 ## Snapshot Nicknames
 
-Player display names come from `snapshot<openid>`, not from the wonderful-list file.
+Player display names come **primarily** from `snapshot<openid>`, not from the wonderful-list file.
 
 - Top-level snapshot key shape: `key_snapshot_list<openid>`.
 - Useful fields:
   - `snapshot.ss_nick` - display name.
   - `snapshot.ss_nick_id` - tag / number.
+- Nick/tag selection: prefer the record with the latest `matches_time` (fallback `ss_time`) that carries those fields — not first-wins — so renames surface correctly.
 - Display format: `Nick#Tag` when both exist, otherwise `Nick`.
-- If no nickname metadata is available, GUI uses `未知账户#N`, where `N` is the 1-based rank among nameless accounts in the current scan.
+- If no nickname metadata is available after snapshot + fallback, GUI uses `未知账户#N`, where `N` is the 1-based rank among nameless accounts in the current scan.
 - The raw openid remains available in account-row tooltip text.
 
 Both TS and Rust snapshot parsers should return empty nickname metadata on corrupt hex, decrypt, or JSON errors.
 
+### Account nick / #tag resolution (Rust GUI scraper)
+
+`library/aclos_identity.rs` resolves display names **before** falling back to
+`未知账户#N`. Paths are under `%APPDATA%\ACLOS\` only (read-only; never
+Riot/Vanguard/game installs).
+
+| Priority | Source | How |
+|---|---|---|
+| 1 (primary) | Chromium **Local Storage LevelDB** | Opened with pure-Rust `rusty-leveldb` (if LOCK held, copy dir to temp and open). Keys: `ACLOS_USER_ROLES_INFO` (JSON array of current roles on `app://aclos.val.qq.com`), `acloshighlight_user_<openid>` (often under `https://val.qq.com`). Values: `0x01`+UTF-8 JSON and/or `0x00`+UTF-16LE JSON. |
+| 2 | `snapshot<openid>` | `ss_nick` / `ss_nick_id` (latest `matches_time`); **required second source** — LevelDB does **not** cover every WonderfulDb openid. Also **only** source for MVP/SVP. |
+| 3 | Logs / raw IDB files | Text harvest; logs often use **masked** openids matched by prefix+suffix |
+
+**Why snapshot cannot be removed as nick source:** LevelDB only stores roles ACLOS has written into Local Storage (current login + highlight user cache). WonderfulDb may list additional openid shells (empty or snapshot-only) with no `acloshighlight_user_*` row. Deleting snapshot nick merge would regress those accounts to openid / `未知账户#N`. MVP/SVP have no LevelDB equivalent.
+
+Rules:
+
+1. LevelDB wins over snapshot for nick/tag when both exist.
+2. Placeholder nick `我` is ignored.
+3. MVP/SVP still come **only** from snapshot (and snapshot file parse must remain).
+4. No hard-coded openid→nick maps. No live `api.val.qq.com`.
+5. If LevelDB + snapshot + logs all miss, UI shows openid / `未知账户#N`.
+
 ## Display Field Semantics
 
-Prefer the ACLOS `career.*` strings for user-facing labels:
+Prefer the ACLOS `career.*` strings for user-facing labels when present:
 
-- Hero name: `career.hero_name`, fallback `m.agent.agent_name`.
-- Map name: `career.map_name`, fallback `fmtMap(m.map.map_id)`.
+- Hero name: `career.hero_name`, else local EN→CN table (`packages/gui/src/utils/valorant-assets.ts`), else `m.agent.agent_name`.
+- Map name: `career.map_name`, else local `map_id` table (Skirmish / Range / HURM included), else last path segment of `map_id`.
 - Game mode: `career.game_mode`, fallback empty string.
-- Hero avatar: `career.hero_image`.
-- Match-row cover fallback: `career.map_image`.
-- Mode chip icon: `career.game_mode_icon`.
+- Hero avatar / map cover / mode icon: **only** via `packages/gui/src/utils/valorant-assets.ts`.
+  - URL: `resolveMatchAssetUrl(match, kind)` (career → portable CDN table).
+  - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
+  - Cache batch: `collectMatchAssetEntries(matches)` → Tauri `cache_assets` (first visit remote, later disk).
+- Do not hard-code map/hero CDN URLs in components; extend the tables in `valorant-assets.ts`.
 - Team rounds: `stats.rounds_won` / `stats.rounds_lost`.
 - Personal combat score: `stats.score`.
 - Match duration: `gameStartTime` / `gameEndTime`.
 
-Do not use `agent.agent_id`, `map.map_id`, `stats.mode_name`, or `career.battle_id` as user-facing display labels.
+Skirmish / Range / TDM matches often omit `career.*` entirely — without the local
+asset table the UI would show raw `Skirmish_A` and English `Jett`. Keep
+`valorant-assets.ts` portable (no machine openids); extend it when new map
+path segments appear in ACLOS.
+
+Do not use `agent.agent_id`, raw unmapped `map_id`, `stats.mode_name`, or `career.battle_id` as user-facing display labels.
 
 ## Video Semantics
 

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
 import { accountDisplayLabel } from '../utils/account-preferences.ts';
+import { collectMatchAssetEntries } from '../utils/valorant-assets.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
 export interface Account {
@@ -46,7 +47,11 @@ export const useAccountStore = defineStore('account', () => {
   // first-run / onboarding screen.
   const aclosStatus = ref<AclosStatus | null>(null);
 
-  const realAccounts = computed(() => accounts.value);
+  // Highlight browser: never list WonderfulDb shells with zero matches
+  // (backend also filters; this is a display safety net for older library.db).
+  const realAccounts = computed(() =>
+    accounts.value.filter((a) => (a.matchCount ?? 0) > 0),
+  );
 
   function assignAccountLabels() {
     const labels = new Map<string, string>();
@@ -98,6 +103,16 @@ export const useAccountStore = defineStore('account', () => {
     const data = await invoke<LoadResult>('load_library');
     accounts.value = data.accounts;
     matches.value = data.matches;
+    // If the selected account disappeared (e.g. purged empty shell), fall back.
+    if (
+      selectedAccountId.value &&
+      selectedAccountId.value !== ALL_ACCOUNTS &&
+      !data.accounts.some((a) => a.openid === selectedAccountId.value && (a.matchCount ?? 0) > 0)
+    ) {
+      selectedAccountId.value = data.accounts.some((a) => (a.matchCount ?? 0) > 0)
+        ? ALL_ACCOUNTS
+        : null;
+    }
     dir.value = data.dir;
     totalErrors.value = data.totalErrors;
     assignAccountLabels();
@@ -123,13 +138,8 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   async function cacheAssets(): Promise<void> {
-    const entries: Array<{ kind: string; url: string }> = [];
-    const seen = new Set<string>();
-    for (const m of matches.value) {
-      addAsset(entries, seen, 'hero_image', m.career?.hero_image as string);
-      addAsset(entries, seen, 'map_image', m.career?.map_image as string);
-      addAsset(entries, seen, 'game_mode_icon', m.career?.game_mode_icon as string);
-    }
+    // Single dispatcher: same resolveMatch* path as MatchCard / DetailView.
+    const entries = collectMatchAssetEntries(matches.value);
     if (entries.length === 0) return;
     try {
       const results = await invoke<Record<string, string>>('cache_assets', { entries });
@@ -137,10 +147,6 @@ export const useAccountStore = defineStore('account', () => {
         assetPathCache.value.set(url, localPath);
       }
     } catch { /* non-fatal */ }
-  }
-
-  function addAsset(entries: Array<{ kind: string; url: string }>, seen: Set<string>, kind: string, url?: string) {
-    if (typeof url === 'string' && url && !seen.has(url)) { seen.add(url); entries.push({ kind, url }); }
   }
 
   function selectAccount(openid: string | null) {
