@@ -172,6 +172,23 @@ If a manual check fails, inspect the failing step logs before changing code.
 Fix the root cause locally, then rerun only if remote confirmation is still
 useful.
 
+### Release build speed (caching)
+
+GitHub Actions caches are **branch-scoped**. Only caches created on the
+default branch (`main`) can be restored by tag Release runs. A
+`Swatinem/rust-cache` step that only runs on `v*` tags therefore never warms
+the next release (the repo can show **0 caches** forever).
+
+| Workflow | Role |
+|---|---|
+| `cache-warm.yml` | On `main` pushes that touch Rust/GUI/lockfiles (or manual dispatch): bun install + Vite build + `cargo build --release`. Saves rust-cache key `wui-release` and bun lockfile cache. |
+| `release.yml` | Tag builds restore those caches (`cache: false` on setup-rust-toolchain so keys are not split). Bun install cache, debug `cargo test --lib`, then one release `tauri build` (no second release-profile test compile). |
+| `ci.yml` | Manual Check; same cache keys when useful. |
+
+Do **not** reintroduce `cargo test --release` before `tauri build` on the
+Release job — it nearly doubles compile time on Windows. Pin Bun via
+root `.bun-version` (used by all three workflows).
+
 ## Release Workflow
 
 Releases are produced by GitHub Actions from tags. Do not upload local builds
