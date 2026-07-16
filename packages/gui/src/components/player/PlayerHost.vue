@@ -241,7 +241,7 @@ import {
   captureVideoFramePng,
   blobToUint8Array,
   defaultScreenshotName,
-  CaptureFrameError,
+  formatCaptureError,
 } from '../../utils/capture-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
@@ -588,25 +588,31 @@ function updateSubmenuFlip() {
 
 async function captureCurrentFrame(): Promise<Blob> {
   const v = videoRef.value;
-  if (!v) throw new CaptureFrameError('视频帧尚未就绪');
-  return captureVideoFramePng(v);
+  if (!v) throw new Error('视频帧尚未就绪');
+  return captureVideoFramePng(v, {
+    filePath: videoPath.value || null,
+    convertFileSrc,
+  });
 }
 
 async function copyScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
-  closeCtxMenu();
+  // Capture while the player still has a stable decoded frame, then close menu.
   try {
     const blob = await captureCurrentFrame();
+    closeCtxMenu();
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
       throw new Error('当前环境不支持复制图片');
     }
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    // Some Chromium builds require a Promise value for image ClipboardItem.
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': Promise.resolve(blob) }),
+    ]);
     ui.showToast('已复制截图');
   } catch (e) {
-    const msg = e instanceof CaptureFrameError ? e.message
-      : e instanceof Error ? e.message : String(e);
-    ui.showToast(msg.includes('截') || msg.includes('复制') ? msg : `复制截图失败: ${msg}`, 'error');
+    closeCtxMenu();
+    ui.showToast(formatCaptureError(e, 'copy'), 'error');
   } finally {
     screenshotBusy = false;
   }
@@ -615,9 +621,9 @@ async function copyScreenshot() {
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
-  closeCtxMenu();
   try {
     const blob = await captureCurrentFrame();
+    closeCtxMenu();
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const name = defaultScreenshotName(videoPath.value, currentTime.value);
@@ -630,9 +636,8 @@ async function saveScreenshot() {
     await writeFile(path, bytes);
     ui.showToast('已保存');
   } catch (e) {
-    const msg = e instanceof CaptureFrameError ? e.message
-      : e instanceof Error ? e.message : String(e);
-    ui.showToast(msg.includes('截') || msg.includes('保存') ? msg : `保存截图失败: ${msg}`, 'error');
+    closeCtxMenu();
+    ui.showToast(formatCaptureError(e, 'save'), 'error');
   } finally {
     screenshotBusy = false;
   }

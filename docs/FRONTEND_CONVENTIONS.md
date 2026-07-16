@@ -387,7 +387,8 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - Fixed-position `.player-context-menu`, **Teleported** to `document.fullscreenElement` when fullscreen, otherwise `body` (menu must not stay a sibling of the fullscreen modal — it would be invisible).
 - Grouped with separators (no section titles): 系统播放器 · 资源管理器 / 复制路径 · **截图 ▸** · 快传.
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
-- Screenshot capture: `utils/capture-video-frame.ts` draws only the `<video>` frame to PNG. Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`. `videoWidth` is not Vue-reactive — keep `frameReady` refreshed on `loadedmetadata` / `canplay` / menu open.
+- Screenshot capture: `utils/capture-video-frame.ts` draws only the `<video>` frame to PNG. Clipboard via `ClipboardItem` (Promise blob); save via `plugin-dialog` + `plugin-fs`. `videoWidth` is not Vue-reactive — keep `frameReady` refreshed on `loadedmetadata` / `canplay` / menu open.
+- **Tainted canvas:** `convertFileSrc` / `asset.localhost` is cross-origin → `drawImage` + `toBlob` throws. Fallback loads the file into a same-origin `blob:` video (fetch asset or `fs.readFile`), seeks to `currentTime`, then exports. Needs `fs:allow-read-file` when fetch fails.
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
 - Close on: left mousedown outside, Escape (**menu first**, not the player), scroll, resize, fullscreenchange, video change, player close.

@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   defaultScreenshotName,
+  formatCaptureError,
   formatTimeForFilename,
+  isCanvasTaintError,
   sanitizeFileStem,
   videoStemFromPath,
 } from '../src/utils/capture-video-frame.ts';
@@ -45,5 +47,20 @@ describe('videoStemFromPath', () => {
   test('strips extension from basenames', () => {
     expect(videoStemFromPath('/a/b/c.mp4')).toBe('c');
     expect(videoStemFromPath('Z:\\x\\y.z.webm')).toBe('y.z');
+  });
+});
+
+describe('isCanvasTaintError / formatCaptureError', () => {
+  test('detects Chromium taint messages', () => {
+    expect(isCanvasTaintError(new Error(
+      "Failed to execute 'toBlob' on 'HTMLCanvasElement': Tainted canvases may not be exported.",
+    ))).toBe(true);
+    expect(isCanvasTaintError(new Error('ok'))).toBe(false);
+  });
+
+  test('formats user-facing Chinese without raw SecurityError spam', () => {
+    const taint = new Error('Tainted canvases may not be exported.');
+    expect(formatCaptureError(taint, 'save')).toBe('保存截图失败：无法导出当前帧');
+    expect(formatCaptureError(taint, 'copy')).toBe('复制截图失败：无法导出当前帧');
   });
 });
