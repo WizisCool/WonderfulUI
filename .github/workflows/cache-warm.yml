@@ -6,7 +6,8 @@ name: Cache Warm
 # warms subsequent releases (repo cache count stays 0).
 #
 # Shared keys MUST stay in sync with release.yml:
-#   rust: shared-key wui-release
+#   rust release: shared-key wui-release   (build job)
+#   rust debug:   shared-key wui-debug-lib (validate job; warmed below optionally)
 #   bun:  ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
 
 on:
@@ -73,3 +74,14 @@ jobs:
       # We intentionally skip NSIS packaging here (no signing secrets required).
       - name: Cargo build release lib
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      # Warm the validate-job debug lib-test cache (separate key from release).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: wui-debug-lib
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Cargo lib tests (debug warm)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib

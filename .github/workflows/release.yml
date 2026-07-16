@@ -10,6 +10,10 @@ on:
 # are branch-scoped; only the default branch is a shared source). The
 # cache-warm workflow on main populates the same rust-cache / bun keys so
 # release jobs restore a warm target/. See docs/AGENT_WORKFLOW.md.
+#
+# Timing (v0.1.8 warm Windows runner, ~13 min sequential):
+#   setup/caches ~2 min | cargo test debug ~2.5 min | tauri build ~8 min
+# validate + build run in parallel so wall clock ≈ max(test, build) + publish.
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,18 +22,14 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  build:
+  # ── quality gate (debug cargo + JS) — overlaps with release build ──────────
+  validate:
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          # Need full history for latest.json notes fallback (git log prevTag..tag).
-          fetch-depth: 0
+          fetch-depth: 1
 
-      # Disable the action's built-in rust-cache — we configure Swatinem
-      # explicitly with a shared-key that matches cache-warm.yml on main.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
@@ -38,8 +38,48 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Bun global install cache (not node_modules). Speeds frozen installs
-      # when the lockfile is unchanged.
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # Debug profile cache key is separate from release (wui-release).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: wui-debug-lib
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - run: bun install --frozen-lockfile
+      - run: bun run scripts/check-versions.ts
+      - run: bun run typecheck
+      - run: bun run test
+
+      # Debug-profile unit tests only — never release-profile, so we do not
+      # recompile what the parallel build job already compiles as release.
+      - name: Cargo lib tests (debug)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+  # ── signed NSIS bundle (long pole) ─────────────────────────────────────────
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Cache Bun install
         uses: actions/cache@v4
         with:
@@ -49,7 +89,6 @@ jobs:
             ${{ runner.os }}-bun-
 
       # Restore release-profile deps warmed on main (see cache-warm.yml).
-      # workspaces path must match the Cargo target used by tauri build.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
@@ -58,16 +97,6 @@ jobs:
           cache-on-failure: true
 
       - run: bun install --frozen-lockfile
-      - run: bun run scripts/check-versions.ts
-      - run: bun run typecheck
-      - run: bun run test
-
-      # Debug-profile unit tests only. A release-profile `cargo test` would
-      # recompile nearly everything that `tauri build` compiles again below
-      # (~10–20 min on a cold Windows runner). Lib tests are not
-      # opt-level-sensitive for this crate.
-      - name: Cargo lib tests (debug)
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       # tauri build reads TAURI_SIGNING_PRIVATE_KEY / _PASSWORD from env
       # and, when bundle.createUpdaterArtifacts=true, writes a minisign
@@ -85,16 +114,32 @@ jobs:
         with:
           name: wonderful-ui-${{ github.ref_name }}
           path: target/release/bundle/
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── GitHub Release + latest.json (only after both jobs succeed) ────────────
+  publish:
+    needs: [validate, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Shallow is enough when versions.json has notes; still fetch tags
+          # for the git-log fallback when notes are empty.
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wonderful-ui-${{ github.ref_name }}
+          path: target/release/bundle
 
       # Generate latest.json for tauri-plugin-updater. Schema and field
       # semantics live in docs/UPDATER.md. We assume the v2 NSIS product
-      # layout is <productName>_<version>_x64-setup.exe(.sig) i.e.
-      # "WonderfulUI_0.1.5_x64-setup.exe" + ".exe.sig". The script
-      # globs *-setup.exe / *-setup.exe.sig, reads tauri.conf.json for
-      # the authoritative version, and pulls release notes from
-      # versions.json (releases["vX.Y.Z"].notes). If the on-disk
-      # filename ever drifts from the convention, the script logs a
-      # warning so the URL can be eyeballed.
+      # layout is <productName>_<version>_x64-setup.exe(.sig).
       - name: Generate latest.json
         shell: pwsh
         run: |
@@ -104,9 +149,6 @@ jobs:
           if (-not $setupExe) { Write-Error "No setup.exe found in $nsisDir"; exit 1 }
           if (-not $setupSig) { Write-Error "No setup.exe.sig found in $nsisDir"; exit 1 }
 
-          # Authoritative version + productName from tauri.conf.json
-          # (avoids brittle filename parsing of e.g. a future
-          # <productName>-setup.exe or -amd64-setup.exe).
           $tauriConf = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
           $version = $tauriConf.version
           $tag = "v$version"
@@ -115,13 +157,11 @@ jobs:
             Write-Warning "Setup filename '$($setupExe.Name)' doesn't match expected '$expectedPrefix*'. NOTES 产物文件名需实测核对 -- verify latest.json's url field."
           }
 
-          # minisign signature: .sig is the raw keybase-style text
-          # block; embed verbatim into the JSON payload.
           $signature = (Get-Content -Path $setupSig.FullName -Raw).Trim()
 
           # Release notes priority:
-          # 1) versions.json releases.<tag>.notes (authoritative for in-app UI)
-          # 2) git log subject lines since previous tag (better than a blank title)
+          # 1) versions.json releases.<tag>.notes
+          # 2) git log subject lines since previous tag
           # 3) generic one-liner
           $notes = $null
           if (Test-Path "versions.json") {
@@ -144,11 +184,7 @@ jobs:
             Write-Warning "versions.json notes empty and git log fallback failed; using generic title."
           }
 
-          # Convention URL:
-          #   https://github.com/<owner>/<repo>/releases/download/<tag>/<file>
           $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($setupExe.Name)"
-
-          # ISO8601 UTC, second precision (Tauri only reads the string).
           $pubDate = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
           $latest = [ordered]@{
@@ -163,14 +199,10 @@ jobs:
             }
           }
           $json = $latest | ConvertTo-Json -Depth 6
-          # pwsh's -Encoding utf8 is no-BOM UTF-8 (unlike Windows
-          # PowerShell 5.1), which is what Tauri expects when it
-          # fetches + parses latest.json.
           Set-Content -Path "latest.json" -Value $json -Encoding utf8 -NoNewline
           Write-Host "Wrote latest.json:"
           Get-Content latest.json
 
-          # Minimal schema guard so a bad manifest never ships.
           $parsed = $json | ConvertFrom-Json
           if (-not $parsed.version) { Write-Error "latest.json missing version"; exit 1 }
           if (-not $parsed.platforms.'windows-x86_64'.url) { Write-Error "latest.json missing platform url"; exit 1 }
@@ -179,7 +211,6 @@ jobs:
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
           generate_release_notes: true

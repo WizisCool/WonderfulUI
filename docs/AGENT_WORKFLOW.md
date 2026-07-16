@@ -259,10 +259,27 @@ git push origin vX.Y.Z
 Without an explicit push/publish request, stop after the local commit/tag and
 print the commands above for the user.
 
-`.github/workflows/release.yml` then runs the full validation/build sequence,
-uploads the bundle artifact, and creates the GitHub Release. A PR can still be
-used for a release if the user wants a review checkpoint, but it is not the
-default maintainer path.
+`.github/workflows/release.yml` runs **three jobs**:
+
+| Job | Role |
+|-----|------|
+| `validate` | `check-versions` + typecheck + bun test + `cargo test --lib` (debug) |
+| `build` | signed `bun run build` (release profile + NSIS); uploads `target/release/bundle/` |
+| `publish` | needs both; writes `latest.json` and creates the GitHub Release |
+
+`validate` and `build` run **in parallel** so wall clock is dominated by the
+Tauri release build (~8 min warm), not build + cargo test in series
+(~2.5 min extra). Observed v0.1.8 sequential total was ~13 min; expected wall
+after the split is ~10–11 min on a warm runner (setup/caches still shared per job).
+
+Caches (must stay aligned with `cache-warm.yml` on `main`):
+
+- Bun: `${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}`
+- Rust release: Swatinem `shared-key: wui-release` (build job)
+- Rust debug tests: `shared-key: wui-debug-lib` (validate job)
+
+A PR can still be used for a release if the user wants a review checkpoint, but
+it is not the default maintainer path.
 
 ### Manual 0.1.0-Style Release
 
