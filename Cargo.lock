@@ -5343,6 +5343,7 @@ dependencies = [
  "base64 0.22.1",
  "cbc",
  "hex",
+ "http",
  "qrcode",
  "rand",
  "rayon",

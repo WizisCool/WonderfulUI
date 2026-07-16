@@ -1,6 +1,7 @@
 mod app_log;
 mod lan_ip;
 mod library;
+mod media_protocol;
 mod os_shell;
 mod parser;
 mod share_server;
@@ -55,6 +56,16 @@ pub fn run() {
     let app = app
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
+
+    // CORS + Range local media for in-app player (canvas-exportable screenshots).
+    let app = app.register_asynchronous_uri_scheme_protocol(
+        media_protocol::SCHEME,
+        |_ctx, request, responder| {
+            std::thread::spawn(move || {
+                responder.respond(media_protocol::handle_request(request));
+            });
+        },
+    );
 
     app_log::write(app_log::LogLevel::Info, "app", "WonderfulUI starting");
 
