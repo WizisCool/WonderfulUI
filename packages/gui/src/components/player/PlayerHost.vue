@@ -20,6 +20,7 @@
           ref="videoRef"
           class="player-video"
           preload="auto"
+          crossorigin="anonymous"
           :src="src"
           @loadedmetadata="onLoadedMeta"
           @canplay="onCanPlay"
@@ -234,7 +235,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
-import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
+import { invoke, convertFileSrc, convertVideoSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import {
@@ -242,8 +243,6 @@ import {
   blobToUint8Array,
   defaultScreenshotName,
   formatCaptureError,
-  prefetchVideoBlob,
-  promoteVideoToBlobSrc,
   releaseVideoBlobCache,
 } from '../../utils/capture-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
@@ -338,12 +337,6 @@ watch(() => player.isOpen, (open) => {
     lastBufferedPct.value = 0;
     seeked = false;
     framePanelOpen.value = false;
-    blobPromoteGen += 1;
-    // Warm blob cache while the asset:// source paints first frame (fast open).
-    nextTick(() => {
-      const path = player.video?.video_src;
-      if (path) prefetchVideoBlob(path, convertFileSrc);
-    });
     // Move focus into the dialog once Vue has rendered it.
     nextTick(() => {
       const focusables = getModalFocusables();
@@ -351,6 +344,7 @@ watch(() => player.isOpen, (open) => {
       target?.focus();
     });
   } else {
+    // Drop any taint-fallback blob cache from a prior screenshot attempt.
     releaseVideoBlobCache();
     if (restoreFocusEl && document.contains(restoreFocusEl)) {
       // Restore focus to the element that opened the player.
@@ -360,26 +354,6 @@ watch(() => player.isOpen, (open) => {
   }
 });
 
-/** Bump to cancel in-flight promote when the open clip changes. */
-let blobPromoteGen = 0;
-
-/**
- * After first canplay, swap asset:// → blob: so canvas screenshot is a single
- * drawImage (ms). Prefetch runs in parallel; promote no-ops if still loading.
- */
-async function tryPromoteBlobSrc() {
-  const v = videoRef.value;
-  const path = videoPath.value;
-  if (!v || !path) return;
-  const gen = blobPromoteGen;
-  try {
-    await promoteVideoToBlobSrc(v, path, convertFileSrc);
-    if (gen !== blobPromoteGen) return;
-    refreshFrameReady();
-  } catch {
-    /* keep asset:// playback; capture falls back to cached clone */
-  }
-}
 let seeked = false;
 let fps = 60;
 
@@ -397,7 +371,8 @@ const LS_MUTED = 'wui:player.muted';
 
 const src = computed(() => {
   if (!player.video) return '';
-  return convertFileSrc(player.video.video_src);
+  // wui-media: progressive Range + CORS so live frame export does not taint canvas.
+  return convertVideoSrc(player.video.video_src);
 });
 
 const posterSrc = computed(() => {
@@ -899,12 +874,7 @@ function onCtxMenuKeydown(e: KeyboardEvent) {
 // Close menu when the open video changes (seek context / next clip).
 watch(() => player.video?.video_id, (id, prev) => {
   if (ctxMenu.value) closeCtxMenu();
-  if (id !== prev) {
-    blobPromoteGen += 1;
-    releaseVideoBlobCache();
-    const path = player.video?.video_src;
-    if (path && player.isOpen) prefetchVideoBlob(path, convertFileSrc);
-  }
+  if (id !== prev) releaseVideoBlobCache();
 });
 
 function fmtTime(sec: number): string {
@@ -1009,7 +979,6 @@ watch(showFrameStepper, (show) => {
 
 function doClose() {
   stopFrameHold();
-  blobPromoteGen += 1;
   releaseVideoBlobCache();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
@@ -1235,8 +1204,6 @@ function onCanPlay() {
   if (transition.shouldPlay) {
     videoRef.value?.play().catch(() => {});
   }
-  // Background: same-origin blob hot-swap for ms-level screenshots.
-  void tryPromoteBlobSrc();
 }
 
 function onPlay() {
@@ -1465,7 +1432,6 @@ onUnmounted(() => {
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
-  blobPromoteGen += 1;
   releaseVideoBlobCache();
 });
 </script>

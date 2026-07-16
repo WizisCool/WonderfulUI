@@ -1,11 +1,10 @@
 /**
  * Capture the current decoded video frame as PNG (no player chrome).
  *
- * Playing via Tauri `convertFileSrc` (asset.localhost) taints canvas on drawImage.
- * Strategy for ≤ms capture after warm-up:
- * 1. Prefetch file into a same-origin blob: URL (cached per path).
- * 2. Hot-swap the live <video> to that blob: URL once ready → drawImage is untainted.
- * 3. Fallback: reuse a hidden clone video on the cached blob (seek only, no re-read).
+ * Playback uses `wui-media` + `crossOrigin="anonymous"` so live `drawImage` is
+ * CORS-clean (one draw + toBlob, ms-level). If the live element still taints
+ * (legacy asset URL / browser debug), fall back to a same-origin blob clone.
+ * Do not hot-swap the live player `src` — that kills first-play performance.
  */
 
 const WIN_ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/g;
@@ -309,17 +308,12 @@ async function captureViaCachedClone(
 
 /**
  * Draw the current video frame at native resolution into a PNG Blob.
- * Prefer live element when src is already blob:; else cache + clone seek.
+ * Prefer live element (CORS-clean player src); else lazy blob-clone fallback.
  */
 export async function captureVideoFramePng(
   video: HTMLVideoElement,
   options: CaptureFrameOptions = {},
 ): Promise<Blob> {
-  // Fast path: live element already same-origin (after hot-swap).
-  if (isExportSafeVideoSrc(video.currentSrc || video.src)) {
-    return drawVideoToPng(video);
-  }
-
   try {
     return await drawVideoToPng(video);
   } catch (e) {
@@ -339,48 +333,6 @@ export async function captureVideoFramePng(
     }
     throw new CaptureFrameError(e instanceof Error ? e.message : String(e));
   }
-}
-
-/**
- * Hot-swap a live <video> from asset:// onto a cached blob: URL at the same
- * playhead so subsequent screenshots are a single drawImage (~ms).
- * Returns true if the element now uses a blob: source.
- */
-export async function promoteVideoToBlobSrc(
-  video: HTMLVideoElement,
-  filePath: string,
-  convertFileSrc?: (path: string) => string,
-): Promise<boolean> {
-  const path = filePath.trim();
-  if (!path) return false;
-  if (isExportSafeVideoSrc(video.currentSrc || video.src)) return true;
-
-  const entry = await ensureVideoBlobCache(path, convertFileSrc);
-  const t = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-  const wasPaused = video.paused;
-  const rate = video.playbackRate || 1;
-
-  // Avoid full reload flash when already on this object URL.
-  if ((video.currentSrc || video.src) === entry.objectUrl) return true;
-
-  const ready = waitVideoEvent(video, 'loadeddata', 12_000);
-  video.src = entry.objectUrl;
-  await ready;
-
-  if (Math.abs(video.currentTime - t) > 0.05) {
-    const seeked = waitVideoEvent(video, 'seeked', 8_000);
-    video.currentTime = t;
-    await seeked;
-  }
-  video.playbackRate = rate;
-  if (!wasPaused) {
-    try {
-      await video.play();
-    } catch {
-      /* autoplay restrictions — leave paused */
-    }
-  }
-  return true;
 }
 
 export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
