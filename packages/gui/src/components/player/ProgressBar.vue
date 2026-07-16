@@ -96,8 +96,11 @@ const fillPct = computed(() =>
   props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0
 );
 const fillStyle = computed(() => ({ transform: `scaleX(${fillPct.value / 100})` }));
+// left % is relative to the track; transform % is relative to the 8px thumb
+// (translate(X%) barely moves — see FRONTEND_CONVENTIONS Progress bar).
 const thumbStyle = computed(() => ({
-  transform: `translate(calc(${fillPct.value}% - 50%), -50%)`,
+  left: `${fillPct.value}%`,
+  transform: 'translate(-50%, -50%)',
 }));
 
 watch(() => props.duration, () => {
@@ -281,7 +284,7 @@ defineExpose({
   border-radius: 2px;
   transform-origin: left center;
   transform: scaleX(0);
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  /* No ease during playback — lagging fill reads as "stuck". */
 }
 .player-progress-thumb {
   position: absolute;
@@ -291,18 +294,15 @@ defineExpose({
   background: var(--accent);
   border-radius: 50%;
   display: none;
-  /* positioned via thumbStyle: translate(calc(X% - 50%), -50%) */
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
-  will-change: transform;
+  /* left via thumbStyle (% of track); transform only centers on the playhead */
+  transform: translate(-50%, -50%);
+  will-change: left;
+  pointer-events: none;
 }
 .player-progress-wrap:hover .player-progress-thumb,
 .player-progress-wrap.is-dragging .player-progress-thumb,
 .player-progress-wrap.is-marker-seek .player-progress-thumb {
   display: block;
-}
-.player-progress-wrap.is-dragging .player-progress-fill,
-.player-progress-wrap.is-dragging .player-progress-thumb {
-  transition: none;
 }
 
 .player-event-markers {
