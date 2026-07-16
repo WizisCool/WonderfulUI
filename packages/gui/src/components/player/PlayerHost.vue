@@ -32,13 +32,6 @@
           @seeking="onSeeking"
           @error="onError"
         />
-        <!-- Display-only freeze (taint OK): static pixels while save holds playback. -->
-        <canvas
-          ref="freezeCanvasRef"
-          class="player-freeze-canvas"
-          :class="{ 'is-visible': freezeFrameActive }"
-          aria-hidden="true"
-        />
 
         <div class="player-loading" :class="{ 'is-hidden': !showLoading }">
           <img v-if="posterSrc" class="player-loading-poster" :src="posterSrc" alt="" />
@@ -142,6 +135,22 @@
           @share="onShare"
           @fullscreen="toggleFullscreen"
         />
+      </div>
+
+      <!--
+        Full-modal freeze layer (above stage / HW video surface).
+        Must sit outside .player-stage: WebView2 accelerated <video> can paint
+        above sibling canvas inside the same stacking context.
+      -->
+      <div
+        class="player-freeze-layer"
+        :class="{ 'is-visible': freezeFrameActive }"
+        aria-hidden="true"
+      >
+        <canvas ref="freezeCanvasRef" class="player-freeze-canvas" />
+        <div v-if="freezeFrameActive && screenshotUi === null" class="player-freeze-badge">
+          已定格
+        </div>
       </div>
 
       <!-- Screenshot busy: dim stage + indeterminate progress (native capture lag). -->
@@ -274,6 +283,7 @@ import {
   clearFreezeCanvas,
   paintVideoFrameToCanvas,
 } from '../../utils/freeze-video-frame.ts';
+import { clientLog } from '../../utils/client-log.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
@@ -721,18 +731,28 @@ function forceVideoPaused() {
 }
 
 /**
- * Snap a display freeze of the current frame, then hide the live <video>.
- * Canvas may be tainted (export blocked) but still shows the frame.
- * Always turns on the freeze layer (black if paint fails) so motion cannot
- * leak through when pause() races.
+ * Snap a display freeze of the current frame, then collapse the live <video>
+ * out of the HW compositor (opacity/size), covering with a modal-level canvas.
  */
 function applyDisplayFreeze(): boolean {
   const v = videoRef.value;
   const canvas = freezeCanvasRef.value;
-  if (!canvas) return false;
+  if (!canvas) {
+    clientLog('warn', 'screenshot', 'freeze canvas ref missing');
+    return false;
+  }
   let ok = false;
-  if (v) ok = paintVideoFrameToCanvas(v, canvas);
-  // Always cover the stage — black fallback beats a moving video.
+  if (v) {
+    ok = paintVideoFrameToCanvas(v, canvas);
+    clientLog(
+      'info',
+      'screenshot',
+      `freeze paint ok=${ok} vw=${v.videoWidth} vh=${v.videoHeight} t=${v.currentTime.toFixed(3)} paused=${v.paused}`,
+    );
+  } else {
+    clientLog('warn', 'screenshot', 'freeze video ref missing');
+  }
+  // Always show freeze layer — black if paint failed.
   freezeFrameActive.value = true;
   return ok;
 }
@@ -745,6 +765,9 @@ function clearDisplayFreeze() {
 /** Flush Vue DOM + paint so freeze is on-screen before native Save As blocks. */
 async function flushFreezeToScreen() {
   await nextTick();
+  // Force layout so is-freeze-hidden / freeze layer visibility apply.
+  const layer = freezeCanvasRef.value?.parentElement;
+  if (layer) void layer.offsetWidth;
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 }
@@ -774,7 +797,10 @@ function stopScreenshotPauseWatchdog() {
  */
 async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
-  if (!v) return false;
+  if (!v) {
+    clientLog('error', 'screenshot', 'holdPlayback: no video element');
+    return false;
+  }
 
   const wasPlaying =
     state.value === 'playing'
@@ -793,9 +819,14 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   currentTime.value = target;
   startScreenshotPauseWatchdog();
 
-  // 2) MUST paint freeze before any await that yields to native UI.
+  // 2) MUST paint freeze + hide HW video BEFORE native Save As.
   await flushFreezeToScreen();
   forceVideoPaused();
+  clientLog(
+    'info',
+    'screenshot',
+    `hold ready freeze=${freezeFrameActive.value} paused=${v.paused} t=${v.currentTime.toFixed(3)} target=${target.toFixed(3)}`,
+  );
 
   // 3) Seek under the freeze cover (user only sees the static canvas).
   const needSeek = Math.abs((v.currentTime || 0) - target) > 0.01;
@@ -808,9 +839,9 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
       /* best-effort seek */
     }
     forceVideoPaused();
-    applyDisplayFreeze();
+    // Keep the *pre-seek* freeze image — that is the frame user clicked to save.
+    // Re-painting after seek can flash a different keyframe.
     currentTime.value = target;
-    await flushFreezeToScreen();
   }
 
   forceVideoPaused();
@@ -1805,25 +1836,56 @@ onUnmounted(() => {
   border-radius: 0;
   background-color: #000;
 }
-/* Keep element in layout/media graph; hide pixels while freeze canvas shows. */
+/*
+ * WebView2 HW-accelerated <video> can composite above sibling canvas/z-index.
+ * Collapse it out of the visual tree during freeze (opacity+size), not just
+ * visibility:hidden which still leaves a top-layer video surface.
+ */
 .player-video.is-freeze-hidden {
-  visibility: hidden;
+  opacity: 0 !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  left: 0 !important;
+  top: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
 }
-.player-freeze-canvas {
+/* Full-modal freeze — sibling of .player-stage, above video surface. */
+.player-freeze-layer {
   position: absolute;
   inset: 0;
+  z-index: 30;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  pointer-events: none;
+}
+.player-freeze-layer.is-visible {
+  display: flex;
+}
+.player-freeze-canvas {
   width: 100%;
   height: 100%;
   object-fit: fill;
-  /* Match video object-fit:fill stretch */
-  display: none;
-  pointer-events: none;
-  background: #000;
-  /* Above video (0) and loading (auto); below controls (5) so chrome stays usable. */
-  z-index: 3;
-}
-.player-freeze-canvas.is-visible {
   display: block;
+  background: #000;
+}
+.player-freeze-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  padding: 4px 10px;
+  border-radius: var(--r-md, 6px);
+  background: oklch(0 0 0 / 0.55);
+  border: 1px solid oklch(1 0 0 / 0.12);
+  color: var(--ink-2, oklch(0.78 0.012 30));
+  font-family: var(--font-sans, MiSans, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: var(--w-medium, 380);
+  letter-spacing: 0.02em;
+  pointer-events: none;
 }
 
 /* Screenshot busy: gray the player shell + indeterminate accent bar. */
