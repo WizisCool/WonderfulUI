@@ -105,7 +105,7 @@ import WIcon from '../common/WIcon.vue';
 import DateRangePicker from './DateRangePicker.vue';
 import {
   CATEGORY_KEYS, ADVANCED_RANGE_KEYS,
-  type FilterState, type RangeKey,
+  type CategoryKey, type FilterState, type RangeKey,
 } from '../../utils/filters.ts';
 import { facetValueCounts, rangeBounds } from '../../utils/filter-engine.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
@@ -140,7 +140,7 @@ const sections = computed(() => {
       const counts = facetValueCounts(allMatches.value, filterStore.filters, 'videoTypes');
       if (filterStore.filters.videoTypes.length === 0 && counts.size <= 1) return null;
     }
-    const counts = facetValueCounts(allMatches.value, filterStore.filters, key as any);
+    const counts = facetValueCounts(allMatches.value, filterStore.filters, key);
     const entries = [...counts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     if (entries.length === 0) return null;
@@ -158,17 +158,18 @@ const sections = computed(() => {
       })),
     };
   }).filter(Boolean) as Array<{
-    key: string;
+    key: CategoryKey;
     label: string;
     entries: Array<{ value: string; count: number; active: boolean; display: string }>;
   }>;
 });
 
-function onChipClick(key: string, value: string) {
-  const set = new Set(filterStore.filters[key as keyof FilterState] as string[]);
+function onChipClick(key: CategoryKey, value: string) {
+  const set = new Set(filterStore.filters[key] as string[]);
   if (set.has(value)) set.delete(value);
   else set.add(value);
-  filterStore.setFilters( { [key]: [...set] } as any);
+  const patch: Partial<FilterState> = { [key]: [...set] };
+  filterStore.setFilters(patch);
 }
 
 // Date
@@ -276,16 +277,17 @@ const advancedActiveCount = computed(() =>
   advancedRows.value.filter(r => r.active).length
 );
 
-function emitRange(key: string, lo: number | null, hi: number | null) {
-  const bounds = rangeBounds(allMatches.value, key as RangeKey);
+function emitRange(key: RangeKey, lo: number | null, hi: number | null) {
+  const bounds = rangeBounds(allMatches.value, key);
   const clampedLo = lo !== null ? Math.max(bounds[0], Math.min(lo, bounds[1])) : null;
   const clampedHi = hi !== null ? Math.max(bounds[0], Math.min(hi, bounds[1])) : null;
   const finalLo = clampedLo !== null && clampedLo <= bounds[0] ? null : clampedLo;
   const finalHi = clampedHi !== null && clampedHi >= bounds[1] ? null : clampedHi;
-  filterStore.setFilters( { [key]: [finalLo, finalHi] } as any);
+  const patch: Partial<FilterState> = { [key]: [finalLo, finalHi] };
+  filterStore.setFilters(patch);
 }
 
-function onNumInput(key: string, which: string, rawValue: string) {
+function onNumInput(key: RangeKey, which: string, rawValue: string) {
   const kind = NUMERIC_KIND[key] ?? 'int';
   // Only update immediately for float; int/seconds/bytes update on blur
   if (kind === 'float') {
@@ -303,7 +305,7 @@ function onNumInput(key: string, which: string, rawValue: string) {
   }
 }
 
-function onNumBlur(key: string, which: string, rawValue: string) {
+function onNumBlur(key: RangeKey, which: string, rawValue: string) {
   const kind = NUMERIC_KIND[key] ?? 'int';
   const [lo, hi] = filterStore.filters[key];
   const v = parseInputValue(kind, rawValue);
@@ -311,8 +313,9 @@ function onNumBlur(key: string, which: string, rawValue: string) {
   else emitRange(key, lo, v);
 }
 
-function onNumClear(key: string) {
-  filterStore.setFilters( { [key]: [null, null] } as any);
+function onNumClear(key: RangeKey) {
+  const patch: Partial<FilterState> = { [key]: [null, null] };
+  filterStore.setFilters(patch);
 }
 </script>
 
