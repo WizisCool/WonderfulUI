@@ -42,6 +42,7 @@ import { useUiStore } from './stores/ui.ts';
 import { useUpdateStore } from './stores/update.ts';
 import { useTooltip, isTipEligible } from './composables/useTooltip.ts';
 import { clientLog } from './utils/client-log.ts';
+import { installUpdateDebug } from './utils/update-debug.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -128,7 +129,13 @@ async function runBoot() {
     // 启动静默更新检查。必须在 runBoot 显露 UI 之后调用，不与后台抓取竞争
     // （CLAUDE.md / docs/UPDATER.md「启动检查时机」）。失败静默；成功有更新时
     // 亮侧栏红点 + 轻 toast，不自动开弹窗。fire-and-forget。
-    update.checkForUpdate(true).catch(() => {});
+    // DEV：始终 mock 有更新，便于调 UpdateModal（不打真实 GitHub）。
+    // 生产构建 import.meta.env.DEV === false，走真实 check。
+    if (import.meta.env.DEV) {
+      update.debugAvailable({ silent: true });
+    } else {
+      update.checkForUpdate(true).catch(() => {});
+    }
   } catch (e) {
     bootError.value = (e as Error)?.message ?? String(e);
     clientLog('error', 'boot', bootError.value);
@@ -147,6 +154,7 @@ async function retryBoot() {
 }
 
 onMounted(() => {
+  installUpdateDebug(() => update);
   void runBoot();
 });
 

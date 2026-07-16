@@ -8,9 +8,10 @@
 //   防止半途丢弃 update 句柄导致用户卡在中间态。
 // - 进度条：transform scaleX（非 width），符合项目 GPU compositing 规范。
 // - contentLength 缺失时下载态走 indeterminate shimmer，避免卡在 0%。
-// - 焦点：mount 后聚焦当前态的主按钮（available → 立即更新 / error → 重试）。
+// - 不在打开时 programmatically focus 主按钮：WebView2 会把 .focus() 画成
+//   *:focus-visible 红框（「键盘选择器」假象）。Tab 进入仍走 :focus-visible。
 
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { useUpdateStore } from '../../stores/update.ts';
 import { APP_VERSION } from '../../utils/version.ts';
@@ -19,8 +20,6 @@ import { clientLog } from '../../utils/client-log.ts';
 const SCOPE = 'update-modal';
 
 const update = useUpdateStore();
-
-const primaryBtnRef = ref<HTMLButtonElement | null>(null);
 
 const isOpen = computed(() => update.modalOpen);
 
@@ -64,30 +63,12 @@ function onBackdrop() {
   update.dismiss();
 }
 
-function focusPrimary() {
-  nextTick(() => {
-    primaryBtnRef.value?.focus();
-  });
-}
-
 function onRetry() {
   void update.retry();
 }
 
-watch(
-  () => update.status,
-  () => {
-    if (update.modalOpen && isCloseable.value) {
-      focusPrimary();
-    }
-  },
-);
-
 onMounted(() => {
   document.addEventListener('keydown', onKeydown, true);
-  if (isCloseable.value) {
-    focusPrimary();
-  }
   clientLog('info', SCOPE, `mount: status=${update.status}`);
 });
 
@@ -138,12 +119,11 @@ onUnmounted(() => {
             </div>
             <footer class="update-modal-foot">
               <button
-                class="btn btn-primary update-modal-btn"
+                class="btn update-modal-btn update-modal-btn--muted"
                 type="button"
-                ref="primaryBtnRef"
-                @click="update.startUpdate()"
+                @click="update.skipThisVersion()"
               >
-                立即更新
+                跳过此版本
               </button>
               <button
                 class="btn update-modal-btn"
@@ -151,6 +131,13 @@ onUnmounted(() => {
                 @click="update.dismiss()"
               >
                 稍后
+              </button>
+              <button
+                class="btn btn-primary update-modal-btn"
+                type="button"
+                @click="update.startUpdate()"
+              >
+                更新
               </button>
             </footer>
           </template>
@@ -230,7 +217,6 @@ onUnmounted(() => {
               <button
                 class="btn btn-primary update-modal-btn"
                 type="button"
-                ref="primaryBtnRef"
                 @click="onRetry"
               >
                 重试
@@ -506,6 +492,15 @@ onUnmounted(() => {
 }
 .update-modal-btn {
   min-width: 84px;
+}
+.update-modal-btn--muted {
+  margin-right: auto;
+  color: var(--ink-3);
+  min-width: 0;
+}
+.update-modal-btn--muted:hover {
+  color: var(--ink-2);
+  background: var(--surface-2);
 }
 .update-modal-btn:disabled {
   opacity: 0.65;

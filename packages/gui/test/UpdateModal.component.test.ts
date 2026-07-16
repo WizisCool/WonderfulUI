@@ -3,7 +3,14 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import { defineComponent, h, nextTick } from 'vue';
 import UpdateModal from '../src/components/update/UpdateModal.vue';
-import { useUpdateStore, FRIENDLY_CHECK_ERROR, FRIENDLY_UPDATE_ERROR } from '../src/stores/update.ts';
+import {
+  useUpdateStore,
+  FRIENDLY_CHECK_ERROR,
+  FRIENDLY_UPDATE_ERROR,
+  FAKE_DOWNLOAD_MS,
+  DEV_FAKE_DONE_TOAST,
+  SKIPPED_VERSION_KEY,
+} from '../src/stores/update.ts';
 import { useUiStore } from '../src/stores/ui.ts';
 
 const checkMock = vi.fn();
@@ -81,7 +88,9 @@ describe('UpdateModal', () => {
     // Teleport → body：用 document 查询
     const primary = document.body.querySelector('button.btn-primary');
     expect(primary).not.toBeNull();
-    expect(primary!.textContent).toContain('立即更新');
+    expect(primary!.textContent).toContain('更新');
+    expect(document.body.textContent).toContain('稍后');
+    expect(document.body.textContent).toContain('跳过此版本');
     w.unmount();
   });
 
@@ -190,7 +199,7 @@ describe('useUpdateStore', () => {
     w.unmount();
   });
 
-  test('silent check with update sets badge and toasts once', async () => {
+  test('silent check with update opens modal and sets badge', async () => {
     checkMock.mockResolvedValueOnce({
       version: '9.9.9',
       date: '2026-07-14',
@@ -204,13 +213,11 @@ describe('useUpdateStore', () => {
       modalOpen: false,
     });
     const store = useUpdateStore();
-    const ui = useUiStore();
     await store.checkForUpdate(true);
     await flushPromises();
     expect(store.status).toBe('available');
     expect(store.badge).toBe(true);
-    expect(store.modalOpen).toBe(false);
-    expect(ui.toastMessage).toContain('9.9.9');
+    expect(store.modalOpen).toBe(true);
     w.unmount();
   });
 
@@ -269,6 +276,128 @@ describe('useUpdateStore', () => {
     resolveCheck(null);
     await Promise.all([p1, p2]);
     expect(store.status).toBe('uptodate');
+    w.unmount();
+  });
+
+  test('debug playFakeDownload reaches installing without plugin calls', async () => {
+    vi.useFakeTimers();
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    const ui = useUiStore();
+    store.debugAvailable({ silent: false });
+    expect(store.debugSimulate).toBe(true);
+    expect(store.status).toBe('available');
+
+    const play = store.startUpdate();
+    await vi.advanceTimersByTimeAsync(FAKE_DOWNLOAD_MS + 200);
+    await play;
+    await flushPromises();
+
+    expect(store.status).toBe('installing');
+    expect(store.badge).toBe(false);
+    expect(checkMock).not.toHaveBeenCalled();
+    expect(downloadAndInstallMock).not.toHaveBeenCalled();
+    expect(relaunchMock).not.toHaveBeenCalled();
+    expect(ui.toastMessage).toBe(DEV_FAKE_DONE_TOAST);
+    store.debugReset();
+    w.unmount();
+    vi.useRealTimers();
+  });
+
+  test('debug retry after check error sets available without real check', async () => {
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    store.debugError('check');
+    expect(store.errorKind).toBe('check');
+    await store.retry();
+    await flushPromises();
+    expect(store.status).toBe('available');
+    expect(store.update?.version).toBe('9.9.9');
+    expect(checkMock).not.toHaveBeenCalled();
+    store.debugReset();
+    w.unmount();
+  });
+
+  test('debug downloading total=0 then play keeps indeterminate', async () => {
+    vi.useFakeTimers();
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    store.debugDownloading({ total: 0 });
+    const play = store.playFakeDownload();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(store.progress.total).toBe(0);
+    await vi.advanceTimersByTimeAsync(FAKE_DOWNLOAD_MS);
+    await play;
+    expect(store.status).toBe('installing');
+    store.debugReset();
+    w.unmount();
+    vi.useRealTimers();
+  });
+
+  test('skipThisVersion keeps badge, closes modal, suppresses silent reopen', async () => {
+    localStorage.removeItem(SKIPPED_VERSION_KEY);
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    store.debugAvailable({ silent: false });
+    expect(store.modalOpen).toBe(true);
+    store.skipThisVersion();
+    expect(store.modalOpen).toBe(false);
+    expect(store.badge).toBe(true);
+    expect(store.status).toBe('available');
+    expect(localStorage.getItem(SKIPPED_VERSION_KEY)).toBe('9.9.9');
+
+    store.debugReset();
+    store.debugAvailable({ silent: true });
+    expect(store.badge).toBe(true);
+    expect(store.modalOpen).toBe(false);
+
+    store.openModal();
+    expect(store.modalOpen).toBe(true);
+    localStorage.removeItem(SKIPPED_VERSION_KEY);
+    store.debugReset();
+    w.unmount();
+  });
+
+  test('silent check does not auto-open when version is skipped', async () => {
+    localStorage.setItem(SKIPPED_VERSION_KEY, '9.9.9');
+    checkMock.mockResolvedValueOnce({
+      version: '9.9.9',
+      date: '',
+      body: 'notes',
+      downloadAndInstall: downloadAndInstallMock,
+    });
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    await store.checkForUpdate(true);
+    await flushPromises();
+    expect(store.badge).toBe(true);
+    expect(store.modalOpen).toBe(false);
+    localStorage.removeItem(SKIPPED_VERSION_KEY);
     w.unmount();
   });
 });
