@@ -1,8 +1,7 @@
 /**
  * Screenshot helpers for the player context menu.
- *
- * Frame pixels come only from Rust `capture_video_frame` (Windows MediaComposition).
- * This module handles filename sanitization, base64 → Blob, and error copy.
+ * Pixels come from Rust `capture_video_frame` (Media Foundation).
+ * This module: filename sanitization, base64 → Blob, error copy.
  */
 
 const WIN_ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/g;

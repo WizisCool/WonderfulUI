@@ -278,7 +278,6 @@ import {
   clearFreezeCanvas,
   paintVideoFrameToCanvas,
 } from '../../utils/freeze-video-frame.ts';
-import { clientLog } from '../../utils/client-log.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
@@ -404,8 +403,6 @@ const LS_MUTED = 'wui:player.muted';
 
 const src = computed(() => {
   if (!player.video) return '';
-  // Built-in asset protocol streams with Range; do not use wui-media here —
-  // full-file buffering in a custom scheme freezes the UI on open.
   return convertFileSrc(player.video.video_src);
 });
 
@@ -487,16 +484,11 @@ const openSubmenuId = ref<string | null>(null);
 const submenuFlipLeft = ref(false);
 /** videoWidth/Height are not Vue-reactive — keep a ref updated on media events. */
 const frameReady = ref(false);
-/** Blocks re-entry while native capture / write runs. */
+/** Re-entry guard for copy/save screenshot jobs. */
 let screenshotBusy = false;
-/**
- * While true, force-hold paused at the save frame: ignore canplay→play,
- * onPlay, togglePlay, and Space (seek/dialog can re-fire play on WebView2).
- */
-let screenshotPlaybackHold = false;
-/** Interval that re-asserts pause while hold is active (belt-and-suspenders). */
-let screenshotPauseWatchdog: ReturnType<typeof setInterval> | null = null;
-/** Visual busy state on the player shell (null = idle). */
+/** While true: real pause + freeze; block autoplay/hotkeys; pin scrubber. */
+let screenshotHold = false;
+/** Progress overlay kind (null = hidden). */
 const screenshotUi = ref<'copy' | 'save' | null>(null);
 const screenshotUiLabel = computed(() =>
   screenshotUi.value === 'save' ? '正在保存截图…' : '正在复制截图…',
@@ -510,29 +502,22 @@ function captureTimeMs(): number {
   );
 }
 
-/** Yield so Vue can paint the dim overlay before the native call blocks. */
-async function paintScreenshotUi() {
+/** nextTick + 2 rAF so Vue paints freeze/progress before blocking work. */
+async function flushPlayerPaint() {
   await nextTick();
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 }
 
-function waitVideoSeeked(v: HTMLVideoElement, timeoutMs = 2500): Promise<void> {
-  if (v.seeking === false) {
-    // May already be settled; still wait one frame if we just assigned currentTime.
-  }
+function waitVideoSeeked(v: HTMLVideoElement, timeoutMs = 2000): Promise<void> {
   return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
+    const done = () => {
       window.clearTimeout(timer);
-      v.removeEventListener('seeked', onSeeked);
+      v.removeEventListener('seeked', done);
       resolve();
     };
-    const onSeeked = () => finish();
-    const timer = window.setTimeout(finish, timeoutMs);
-    v.addEventListener('seeked', onSeeked, { once: true });
+    const timer = window.setTimeout(done, timeoutMs);
+    v.addEventListener('seeked', done, { once: true });
   });
 }
 
@@ -678,92 +663,29 @@ function updateSubmenuFlip() {
 async function captureFrameAt(timeMs: number): Promise<Blob> {
   const path = videoPath.value?.trim();
   if (!path) throw new Error('视频路径不可用');
-  // Windows-only OS decoder path — no canvas / blob fallback.
   const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
   if (!b64?.length) throw new Error('截图结果为空');
   return base64PngToBlob(b64);
-}
-
-async function copyScreenshot() {
-  if (screenshotBusy) return;
-  screenshotBusy = true;
-  const timeMs = captureTimeMs();
-  const timeSec = timeMs / 1000;
-  closeCtxMenu({ swallowClickThrough: true });
-  let resumeAfter = false;
-  let held = false;
-  try {
-    // Same real-pause hold as save (user was testing clipboard path).
-    resumeAfter = await holdPlaybackForScreenshot(timeSec);
-    held = true;
-    screenshotUi.value = 'copy';
-    await paintScreenshotUi();
-    forceVideoPaused();
-    const blob = await captureFrameAt(timeMs);
-    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
-      throw new Error('当前环境不支持复制图片');
-    }
-    // Some Chromium builds require a Promise value for image ClipboardItem.
-    await navigator.clipboard.write([
-      new ClipboardItem({ 'image/png': Promise.resolve(blob) }),
-    ]);
-    ui.showToast('已复制截图');
-    releaseScreenshotPlaybackHold(resumeAfter);
-    held = false;
-  } catch (e) {
-    ui.showToast(formatCaptureError(e, 'copy'), 'error');
-    releaseScreenshotPlaybackHold(false);
-    held = false;
-  } finally {
-    screenshotUi.value = null;
-    screenshotBusy = false;
-    stopScreenshotPauseWatchdog();
-    screenshotPlaybackHold = false;
-    if (held) clearDisplayFreeze();
-  }
 }
 
 function forceVideoPaused() {
   const v = videoRef.value;
   if (!v) return;
   try {
-    // Always call pause() — do not gate on v.paused (WebView2 can lie briefly).
     v.pause();
   } catch {
     /* ignore */
   }
-  if (state.value !== 'ended' && state.value !== 'error') {
-    state.value = 'paused';
-  }
+  if (state.value !== 'ended' && state.value !== 'error') state.value = 'paused';
   clearBufferingTimer();
   bufferingMode.value = 'hidden';
 }
 
-/**
- * Snap a display freeze of the current frame, then collapse the live <video>
- * out of the HW compositor (opacity/size), covering with a modal-level canvas.
- */
-function applyDisplayFreeze(): boolean {
+function applyDisplayFreeze() {
   const v = videoRef.value;
   const canvas = freezeCanvasRef.value;
-  if (!canvas) {
-    clientLog('warn', 'screenshot', 'freeze canvas ref missing');
-    return false;
-  }
-  let ok = false;
-  if (v) {
-    ok = paintVideoFrameToCanvas(v, canvas);
-    clientLog(
-      'info',
-      'screenshot',
-      `freeze paint ok=${ok} vw=${v.videoWidth} vh=${v.videoHeight} t=${v.currentTime.toFixed(3)} paused=${v.paused}`,
-    );
-  } else {
-    clientLog('warn', 'screenshot', 'freeze video ref missing');
-  }
-  // Always show freeze layer — black if paint failed.
+  if (v && canvas) paintVideoFrameToCanvas(v, canvas);
   freezeFrameActive.value = true;
-  return ok;
 }
 
 function clearDisplayFreeze() {
@@ -771,65 +693,28 @@ function clearDisplayFreeze() {
   clearFreezeCanvas(freezeCanvasRef.value);
 }
 
-/** Flush Vue DOM + paint so freeze is on-screen before native Save As blocks. */
-async function flushFreezeToScreen() {
-  await nextTick();
-  // Force layout so is-freeze-hidden / freeze layer visibility apply.
-  const layer = freezeCanvasRef.value?.parentElement;
-  if (layer) void layer.offsetWidth;
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-}
-
-function startScreenshotPauseWatchdog() {
-  stopScreenshotPauseWatchdog();
-  screenshotPauseWatchdog = setInterval(() => {
-    if (!screenshotPlaybackHold) return;
-    forceVideoPaused();
-  }, 32);
-}
-
-function stopScreenshotPauseWatchdog() {
-  if (screenshotPauseWatchdog) {
-    clearInterval(screenshotPauseWatchdog);
-    screenshotPauseWatchdog = null;
-  }
-}
-
-/**
- * Enter real paused state + stage freeze for copy/save screenshot.
- * - `state === 'paused'` so controls show play + 逐帧 dock
- * - freeze canvas covers only video (under controls)
- * - scrubber pinned; timeupdate ignored while held
- */
+/** Pause + pin scrubber + stage freeze. Returns whether to resume after. */
 async function holdPlaybackForScreenshot(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
-  if (!v) {
-    clientLog('error', 'screenshot', 'holdPlayback: no video element');
-    return false;
-  }
+  if (!v) return false;
 
   const wasPlaying =
     state.value === 'playing'
     || state.value === 'buffering'
     || (!v.paused && state.value !== 'ended');
 
-  screenshotPlaybackHold = true;
+  screenshotHold = true;
   stateBeforeSeek = null;
   stopFrameHold();
-
-  // Real pause first — UI must enter paused (play icon + frame stepper).
   forceVideoPaused();
+
   const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
   currentTime.value = target;
-
-  // Seek to capture time while still visible, then freeze.
-  const needSeek = Math.abs((v.currentTime || 0) - target) > 0.01;
-  if (needSeek) {
+  if (Math.abs((v.currentTime || 0) - target) > 0.01) {
     try {
-      const seekWait = waitVideoSeeked(v);
+      const wait = waitVideoSeeked(v);
       v.currentTime = target;
-      await seekWait;
+      await wait;
     } catch {
       /* best-effort */
     }
@@ -837,28 +722,17 @@ async function holdPlaybackForScreenshot(timeSec: number): Promise<boolean> {
     currentTime.value = target;
   }
 
-  // Display freeze under controls (HW video may still composite without this).
   applyDisplayFreeze();
-  startScreenshotPauseWatchdog();
-  await flushFreezeToScreen();
+  await flushPlayerPaint();
   forceVideoPaused();
-
-  // Keep paused chrome visible (逐帧 / play button).
   showControls();
-  clientLog(
-    'info',
-    'screenshot',
-    `hold ready freeze=${freezeFrameActive.value} state=${state.value} paused=${v.paused} t=${v.currentTime.toFixed(3)}`,
-  );
   return wasPlaying;
 }
 
-function releaseScreenshotPlaybackHold(resume: boolean) {
-  stopScreenshotPauseWatchdog();
-  screenshotPlaybackHold = false;
+function releaseScreenshotHold(resume: boolean) {
+  screenshotHold = false;
   clearDisplayFreeze();
   if (!resume) {
-    // Stay in real paused state after a failed/cancel path that already paused.
     forceVideoPaused();
     showControls();
     return;
@@ -868,64 +742,70 @@ function releaseScreenshotPlaybackHold(resume: boolean) {
   v.play().catch(() => {});
 }
 
+async function copyScreenshot() {
+  if (screenshotBusy) return;
+  screenshotBusy = true;
+  const timeMs = captureTimeMs();
+  const timeSec = timeMs / 1000;
+  closeCtxMenu({ swallowClickThrough: true });
+  let resume = false;
+  try {
+    resume = await holdPlaybackForScreenshot(timeSec);
+    screenshotUi.value = 'copy';
+    await flushPlayerPaint();
+    const blob = await captureFrameAt(timeMs);
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+      throw new Error('当前环境不支持复制图片');
+    }
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': Promise.resolve(blob) }),
+    ]);
+    ui.showToast('已复制截图');
+    releaseScreenshotHold(resume);
+  } catch (e) {
+    ui.showToast(formatCaptureError(e, 'copy'), 'error');
+    releaseScreenshotHold(false);
+  } finally {
+    screenshotUi.value = null;
+    screenshotBusy = false;
+    screenshotHold = false;
+    clearDisplayFreeze();
+  }
+}
+
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
   closeCtxMenu({ swallowClickThrough: true });
-  let resumeAfter = false;
-  let held = false;
+  let resume = false;
   try {
-    resumeAfter = await holdPlaybackForScreenshot(timeSec);
-    held = true;
-
+    resume = await holdPlaybackForScreenshot(timeSec);
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
-    const name = defaultScreenshotName(videoPath.value, timeSec);
     const outPath = await save({
-      defaultPath: name,
+      defaultPath: defaultScreenshotName(videoPath.value, timeSec),
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
     if (!outPath) {
-      releaseScreenshotPlaybackHold(resumeAfter);
-      held = false;
+      releaseScreenshotHold(resume);
       return;
     }
-
-    forceVideoPaused();
-    const v = videoRef.value;
-    if (v && Math.abs((v.currentTime || 0) - timeSec) > 0.05) {
-      try {
-        const seekWait = waitVideoSeeked(v);
-        v.currentTime = timeSec;
-        await seekWait;
-      } catch {
-        /* ignore */
-      }
-      forceVideoPaused();
-      currentTime.value = timeSec;
-    }
-
     screenshotUi.value = 'save';
-    await paintScreenshotUi();
-    forceVideoPaused();
+    await flushPlayerPaint();
     const blob = await captureFrameAt(timeMs);
-    const bytes = await blobToUint8Array(blob);
-    await writeFile(outPath, bytes);
+    await writeFile(outPath, await blobToUint8Array(blob));
     ui.showToast('已保存');
-    releaseScreenshotPlaybackHold(resumeAfter);
-    held = false;
+    releaseScreenshotHold(resume);
   } catch (e) {
     ui.showToast(formatCaptureError(e, 'save'), 'error');
-    releaseScreenshotPlaybackHold(false);
-    held = false;
+    releaseScreenshotHold(false);
   } finally {
     screenshotUi.value = null;
     screenshotBusy = false;
-    stopScreenshotPauseWatchdog();
-    screenshotPlaybackHold = false;
-    if (held) clearDisplayFreeze();
+    screenshotHold = false;
+    clearDisplayFreeze();
   }
 }
 
@@ -1237,7 +1117,7 @@ function clearHideTimer() {
 }
 
 function togglePlay() {
-  if (screenshotPlaybackHold || screenshotUi.value) return;
+  if (screenshotHold || screenshotUi.value) return;
   const v = videoRef.value;
   if (!v) return;
   // At end, play() alone often stays on the last frame — restart from 0.
@@ -1471,7 +1351,7 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
-  if (screenshotPlaybackHold || screenshotUi.value) {
+  if (screenshotHold || screenshotUi.value) {
     clearBufferingTimer();
     bufferingMode.value = 'hidden';
     state.value = 'paused';
@@ -1492,7 +1372,7 @@ function onCanPlay() {
 }
 
 function onPlay() {
-  if (screenshotPlaybackHold || screenshotUi.value) {
+  if (screenshotHold || screenshotUi.value) {
     // Seek/canplay/dialog race: force stay paused on the save frame.
     forceVideoPaused();
     return;
@@ -1505,7 +1385,7 @@ function onPlay() {
 }
 
 function onPause() {
-  if (state.value === 'buffering' && !screenshotPlaybackHold) return;
+  if (state.value === 'buffering' && !screenshotHold) return;
   clearBufferingTimer();
   bufferingMode.value = 'hidden';
   state.value = 'paused';
@@ -1550,7 +1430,7 @@ function clearBufferingTimer() {
 
 function onTimeUpdate() {
   // During save freeze, never let the scrubber/time crawl (even if pause races).
-  if (screenshotPlaybackHold || freezeFrameActive.value) return;
+  if (screenshotHold || freezeFrameActive.value) return;
   if (isDragging.value || frameHoldActive) return;
   const v = videoRef.value;
   if (!v) return;
@@ -1639,7 +1519,7 @@ function onKeydown(e: KeyboardEvent) {
   const v = videoRef.value;
   if (!v) return;
   // Screenshot save hold: no play/seek hotkeys while frozen on the capture frame.
-  if (screenshotPlaybackHold || screenshotUi.value) {
+  if (screenshotHold || screenshotUi.value) {
     if (
       e.key === ' '
       || e.key === 'k' || e.key === 'K'
@@ -1737,8 +1617,8 @@ onUnmounted(() => {
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
-  stopScreenshotPauseWatchdog();
-  screenshotPlaybackHold = false;
+  screenshotHold = false;
+  clearDisplayFreeze();
 });
 </script>
 

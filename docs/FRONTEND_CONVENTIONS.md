@@ -387,9 +387,9 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - Fixed-position `.player-context-menu`, **Teleported** to `document.fullscreenElement` when fullscreen, otherwise `body` (menu must not stay a sibling of the fullscreen modal — it would be invisible).
 - Grouped with separators (no section titles): 系统播放器 · 资源管理器 / 复制路径 · **截图 ▸** · 快传.
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
-- Screenshot capture: **Windows only** — Tauri `capture_video_frame(path, timeMs)` → Media Foundation SourceReader (cached per path) → PNG. No canvas/blob. Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`.
-- **Screenshot busy UI (copy + save):** enter **real `paused` state** first (`forceVideoPaused` + pin scrubber + show controls/逐帧), then stage-only freeze canvas under controls (HW video collapsed to 1×1 opacity-0). Copy → hold → progress → capture → clipboard → release/resume. Save → hold → Save As → progress → write → release/resume. Cancel restores prior play. Hold blocks canplay/onPlay/togglePlay/hotkeys; ignore `timeupdate` while held.
-- **Player video URL:** always `convertFileSrc` (Tauri **asset** protocol) for progressive Range streaming.
+- Screenshot (Windows only): `capture_video_frame(path, timeMs)` → MF SourceReader → PNG. Clipboard: `ClipboardItem`. Save: dialog + `plugin-fs`.
+- Screenshot UX (copy/save): real `paused` + stage freeze canvas (HW video collapsed) → progress overlay → native capture → resume if was playing. Hold blocks autoplay/hotkeys; pins scrubber.
+- Player video: `convertFileSrc` (asset protocol).
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
 - Close on: left mousedown outside, Escape (**menu first**, not the player), scroll, resize, fullscreenchange, video change, player close.

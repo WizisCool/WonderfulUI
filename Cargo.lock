@@ -5346,7 +5346,6 @@ dependencies = [
  "base64 0.22.1",
  "cbc",
  "hex",
- "http",
  "image",
  "qrcode",
  "rand",
