@@ -387,8 +387,8 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - Fixed-position `.player-context-menu`, **Teleported** to `document.fullscreenElement` when fullscreen, otherwise `body` (menu must not stay a sibling of the fullscreen modal — it would be invisible).
 - Grouped with separators (no section titles): 系统播放器 · 资源管理器 / 复制路径 · **截图 ▸** · 快传.
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
-- Screenshot capture: prefer Tauri command `capture_video_frame(path, timeMs)` → PNG base64 via Windows `MediaComposition::GetThumbnailAsync` (OS decoder, PotPlayer-class). Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`. Canvas / blob-clone in `capture-video-frame.ts` is fallback only (browser-debug / WinRT failure). `videoWidth` is not Vue-reactive — keep `frameReady` for menu enablement.
-- **Player video URL:** always `convertFileSrc` (Tauri **asset** protocol) for progressive Range streaming. **Do not** hot-swap live `src` to `blob:` and **do not** play via whole-file custom schemes (UI freeze).
+- Screenshot capture: **Windows only** — Tauri `capture_video_frame(path, timeMs)` → PNG base64 via `MediaComposition::GetThumbnailAsync`. No canvas / blob fallback. Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`. `videoWidth` is not Vue-reactive — keep `frameReady` for menu enablement.
+- **Player video URL:** always `convertFileSrc` (Tauri **asset** protocol) for progressive Range streaming.
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
 - Close on: left mousedown outside, Escape (**menu first**, not the player), scroll, resize, fullscreenchange, video change, player close.

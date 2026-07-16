@@ -4,10 +4,6 @@ import {
   defaultScreenshotName,
   formatCaptureError,
   formatTimeForFilename,
-  isBlobUrl,
-  isCanvasTaintError,
-  isExportSafeVideoSrc,
-  releaseVideoBlobCache,
   sanitizeFileStem,
   videoStemFromPath,
 } from '../src/utils/capture-video-frame.ts';
@@ -54,38 +50,17 @@ describe('videoStemFromPath', () => {
   });
 });
 
-describe('isCanvasTaintError / formatCaptureError', () => {
-  test('detects Chromium taint messages', () => {
-    expect(isCanvasTaintError(new Error(
-      "Failed to execute 'toBlob' on 'HTMLCanvasElement': Tainted canvases may not be exported.",
-    ))).toBe(true);
-    expect(isCanvasTaintError(new Error('ok'))).toBe(false);
-  });
-
-  test('formats user-facing Chinese without raw SecurityError spam', () => {
-    const taint = new Error('Tainted canvases may not be exported.');
-    expect(formatCaptureError(taint, 'save')).toBe('保存截图失败：无法导出当前帧');
-    expect(formatCaptureError(taint, 'copy')).toBe('复制截图失败：无法导出当前帧');
-  });
-});
-
-describe('export-safe src helpers', () => {
-  test('blob and data URLs are export-safe', () => {
-    expect(isBlobUrl('blob:http://localhost/abc')).toBe(true);
-    expect(isExportSafeVideoSrc('blob:http://localhost/abc')).toBe(true);
-    expect(isExportSafeVideoSrc('data:video/mp4;base64,aa')).toBe(true);
-    expect(isExportSafeVideoSrc('https://asset.localhost/x')).toBe(false);
-  });
-
-  test('releaseVideoBlobCache is idempotent', () => {
-    releaseVideoBlobCache();
-    releaseVideoBlobCache('D:\\nope.mp4');
+describe('formatCaptureError', () => {
+  test('formats user-facing Chinese', () => {
+    expect(formatCaptureError(new Error('打开视频文件: denied'), 'save')).toBe(
+      '保存截图失败：打开视频文件: denied',
+    );
+    expect(formatCaptureError(new Error('ok'), 'copy')).toBe('复制截图失败：ok');
   });
 });
 
 describe('base64ToUint8Array', () => {
   test('decodes standard base64', () => {
-    // "PNG" as base64
     const bytes = base64ToUint8Array(btoa('PNG'));
     expect(Array.from(bytes)).toEqual([80, 78, 71]);
   });

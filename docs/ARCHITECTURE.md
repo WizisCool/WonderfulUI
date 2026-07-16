@@ -26,8 +26,8 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
 - **Frontend virtual scrolling**: match list renders only visible + buffer rows (~12 DOM nodes instead of hundreds), using `position: absolute` + `transform: translateY()` with a `.vlist-spacer` for scrollable height and rAF-batched scroll handler.
 - **In-app updater** (since v0.1.5): `tauri-plugin-updater` + `tauri-plugin-process` are default features. The GUI calls `check()` / `downloadAndInstall()` / `relaunch()` only through `packages/gui/src/stores/update.ts`. Manifest is GitHub Releases `latest.json` (signed NSIS setup). Details: `docs/UPDATER.md`.
-- **Screenshot** (player context menu): Tauri command `capture_video_frame` (`src-tauri/src/frame_capture.rs`) uses Windows Media Editing `GetThumbnailAsync` at `time_ms`, returns PNG base64. Save: `plugin-dialog` + `plugin-fs`. Clipboard: browser `ClipboardItem`. Frontend canvas is fallback only.
-- **In-app player media:** playback uses Tauri **asset** protocol (`convertFileSrc`) for progressive Range streaming. Do not buffer whole videos in a custom URI scheme for playback.
+- **Screenshot** (player context menu, Windows only): Tauri `capture_video_frame` (`src-tauri/src/frame_capture.rs`) uses Media Editing `GetThumbnailAsync` at `time_ms`, returns PNG base64. No frontend canvas path. Save: `plugin-dialog` + `plugin-fs`. Clipboard: `ClipboardItem`.
+- **In-app player media:** playback uses Tauri **asset** protocol (`convertFileSrc`) for progressive Range streaming.
 - **CI caches**: Release tags restore Bun + Rust release-profile caches warmed on `main` by `.github/workflows/cache-warm.yml` (GHA only shares default-branch caches with tags). See `docs/AGENT_WORKFLOW.md` § Release build speed.
 
 ## Parser Layout

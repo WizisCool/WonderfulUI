@@ -238,12 +238,10 @@ import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import {
-  captureVideoFramePng,
   base64PngToBlob,
   blobToUint8Array,
   defaultScreenshotName,
   formatCaptureError,
-  releaseVideoBlobCache,
 } from '../../utils/capture-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
@@ -343,14 +341,10 @@ watch(() => player.isOpen, (open) => {
       const target = focusables[0] ?? modalRef.value;
       target?.focus();
     });
-  } else {
-    // Drop any taint-fallback blob cache from a prior screenshot attempt.
-    releaseVideoBlobCache();
-    if (restoreFocusEl && document.contains(restoreFocusEl)) {
-      // Restore focus to the element that opened the player.
-      restoreFocusEl.focus();
-      restoreFocusEl = null;
-    }
+  } else if (restoreFocusEl && document.contains(restoreFocusEl)) {
+    // Restore focus to the element that opened the player.
+    restoreFocusEl.focus();
+    restoreFocusEl = null;
   }
 });
 
@@ -596,26 +590,17 @@ function updateSubmenuFlip() {
 }
 
 async function captureCurrentFrame(): Promise<Blob> {
-  const v = videoRef.value;
-  if (!v) throw new Error('视频帧尚未就绪');
   const path = videoPath.value?.trim();
-  const timeMs = Math.max(0, Math.floor((Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000));
-
-  // Preferred: OS decoder seek + rasterize (no canvas taint, no full-file blob).
-  if (path && typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
-    try {
-      const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
-      if (b64?.length) return base64PngToBlob(b64);
-    } catch (e) {
-      // Fall through to canvas / blob clone for rare codec / WinRT failures.
-      console.warn('[screenshot] native capture failed, falling back', e);
-    }
-  }
-
-  return captureVideoFramePng(v, {
-    filePath: path || null,
-    convertFileSrc,
-  });
+  if (!path) throw new Error('视频路径不可用');
+  const v = videoRef.value;
+  const timeMs = Math.max(
+    0,
+    Math.floor((v && Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000),
+  );
+  // Windows-only OS decoder path — no canvas / blob fallback.
+  const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
+  if (!b64?.length) throw new Error('截图结果为空');
+  return base64PngToBlob(b64);
 }
 
 async function copyScreenshot() {
@@ -887,9 +872,8 @@ function onCtxMenuKeydown(e: KeyboardEvent) {
 }
 
 // Close menu when the open video changes (seek context / next clip).
-watch(() => player.video?.video_id, (id, prev) => {
+watch(() => player.video?.video_id, () => {
   if (ctxMenu.value) closeCtxMenu();
-  if (id !== prev) releaseVideoBlobCache();
 });
 
 function fmtTime(sec: number): string {
@@ -994,7 +978,6 @@ watch(showFrameStepper, (show) => {
 
 function doClose() {
   stopFrameHold();
-  releaseVideoBlobCache();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
     unbindCtxMenuListeners();
@@ -1447,7 +1430,6 @@ onUnmounted(() => {
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
-  releaseVideoBlobCache();
 });
 </script>
 
