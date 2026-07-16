@@ -135,6 +135,25 @@
           @fullscreen="toggleFullscreen"
         />
       </div>
+
+      <!-- Screenshot busy: dim stage + indeterminate progress (native capture lag). -->
+      <div
+        class="player-screenshot-overlay"
+        :class="{ 'is-visible': screenshotUi !== null }"
+        role="status"
+        aria-live="polite"
+        :aria-busy="screenshotUi !== null"
+        :aria-hidden="screenshotUi === null"
+        @click.stop
+        @contextmenu.stop.prevent
+      >
+        <div class="player-screenshot-card">
+          <div class="player-screenshot-label">{{ screenshotUiLabel }}</div>
+          <div class="player-screenshot-progress" aria-hidden="true">
+            <div class="player-screenshot-progress-shimmer" />
+          </div>
+        </div>
+      </div>
     </div>
 
     <!--
@@ -448,7 +467,28 @@ const openSubmenuId = ref<string | null>(null);
 const submenuFlipLeft = ref(false);
 /** videoWidth/Height are not Vue-reactive — keep a ref updated on media events. */
 const frameReady = ref(false);
+/** Blocks re-entry while native capture / write runs. */
 let screenshotBusy = false;
+/** Visual busy state on the player shell (null = idle). */
+const screenshotUi = ref<'copy' | 'save' | null>(null);
+const screenshotUiLabel = computed(() =>
+  screenshotUi.value === 'save' ? '正在保存截图…' : '正在复制截图…',
+);
+
+function captureTimeMs(): number {
+  const v = videoRef.value;
+  return Math.max(
+    0,
+    Math.floor((v && Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000),
+  );
+}
+
+/** Yield so Vue can paint the dim overlay before the native call blocks. */
+async function paintScreenshotUi() {
+  await nextTick();
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+}
 
 function refreshFrameReady() {
   const v = videoRef.value;
@@ -589,14 +629,9 @@ function updateSubmenuFlip() {
   submenuFlipLeft.value = pr.right + 2 + fw > window.innerWidth - 8;
 }
 
-async function captureCurrentFrame(): Promise<Blob> {
+async function captureFrameAt(timeMs: number): Promise<Blob> {
   const path = videoPath.value?.trim();
   if (!path) throw new Error('视频路径不可用');
-  const v = videoRef.value;
-  const timeMs = Math.max(
-    0,
-    Math.floor((v && Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000),
-  );
   // Windows-only OS decoder path — no canvas / blob fallback.
   const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
   if (!b64?.length) throw new Error('截图结果为空');
@@ -606,10 +641,12 @@ async function captureCurrentFrame(): Promise<Blob> {
 async function copyScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
-  // Capture while the player still has a stable decoded frame, then close menu.
+  const timeMs = captureTimeMs();
+  closeCtxMenu();
+  screenshotUi.value = 'copy';
   try {
-    const blob = await captureCurrentFrame();
-    closeCtxMenu();
+    await paintScreenshotUi();
+    const blob = await captureFrameAt(timeMs);
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
       throw new Error('当前环境不支持复制图片');
     }
@@ -619,9 +656,9 @@ async function copyScreenshot() {
     ]);
     ui.showToast('已复制截图');
   } catch (e) {
-    closeCtxMenu();
     ui.showToast(formatCaptureError(e, 'copy'), 'error');
   } finally {
+    screenshotUi.value = null;
     screenshotBusy = false;
   }
 }
@@ -629,24 +666,31 @@ async function copyScreenshot() {
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
+  // Freeze playhead before the Save As dialog so the frame matches the click.
+  const timeMs = captureTimeMs();
+  const timeSec = timeMs / 1000;
+  closeCtxMenu();
   try {
-    const blob = await captureCurrentFrame();
-    closeCtxMenu();
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
-    const name = defaultScreenshotName(videoPath.value, currentTime.value);
-    const path = await save({
+    const name = defaultScreenshotName(videoPath.value, timeSec);
+    // System picker first; only then dim + capture (user request).
+    const outPath = await save({
       defaultPath: name,
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
-    if (!path) return;
+    if (!outPath) return;
+
+    screenshotUi.value = 'save';
+    await paintScreenshotUi();
+    const blob = await captureFrameAt(timeMs);
     const bytes = await blobToUint8Array(blob);
-    await writeFile(path, bytes);
+    await writeFile(outPath, bytes);
     ui.showToast('已保存');
   } catch (e) {
-    closeCtxMenu();
     ui.showToast(formatCaptureError(e, 'save'), 'error');
   } finally {
+    screenshotUi.value = null;
     screenshotBusy = false;
   }
 }
@@ -1524,6 +1568,71 @@ onUnmounted(() => {
   display: block;
   border-radius: 0;
   background-color: #000;
+}
+
+/* Screenshot busy: gray the player shell + indeterminate accent bar. */
+.player-screenshot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(0.12 0.01 30 / 0.62);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.player-screenshot-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.player-screenshot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-width: min(280px, 70%);
+  padding: 16px 18px;
+  border-radius: var(--r-md, 6px);
+  background: var(--surface-2, oklch(0.19 0.012 30));
+  border: 1px solid var(--line, oklch(0.30 0.014 30));
+  box-shadow: 0 12px 32px oklch(0 0 0 / 0.35);
+}
+.player-screenshot-label {
+  font-family: var(--font-sans, MiSans, system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: var(--w-medium, 380);
+  color: var(--ink-2, oklch(0.78 0.012 30));
+  text-align: center;
+}
+.player-screenshot-progress {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: var(--surface-3, oklch(0.22 0.014 30));
+  border-radius: 999px;
+  overflow: hidden;
+}
+.player-screenshot-progress-shimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent, oklch(0.62 0.21 25)) 50%,
+    transparent 100%
+  );
+  opacity: 0.75;
+  animation: player-screenshot-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes player-screenshot-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }
 
 .player-loading {

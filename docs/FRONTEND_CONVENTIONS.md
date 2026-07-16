@@ -388,6 +388,7 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - Grouped with separators (no section titles): 系统播放器 · 资源管理器 / 复制路径 · **截图 ▸** · 快传.
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
 - Screenshot capture: **Windows only** — Tauri `capture_video_frame(path, timeMs)` → Media Foundation SourceReader (cached per path) → PNG. No canvas/blob. Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`.
+- **Screenshot busy UI:** copy → close menu → dim player shell + indeterminate accent progress (`player-screenshot-overlay`) → capture → toast → clear. Save → close menu → system Save As first → on path chosen, same dim+progress → capture+write → toast. Freeze `timeMs` at menu action (before dialog) so the frame matches the click.
 - **Player video URL:** always `convertFileSrc` (Tauri **asset** protocol) for progressive Range streaming.
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
