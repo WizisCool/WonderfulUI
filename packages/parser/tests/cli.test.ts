@@ -33,7 +33,7 @@ describe('wonderful-parser CLI', () => {
   test('--version prints version', () => {
     const r = run(['--version']);
     expect(r.code).toBe(0);
-    expect(r.stdout.trim()).toBe('0.1.7');
+    expect(r.stdout.trim()).toBe('0.1.8');
   });
 
   withFixture('with ACLOS fixture', () => {
