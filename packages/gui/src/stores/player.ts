@@ -7,6 +7,11 @@ export const usePlayerStore = defineStore('player', () => {
   const matchContext = ref<MatchRecord | null>(null);
   const seekMs = ref<number | undefined>(undefined);
   const isOpen = ref(false);
+  /**
+   * Bumped by shell shortcuts (Ctrl+W) so PlayerHost can run doClose()
+   * (close animation) instead of hard-clearing isOpen.
+   */
+  const closeRequestSeq = ref(0);
 
   function open(v: VideoItem, m?: MatchRecord, seek?: number) {
     video.value = v;
@@ -22,5 +27,11 @@ export const usePlayerStore = defineStore('player', () => {
     seekMs.value = undefined;
   }
 
-  return { video, matchContext, seekMs, isOpen, open, close };
+  /** Prefer over close() from outside the player — preserves exit animation. */
+  function requestClose() {
+    if (!isOpen.value) return;
+    closeRequestSeq.value += 1;
+  }
+
+  return { video, matchContext, seekMs, isOpen, closeRequestSeq, open, close, requestClose };
 });

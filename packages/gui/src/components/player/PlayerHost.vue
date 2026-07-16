@@ -386,6 +386,14 @@ watch(() => player.isOpen, (open) => {
   }
 });
 
+// Ctrl+W / shell shortcuts: same path as the × button (exit animation).
+watch(
+  () => player.closeRequestSeq,
+  () => {
+    if (player.isOpen && !closing.value) doClose();
+  },
+);
+
 let seeked = false;
 let fps = 60;
 

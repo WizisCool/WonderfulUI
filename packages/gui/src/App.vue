@@ -43,6 +43,7 @@ import { useUpdateStore } from './stores/update.ts';
 import { useTooltip, isTipEligible } from './composables/useTooltip.ts';
 import { clientLog } from './utils/client-log.ts';
 import { installUpdateDebug } from './utils/update-debug.ts';
+import { useAppShortcuts } from './composables/useAppShortcuts.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -152,6 +153,8 @@ async function runBoot() {
 async function retryBoot() {
   await runBoot();
 }
+
+useAppShortcuts();
 
 onMounted(() => {
   installUpdateDebug(() => update);
