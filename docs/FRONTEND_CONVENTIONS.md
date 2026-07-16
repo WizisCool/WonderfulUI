@@ -14,6 +14,33 @@ This document holds GUI implementation conventions that are too detailed for `AG
 - **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
 
+### Desktop shortcuts (Windows habits)
+
+Global shell shortcuts live in `utils/app-shortcuts.ts` + `composables/useAppShortcuts.ts` (mounted from `App.vue`). Keep pure matching unit-tested.
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+W` | Close top UI layer (update → share → settings → player); if none, close the window |
+| `Ctrl+Q` | Close the window |
+| `Ctrl+,` | Open settings |
+| `Ctrl+F` | Focus topbar search |
+| `F5` / `Ctrl+R` | Library refresh (scan mode from settings); **not** webview reload |
+| `Ctrl+Shift+R` | Not intercepted (devtools hard reload) |
+| `F12` | DevTools (not intercepted) |
+| `Alt+F4` | OS closes window |
+
+While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss install). Layer Esc handlers stay component-owned.
+
+**Close animation:** `Ctrl+W` / `Ctrl+Q` must not hard-clear layer state. Prefer `clickLayerCloseButton` on the real × control (player `doClose`, settings `setOpen(false)`, update `dismiss`, share close). Player fallback is `player.requestClose()` → `doClose()`, never `player.close()` from shortcuts.
+
+### Match list selection + context menu
+
+- **Toggle select:** left-click a selected row clears selection (`selectMatch(null)` + route `home`); click another row selects it. **Escape** also clears selection when no higher modal/menu is open.
+- **Context menu** (Teleport body, `placeMenuNearCursor`, same dismiss rules as player menu):
+  - Right-click **any match row** → select that row first (if needed), then only「打开对局文件夹」(`reveal_in_explorer` on `firstMatchVideoPath`).
+  - Right-click **blank / empty list** → only「扫描资料库」(same as header refresh / current scan mode).
+  - Outside left mousedown closes menu and arms click-through guard so that click does not toggle select.
+
 ### Match listbox keyboard / a11y (do not re-break)
 
 The middle-column match list is a real **ARIA listbox** using the **`aria-activedescendant` pattern only**. Pure helpers live in `packages/gui/src/utils/match-listbox.ts` (unit-tested); HomeView wires them.

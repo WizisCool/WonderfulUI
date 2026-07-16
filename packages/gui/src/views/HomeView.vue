@@ -44,11 +44,12 @@
       tabindex="0"
       :aria-activedescendant="activeDescendantId"
       :aria-label="`高光对局列表,共 ${filteredMatches.length} 条`"
-      @scroll="onScroll"
+      @scroll="onListScroll"
       @keydown="onListKeydown"
       @pointerdown="onListPointerDown"
       @focus="listFocused = true"
       @blur="onListBlur"
+      @contextmenu="onListContextMenu"
     >
       <template v-if="isBootLoading">
         <div class="empty empty-loading">
@@ -71,8 +72,9 @@
           :is-selected="item.match.matches_id === detail.selectedMatch?.matches_id"
           :is-focused="showKeyboardActive && item.match.matches_id === focusedId"
           :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
-          @click="onRowActivate(item.match)"
+          @click="onRowClick(item.match)"
           @dblclick="playFirst(item.match)"
+          @contextmenu="onRowContextMenu($event, item.match)"
         />
         <div v-if="filteredMatches.length === 0" class="empty empty-inside-list">
           <div class="empty-title">没有匹配</div>
@@ -80,11 +82,49 @@
         </div>
       </template>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-show="ctxMenu"
+        ref="ctxMenuRef"
+        class="match-context-menu"
+        :class="{ 'is-closing': ctxMenuClosing }"
+        role="menu"
+        :style="ctxMenuStyle"
+        @contextmenu.prevent
+        @animationend="onCtxMenuAnimEnd"
+      >
+        <template v-if="ctxMenu?.kind === 'folder'">
+          <button
+            class="match-context-item"
+            type="button"
+            role="menuitem"
+            :disabled="!ctxMenu.videoPath"
+            @click="onCtxOpenFolder"
+          >
+            <WIcon icon="ph:folder-open" :size="14" />
+            <span class="match-context-item-label">打开对局文件夹</span>
+          </button>
+        </template>
+        <template v-else-if="ctxMenu?.kind === 'scan'">
+          <button
+            class="match-context-item"
+            type="button"
+            role="menuitem"
+            :disabled="account.scraping"
+            @click="onCtxScan"
+          >
+            <WIcon icon="ph:arrows-clockwise" :size="14" />
+            <span class="match-context-item-label">{{ scanLabel }}资料库</span>
+          </button>
+        </template>
+      </div>
+    </Teleport>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
 import { useAccountStore } from '../stores/account.ts';
@@ -103,6 +143,9 @@ import {
   reconcileFocusedId,
   scrollTopToRevealIndex,
 } from '../utils/match-listbox.ts';
+import { firstMatchVideoPath } from '../utils/match-paths.ts';
+import { placeMenuNearCursor } from '../utils/context-menu.ts';
+import { invoke } from '../tauri-adapter.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
 const router = useRouter();
@@ -176,12 +219,25 @@ function onListBlur() {
   keyboardModality.value = false;
 }
 
-function onRowActivate(m: MatchRecord) {
+function clearMatchSelection(): boolean {
+  if (!detail.selectedMatch) return false;
+  detail.selectMatch(null);
+  void router.push({ name: 'home' });
+  return true;
+}
+
+/** Left-click: select; click again on selected → clear selection. */
+function onRowClick(m: MatchRecord) {
+  if (Date.now() < suppressClickUntil) return;
   focusedId.value = m.matches_id;
   // Pointer path already cleared keyboardModality via pointerdown.
   // Keep DOM focus on the listbox so the next Arrow key works without re-Tab.
   listRef.value?.focus({ preventScroll: true });
-  router.push({ name: 'detail', params: { id: m.matches_id } });
+  if (detail.selectedMatch?.matches_id === m.matches_id) {
+    clearMatchSelection();
+    return;
+  }
+  void router.push({ name: 'detail', params: { id: m.matches_id } });
 }
 
 function pageSize(): number {
@@ -210,6 +266,22 @@ function moveActiveToIndex(index: number, forceScroll = false) {
 }
 
 function onListKeydown(e: KeyboardEvent) {
+  if (ctxMenu.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeCtxMenu();
+      return;
+    }
+  }
+
+  if (e.key === 'Escape' && detail.selectedMatch) {
+    e.preventDefault();
+    e.stopPropagation();
+    clearMatchSelection();
+    return;
+  }
+
   const list = filteredMatches.value;
   if (list.length === 0) return;
 
@@ -221,7 +293,7 @@ function onListKeydown(e: KeyboardEvent) {
     e.preventDefault();
     // Enter/Space from keyboard keep keyboard modality (ring may match selection).
     keyboardModality.value = true;
-    onRowActivate(m);
+    onRowClick(m);
     return;
   }
 
@@ -238,7 +310,7 @@ async function onScrape() {
   if (filter.refreshScanMode === 'full') ui.showScanOverlay();
   try {
     await account.scrapeLibrary(filter.refreshScanMode);
-    (window as unknown as Record<string, unknown>).__wuiToast?.('资料库已' + scanLabel.value, 'ok');
+    ui.showToast('资料库已' + scanLabel.value, 'ok');
   } finally {
     if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
   }
@@ -249,6 +321,202 @@ function playFirst(m: MatchRecord) {
   if (!video) return;
   player.open(video, m);
 }
+
+// ─── Context menu ───────────────────────────────────────────────────────────
+// Right-click a match row → select it, then「打开对局文件夹」.
+// Right-click blank →「扫描资料库」only.
+
+type CtxMenuState =
+  | { x: number; y: number; kind: 'folder'; videoPath: string | null }
+  | { x: number; y: number; kind: 'scan' };
+
+const ctxMenu = ref<CtxMenuState | null>(null);
+const ctxMenuClosing = ref(false);
+const ctxMenuRef = ref<HTMLElement | null>(null);
+const ctxMenuStyle = ref<Record<string, string>>({ left: '0px', top: '0px' });
+let ctxMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+let ctxMenuListenersBound = false;
+/** After menu dismiss via outside click, ignore the following click (no select toggle). */
+let suppressClickUntil = 0;
+let killClickThrough: ((e: Event) => void) | null = null;
+
+function openCtxMenu(state: CtxMenuState) {
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
+  ctxMenuClosing.value = false;
+  ctxMenu.value = state;
+  bindCtxMenuListeners();
+  nextTick(() => {
+    const el = ctxMenuRef.value;
+    if (!el || !ctxMenu.value) return;
+    const pos = placeMenuNearCursor(
+      { x: state.x, y: state.y },
+      { width: el.offsetWidth || 180, height: el.offsetHeight || 40 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    ctxMenuStyle.value = { left: `${pos.x}px`, top: `${pos.y}px` };
+    const first = el.querySelector<HTMLButtonElement>('button.match-context-item:not(:disabled)');
+    first?.focus();
+  });
+}
+
+function closeCtxMenu(opts?: { armClickThrough?: boolean }) {
+  if (!ctxMenu.value || ctxMenuClosing.value) return;
+  ctxMenuClosing.value = true;
+  unbindCtxMenuListeners();
+  if (opts?.armClickThrough) {
+    suppressClickUntil = Date.now() + 350;
+    if (killClickThrough) {
+      document.removeEventListener('click', killClickThrough, true);
+      killClickThrough = null;
+    }
+    const killer = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      document.removeEventListener('click', killer, true);
+      if (killClickThrough === killer) killClickThrough = null;
+    };
+    killClickThrough = killer;
+    document.addEventListener('click', killer, true);
+    window.setTimeout(() => {
+      if (killClickThrough === killer) {
+        document.removeEventListener('click', killer, true);
+        killClickThrough = null;
+      }
+    }, 400);
+  }
+  if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
+  ctxMenuCloseTimer = setTimeout(() => {
+    ctxMenu.value = null;
+    ctxMenuClosing.value = false;
+    ctxMenuCloseTimer = null;
+  }, 200);
+}
+
+function onCtxMenuAnimEnd(e: AnimationEvent) {
+  if (e.animationName !== 'match-ctxmenu-out') return;
+  if (!ctxMenuClosing.value) return;
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
+  ctxMenu.value = null;
+  ctxMenuClosing.value = false;
+}
+
+function onCtxMenuOutside(e: MouseEvent) {
+  if (e.button !== 0) return;
+  const t = e.target as HTMLElement | null;
+  if (t?.closest('.match-context-menu')) return;
+  closeCtxMenu({ armClickThrough: true });
+}
+
+function onCtxMenuKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && ctxMenu.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeCtxMenu();
+  }
+}
+
+function onCtxMenuScrollOrResize() {
+  if (ctxMenu.value) closeCtxMenu();
+}
+
+function bindCtxMenuListeners() {
+  if (ctxMenuListenersBound) return;
+  ctxMenuListenersBound = true;
+  document.addEventListener('mousedown', onCtxMenuOutside, true);
+  document.addEventListener('keydown', onCtxMenuKeydown, true);
+  window.addEventListener('resize', onCtxMenuScrollOrResize);
+}
+
+function unbindCtxMenuListeners() {
+  if (!ctxMenuListenersBound) return;
+  ctxMenuListenersBound = false;
+  document.removeEventListener('mousedown', onCtxMenuOutside, true);
+  document.removeEventListener('keydown', onCtxMenuKeydown, true);
+  window.removeEventListener('resize', onCtxMenuScrollOrResize);
+}
+
+function onListScroll() {
+  onScroll();
+  if (ctxMenu.value) closeCtxMenu();
+}
+
+function onRowContextMenu(e: MouseEvent, m: MatchRecord) {
+  e.preventDefault();
+  e.stopPropagation();
+  // Windows-like: right-click selects the row first, then show folder action.
+  focusedId.value = m.matches_id;
+  keyboardModality.value = false;
+  listRef.value?.focus({ preventScroll: true });
+  if (detail.selectedMatch?.matches_id !== m.matches_id) {
+    void router.push({ name: 'detail', params: { id: m.matches_id } });
+  }
+  openCtxMenu({
+    x: e.clientX,
+    y: e.clientY,
+    kind: 'folder',
+    videoPath: firstMatchVideoPath(m),
+  });
+}
+
+function onListContextMenu(e: MouseEvent) {
+  const t = e.target as HTMLElement | null;
+  if (t?.closest('.match-row')) return; // row handler owns it
+  e.preventDefault();
+  openCtxMenu({ x: e.clientX, y: e.clientY, kind: 'scan' });
+}
+
+function onCtxOpenFolder() {
+  const path = ctxMenu.value?.kind === 'folder' ? ctxMenu.value.videoPath : null;
+  closeCtxMenu();
+  if (!path) {
+    ui.showToast('该对局没有本地视频路径', 'error');
+    return;
+  }
+  invoke('reveal_in_explorer', { path }).catch((err) => {
+    ui.showToast(`打开资源管理器失败: ${err}`, 'error');
+  });
+}
+
+function onCtxScan() {
+  closeCtxMenu();
+  void onScrape();
+}
+
+/** Esc clears selection when no higher modal/menu is open (bubble phase). */
+function onDocEscClearSelection(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  if (e.defaultPrevented) return;
+  if (ctxMenu.value) return;
+  // Higher layers use capture + stopPropagation; also guard by DOM presence.
+  if (document.querySelector('.settings-modal-backdrop:not(.is-closing)')) return;
+  if (document.querySelector('.update-modal-backdrop')) return;
+  if (document.querySelector('.player-backdrop')) return;
+  if (document.querySelector('.share-modal-backdrop')) return;
+  if (document.querySelector('.event-list-modal-backdrop')) return;
+  if (document.querySelector('.scan-progress-root')) return;
+  if (!clearMatchSelection()) return;
+  e.preventDefault();
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onDocEscClearSelection);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onDocEscClearSelection);
+  unbindCtxMenuListeners();
+  if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
+  if (killClickThrough) {
+    document.removeEventListener('click', killClickThrough, true);
+    killClickThrough = null;
+  }
+});
 </script>
 
 <style scoped>
@@ -352,5 +620,64 @@ function playFirst(m: MatchRecord) {
 }
 @keyframes empty-spin {
   to { transform: rotate(360deg); }
+}
+</style>
+
+<!-- Teleported menu is outside scoped root; unscoped block with unique class names -->
+<style>
+.match-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 4px;
+  min-width: 180px;
+  transform-origin: top left;
+  animation: match-ctxmenu-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.match-context-menu.is-closing {
+  animation: match-ctxmenu-out 120ms cubic-bezier(0.7, 0, 0.84, 0) both;
+  pointer-events: none;
+}
+@keyframes match-ctxmenu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes match-ctxmenu-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+.match-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 80ms ease-out, color 80ms ease-out;
+}
+.match-context-item-label {
+  flex: 1;
+  min-width: 0;
+}
+.match-context-item:hover:not(:disabled),
+.match-context-item:focus-visible:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--ink);
+  outline: none;
+}
+.match-context-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 </style>

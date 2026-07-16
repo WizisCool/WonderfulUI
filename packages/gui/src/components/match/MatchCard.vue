@@ -11,6 +11,7 @@
     :aria-label="rowAriaLabel"
     @click="$emit('click')"
     @dblclick="$emit('dblclick')"
+    @contextmenu.prevent="$emit('contextmenu', $event)"
   >
     <div class="match-cover" aria-hidden="true">
       <img
@@ -100,6 +101,7 @@ const props = defineProps<{
 defineEmits<{
   click: [];
   dblclick: [];
+  contextmenu: [e: MouseEvent];
 }>();
 
 const account = useAccountStore();

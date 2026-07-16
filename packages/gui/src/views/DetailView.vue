@@ -372,6 +372,9 @@ watch(() => route.params.id, (id) => {
     if (m && m.matches_id !== detail.selectedMatch?.matches_id) {
       detail.selectMatch(m);
     }
+  } else if (detail.selectedMatch) {
+    // home / no id → clear selection (toggle-deselect navigates to home)
+    detail.selectMatch(null);
   }
 }, { immediate: true });
 
