@@ -41,6 +41,7 @@ import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
 import { useUpdateStore } from './stores/update.ts';
 import { useTooltip } from './composables/useTooltip.ts';
+import { clientLog } from './utils/client-log.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -129,8 +130,8 @@ async function runBoot() {
     // 亮侧栏红点 + 轻 toast，不自动开弹窗。fire-and-forget。
     update.checkForUpdate(true).catch(() => {});
   } catch (e) {
-    console.error('Boot failed:', e);
     bootError.value = (e as Error)?.message ?? String(e);
+    clientLog('error', 'boot', bootError.value);
     ui.showToast(`启动失败: ${bootError.value}`, 'error');
     // Even on error, reveal the app so the user can open Settings and
     // inspect what went wrong. The onboarding screen still appears if

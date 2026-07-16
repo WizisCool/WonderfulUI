@@ -121,7 +121,7 @@ const accountMatches = computed(() => {
   return all.filter(m => m.openID === openid).sort((a, b) => b.matches_time - a.matches_time);
 });
 
-const filteredMatches = computed(() => filter.applyToMatches(account.matches, accountMatches.value));
+const filteredMatches = computed(() => filter.applyToMatches(accountMatches.value));
 
 // Spinner for the user-driven refresh path (the Refresh button calls
 // account.scrapeLibrary, which sets scraping=true). The first-launch

@@ -87,7 +87,7 @@ export const useFilterStore = defineStore('filter', () => {
     scrollToKey.value = null;
   }
 
-  function applyToMatches(allMatches: MatchRecord[], accountMatches: MatchRecord[]) {
+  function applyToMatches(accountMatches: MatchRecord[]) {
     return applyFilters(accountMatches, filters.value);
   }
 
