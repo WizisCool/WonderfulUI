@@ -723,19 +723,30 @@ function forceVideoPaused() {
 /**
  * Snap a display freeze of the current frame, then hide the live <video>.
  * Canvas may be tainted (export blocked) but still shows the frame.
+ * Always turns on the freeze layer (black if paint fails) so motion cannot
+ * leak through when pause() races.
  */
 function applyDisplayFreeze(): boolean {
   const v = videoRef.value;
   const canvas = freezeCanvasRef.value;
-  if (!v || !canvas) return false;
-  const ok = paintVideoFrameToCanvas(v, canvas);
-  if (ok) freezeFrameActive.value = true;
+  if (!canvas) return false;
+  let ok = false;
+  if (v) ok = paintVideoFrameToCanvas(v, canvas);
+  // Always cover the stage — black fallback beats a moving video.
+  freezeFrameActive.value = true;
   return ok;
 }
 
 function clearDisplayFreeze() {
   freezeFrameActive.value = false;
   clearFreezeCanvas(freezeCanvasRef.value);
+}
+
+/** Flush Vue DOM + paint so freeze is on-screen before native Save As blocks. */
+async function flushFreezeToScreen() {
+  await nextTick();
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
 }
 
 function startScreenshotPauseWatchdog() {
@@ -757,6 +768,9 @@ function stopScreenshotPauseWatchdog() {
  * Hold the player on the capture frame for the whole save flow
  * (dialog + progress). Visual freeze canvas is ground truth; pause is best-effort.
  * Returns whether playback should resume after success.
+ *
+ * CRITICAL: must `await flushFreezeToScreen()` BEFORE native Save As — otherwise
+ * Vue never paints freezeFrameActive and the video keeps moving under the dialog.
  */
 async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
@@ -772,12 +786,18 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   stopFrameHold();
   forceVideoPaused();
 
-  // Paint freeze FIRST at the current decoded frame (menu click moment),
-  // then seek underneath while the static canvas covers motion.
+  // 1) Freeze UI at the menu-click frame (cover motion immediately).
   applyDisplayFreeze();
+  // Pin progress bar / time readout so it cannot crawl while hold is on.
+  const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
+  currentTime.value = target;
   startScreenshotPauseWatchdog();
 
-  const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
+  // 2) MUST paint freeze before any await that yields to native UI.
+  await flushFreezeToScreen();
+  forceVideoPaused();
+
+  // 3) Seek under the freeze cover (user only sees the static canvas).
   const needSeek = Math.abs((v.currentTime || 0) - target) > 0.01;
   if (needSeek) {
     try {
@@ -788,16 +808,12 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
       /* best-effort seek */
     }
     forceVideoPaused();
-    // Refresh freeze after seek settles so canvas matches the saved timestamp.
     applyDisplayFreeze();
+    currentTime.value = target;
+    await flushFreezeToScreen();
   }
 
   forceVideoPaused();
-  currentTime.value = v.currentTime || target;
-  await new Promise<void>((r) => requestAnimationFrame(() => r()));
-  forceVideoPaused();
-  // Ensure freeze still covers after layout.
-  if (!freezeFrameActive.value) applyDisplayFreeze();
   showControls();
   return wasPlaying;
 }
@@ -1504,6 +1520,8 @@ function clearBufferingTimer() {
 }
 
 function onTimeUpdate() {
+  // During save freeze, never let the scrubber/time crawl (even if pause races).
+  if (screenshotPlaybackHold || freezeFrameActive.value) return;
   if (isDragging.value || frameHoldActive) return;
   const v = videoRef.value;
   if (!v) return;
@@ -1797,10 +1815,12 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   object-fit: fill;
+  /* Match video object-fit:fill stretch */
   display: none;
   pointer-events: none;
   background: #000;
-  z-index: 1;
+  /* Above video (0) and loading (auto); below controls (5) so chrome stays usable. */
+  z-index: 3;
 }
 .player-freeze-canvas.is-visible {
   display: block;
