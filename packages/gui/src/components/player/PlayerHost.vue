@@ -470,10 +470,12 @@ const frameReady = ref(false);
 /** Blocks re-entry while native capture / write runs. */
 let screenshotBusy = false;
 /**
- * While true, force-hold paused at the save frame: ignore canplay→play and
- * onPlay (seek after pause can re-fire play on WebView2).
+ * While true, force-hold paused at the save frame: ignore canplay→play,
+ * onPlay, togglePlay, and Space (seek/dialog can re-fire play on WebView2).
  */
 let screenshotPlaybackHold = false;
+/** Interval that re-asserts pause while hold is active (belt-and-suspenders). */
+let screenshotPauseWatchdog: ReturnType<typeof setInterval> | null = null;
 /** Visual busy state on the player shell (null = idle). */
 const screenshotUi = ref<'copy' | 'save' | null>(null);
 const screenshotUiLabel = computed(() =>
@@ -687,9 +689,39 @@ async function copyScreenshot() {
   }
 }
 
+function forceVideoPaused() {
+  const v = videoRef.value;
+  if (!v) return;
+  try {
+    if (!v.paused) v.pause();
+  } catch {
+    /* ignore */
+  }
+  if (state.value !== 'ended' && state.value !== 'error') {
+    state.value = 'paused';
+  }
+  clearBufferingTimer();
+  bufferingMode.value = 'hidden';
+}
+
+function startScreenshotPauseWatchdog() {
+  stopScreenshotPauseWatchdog();
+  screenshotPauseWatchdog = setInterval(() => {
+    if (!screenshotPlaybackHold) return;
+    forceVideoPaused();
+  }, 32);
+}
+
+function stopScreenshotPauseWatchdog() {
+  if (screenshotPauseWatchdog) {
+    clearInterval(screenshotPauseWatchdog);
+    screenshotPauseWatchdog = null;
+  }
+}
+
 /**
- * During save progress: hard-hold the player on the captured frame.
- * Returns whether playback should resume after success.
+ * Hard-hold the player on the capture frame for the whole save flow
+ * (dialog + progress). Returns whether playback should resume after success.
  */
 async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
@@ -700,19 +732,11 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
     || state.value === 'buffering'
     || (!v.paused && state.value !== 'ended');
 
-  // Block canplay/onPlay from restarting playback after seek.
   screenshotPlaybackHold = true;
-  clearBufferingTimer();
-  bufferingMode.value = 'hidden';
   stateBeforeSeek = null;
   stopFrameHold();
-
-  try {
-    v.pause();
-  } catch {
-    /* ignore */
-  }
-  state.value = 'paused';
+  forceVideoPaused();
+  startScreenshotPauseWatchdog();
 
   const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
   const needSeek = Math.abs((v.currentTime || 0) - target) > 0.01;
@@ -726,19 +750,17 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
     }
   }
 
-  // Seek can leave some engines playing — force pause again.
-  try {
-    v.pause();
-  } catch {
-    /* ignore */
-  }
-  state.value = 'paused';
+  forceVideoPaused();
   currentTime.value = v.currentTime || target;
+  // One more rAF so the frozen frame is painted before Save As / overlay.
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  forceVideoPaused();
   showControls();
   return wasPlaying;
 }
 
 function releaseScreenshotPlaybackHold(resume: boolean) {
+  stopScreenshotPauseWatchdog();
   screenshotPlaybackHold = false;
   if (!resume) return;
   const v = videoRef.value;
@@ -749,39 +771,72 @@ function releaseScreenshotPlaybackHold(resume: boolean) {
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
-  // Freeze playhead before the Save As dialog so the frame matches the click.
+  // Freeze playhead at menu action — hold for dialog + progress.
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
-  closeCtxMenu();
+  closeCtxMenu({ swallowClickThrough: true });
   let resumeAfter = false;
+  let held = false;
   try {
+    // Pause on the target frame immediately (before Save As), so the shell
+    // is frozen for the whole save interaction.
+    resumeAfter = await holdPlaybackOnSaveFrame(timeSec);
+    held = true;
+
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const name = defaultScreenshotName(videoPath.value, timeSec);
-    // System picker first; only then dim + capture (user request).
+    // System picker while held paused; then dim + capture.
     const outPath = await save({
       defaultPath: name,
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
-    if (!outPath) return;
+    if (!outPath) {
+      // Cancelled: restore prior play state.
+      releaseScreenshotPlaybackHold(resumeAfter);
+      held = false;
+      return;
+    }
 
-    // Pause + seek to the saved frame, then show progress UI.
-    resumeAfter = await holdPlaybackOnSaveFrame(timeSec);
+    // Re-assert freeze after native dialog returns (focus/canplay races).
+    forceVideoPaused();
+    const v = videoRef.value;
+    if (v && Math.abs((v.currentTime || 0) - timeSec) > 0.05) {
+      try {
+        const seekWait = waitVideoSeeked(v);
+        v.currentTime = timeSec;
+        await seekWait;
+      } catch {
+        /* ignore */
+      }
+      forceVideoPaused();
+    }
+
     screenshotUi.value = 'save';
     await paintScreenshotUi();
+    forceVideoPaused();
     const blob = await captureFrameAt(timeMs);
     const bytes = await blobToUint8Array(blob);
     await writeFile(outPath, bytes);
     ui.showToast('已保存');
     releaseScreenshotPlaybackHold(resumeAfter);
+    held = false;
   } catch (e) {
     ui.showToast(formatCaptureError(e, 'save'), 'error');
     // On failure leave paused at the freeze frame (user can press play).
     releaseScreenshotPlaybackHold(false);
+    held = false;
   } finally {
     screenshotUi.value = null;
     screenshotBusy = false;
-    screenshotPlaybackHold = false;
+    if (held) {
+      // Safety if an early return path forgot to release.
+      stopScreenshotPauseWatchdog();
+      screenshotPlaybackHold = false;
+    } else {
+      stopScreenshotPauseWatchdog();
+      screenshotPlaybackHold = false;
+    }
   }
 }
 
@@ -1093,6 +1148,7 @@ function clearHideTimer() {
 }
 
 function togglePlay() {
+  if (screenshotPlaybackHold || screenshotUi.value) return;
   const v = videoRef.value;
   if (!v) return;
   // At end, play() alone often stays on the last frame — restart from 0.
@@ -1326,12 +1382,12 @@ function onLoadedMeta() {
 }
 
 function onCanPlay() {
-  if (screenshotPlaybackHold) {
+  if (screenshotPlaybackHold || screenshotUi.value) {
     clearBufferingTimer();
     bufferingMode.value = 'hidden';
     state.value = 'paused';
     refreshFrameReady();
-    videoRef.value?.pause();
+    forceVideoPaused();
     return;
   }
   const transition = canPlayTransition(state.value, stateBeforeSeek);
@@ -1347,10 +1403,9 @@ function onCanPlay() {
 }
 
 function onPlay() {
-  if (screenshotPlaybackHold) {
-    // Seek/canplay race: force stay paused on the save frame.
-    videoRef.value?.pause();
-    state.value = 'paused';
+  if (screenshotPlaybackHold || screenshotUi.value) {
+    // Seek/canplay/dialog race: force stay paused on the save frame.
+    forceVideoPaused();
     return;
   }
   clearBufferingTimer();
@@ -1492,6 +1547,19 @@ function onKeydown(e: KeyboardEvent) {
   }
   const v = videoRef.value;
   if (!v) return;
+  // Screenshot save hold: no play/seek hotkeys while frozen on the capture frame.
+  if (screenshotPlaybackHold || screenshotUi.value) {
+    if (
+      e.key === ' '
+      || e.key === 'k' || e.key === 'K'
+      || e.key === 'j' || e.key === 'J'
+      || e.key === 'l' || e.key === 'L'
+      || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+    ) {
+      e.preventDefault();
+    }
+    return;
+  }
 
   switch (e.key) {
     case ' ':
@@ -1578,6 +1646,8 @@ onUnmounted(() => {
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
+  stopScreenshotPauseWatchdog();
+  screenshotPlaybackHold = false;
 });
 </script>
 
