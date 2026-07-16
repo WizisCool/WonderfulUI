@@ -19,6 +19,7 @@
         "minWidth": 960,
         "minHeight": 600,
         "center": true,
+        "devtools": true,
         "additionalBrowserArgs": "--force-prefers-no-reduced-motion"
       }
     ],

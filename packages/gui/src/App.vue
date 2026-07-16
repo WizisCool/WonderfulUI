@@ -205,12 +205,19 @@ function onTipHide() {
   tooltip.hide();
 }
 
+/** Block WebView2 native context menu; app menus (player etc.) still use contextmenu + preventDefault. */
+function onDocContextMenu(e: Event) {
+  e.preventDefault();
+}
+
 onMounted(() => {
   document.addEventListener('mouseover', onDocMouseOver, { passive: true });
   document.addEventListener('mousemove', onDocMouseMove, { passive: true });
   document.addEventListener('mouseout', onDocMouseOut, { passive: true });
   document.addEventListener('wui:tooltip-retarget', onTipRetarget);
   document.addEventListener('wui:tooltip-hide', onTipHide);
+  // capture: cancel default before WebView shows Inspect/Back/etc.; F12 devtools unaffected
+  document.addEventListener('contextmenu', onDocContextMenu, true);
 });
 
 onUnmounted(() => {
@@ -219,6 +226,7 @@ onUnmounted(() => {
   document.removeEventListener('mouseout', onDocMouseOut);
   document.removeEventListener('wui:tooltip-retarget', onTipRetarget);
   document.removeEventListener('wui:tooltip-hide', onTipHide);
+  document.removeEventListener('contextmenu', onDocContextMenu, true);
 });
 </script>
 
