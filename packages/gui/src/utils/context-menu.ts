@@ -48,3 +48,32 @@ export function placeMenuNearCursor(
   }
   return clampMenuPosition({ x, y }, menu, viewport, pad);
 }
+
+export interface ParentRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Place a flyout submenu relative to its parent row.
+ * Prefer right of the parent; flip left when overflowing; clamp into viewport.
+ */
+export function placeSubmenu(
+  parent: ParentRect,
+  submenu: Size,
+  viewport: Size,
+  pad = 8,
+  gap = 2,
+): Point {
+  let x = parent.x + parent.width + gap;
+  if (x + submenu.width + pad > viewport.width) {
+    x = parent.x - submenu.width - gap;
+  }
+  let y = parent.y;
+  if (y + submenu.height + pad > viewport.height) {
+    y = viewport.height - submenu.height - pad;
+  }
+  return clampMenuPosition({ x, y }, submenu, viewport, pad);
+}

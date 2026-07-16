@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { clampMenuPosition, placeMenuNearCursor } from '../src/utils/context-menu.ts';
+import { clampMenuPosition, placeMenuNearCursor, placeSubmenu } from '../src/utils/context-menu.ts';
 
 describe('clampMenuPosition', () => {
   test('keeps origin inside viewport', () => {
@@ -32,5 +32,27 @@ describe('placeMenuNearCursor', () => {
     );
     expect(p.y + 100).toBeLessThanOrEqual(800 - 8);
     expect(p.y).toBeLessThan(750);
+  });
+});
+
+describe('placeSubmenu', () => {
+  test('opens to the right of the parent by default', () => {
+    const p = placeSubmenu(
+      { x: 100, y: 200, width: 180, height: 32 },
+      { width: 160, height: 80 },
+      { width: 1000, height: 800 },
+    );
+    expect(p.x).toBe(100 + 180 + 2);
+    expect(p.y).toBe(200);
+  });
+
+  test('flips left when overflowing right edge', () => {
+    const p = placeSubmenu(
+      { x: 850, y: 100, width: 180, height: 32 },
+      { width: 160, height: 80 },
+      { width: 1000, height: 800 },
+    );
+    expect(p.x + 160).toBeLessThanOrEqual(1000 - 8);
+    expect(p.x).toBeLessThan(850);
   });
 });
