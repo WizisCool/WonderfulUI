@@ -167,6 +167,7 @@
             role="menuitem"
             class="player-context-item"
             :disabled="entry.disabled"
+            @mouseenter="closeSubmenu()"
             @click="entry.action()"
           >
             <WIcon :icon="entry.icon" :size="14" />
@@ -177,6 +178,7 @@
             class="player-context-sub"
             :class="{ 'is-open': openSubmenuId === entry.id, 'is-flip': submenuFlipLeft }"
             @mouseenter="openSubmenu(entry.id)"
+            @mouseleave="onSubmenuLeave"
             @focusin="openSubmenu(entry.id)"
           >
             <button
@@ -441,17 +443,21 @@ type CtxMenuEntry =
 
 const openSubmenuId = ref<string | null>(null);
 const submenuFlipLeft = ref(false);
+/** videoWidth/Height are not Vue-reactive — keep a ref updated on media events. */
+const frameReady = ref(false);
 let screenshotBusy = false;
 
-const canCaptureFrame = computed(() => {
+function refreshFrameReady() {
   const v = videoRef.value;
-  return !!(v && v.videoWidth > 0 && v.videoHeight > 0);
-});
+  frameReady.value = !!(v && v.videoWidth > 0 && v.videoHeight > 0);
+}
 
 const ctxMenuEntries = computed((): CtxMenuEntry[] => {
   const path = videoPath.value;
   const missing = !path;
-  const noFrame = !canCaptureFrame.value;
+  // Prefer live check so open-menu path is never stuck on a stale false.
+  const v = videoRef.value;
+  const noFrame = !(frameReady.value || (v && v.videoWidth > 0 && v.videoHeight > 0));
   return [
     {
       kind: 'item',
@@ -545,6 +551,7 @@ const ctxMenuEntries = computed((): CtxMenuEntry[] => {
 });
 
 function openSubmenu(id: string) {
+  refreshFrameReady();
   openSubmenuId.value = id;
   nextTick(() => updateSubmenuFlip());
 }
@@ -557,6 +564,14 @@ function closeSubmenu() {
 function toggleSubmenu(id: string) {
   if (openSubmenuId.value === id) closeSubmenu();
   else openSubmenu(id);
+}
+
+/** Close flyout when pointer leaves parent row + flyout as a unit. */
+function onSubmenuLeave(e: MouseEvent) {
+  const host = e.currentTarget as HTMLElement | null;
+  const related = e.relatedTarget as Node | null;
+  if (host && related && host.contains(related)) return;
+  closeSubmenu();
 }
 
 function updateSubmenuFlip() {
@@ -671,6 +686,7 @@ function openContextMenu(e: MouseEvent) {
   }
   ctxMenuClosing.value = false;
   closeSubmenu();
+  refreshFrameReady();
   syncCtxMenuTeleport();
   // Seed position immediately; refine after layout with real menu size.
   ctxMenuX.value = e.clientX;
@@ -678,6 +694,8 @@ function openContextMenu(e: MouseEvent) {
   ctxMenu.value = true;
   bindCtxMenuListeners();
   nextTick(() => {
+    // Re-check after paint — metadata may have settled while menu was closed.
+    refreshFrameReady();
     applyCtxMenuPosition(e.clientX, e.clientY);
     // Focus first enabled item for keyboard users (best-effort in tests/DOM).
     try {
@@ -1152,6 +1170,7 @@ function onLoadedMeta() {
   applyVolumeToVideo();
   currentTime.value = 0;
   duration.value = v.duration || 0;
+  refreshFrameReady();
   if (player.seekMs !== undefined && !seeked) {
     const clampedMs = clampSeekMsForDuration(player.seekMs, v.duration);
     v.currentTime = clampedMs / 1000;
@@ -1166,6 +1185,7 @@ function onCanPlay() {
     bufferingMode.value = 'hidden';
   }
   state.value = transition.nextState;
+  refreshFrameReady();
   if (transition.shouldPlay) {
     videoRef.value?.play().catch(() => {});
   }
@@ -1763,20 +1783,26 @@ onUnmounted(() => {
   background: var(--surface-3);
   color: var(--ink);
 }
+/* Flyout shares root chrome: overlap the shared edge, light shadow, same radius. */
 .player-context-flyout {
   position: absolute;
-  top: 0;
-  left: calc(100% + 2px);
+  top: -4px; /* align with root padding so first item lines up */
+  left: calc(100% - 1px); /* overlap root border → one continuous surface */
   z-index: 1;
-  min-width: 160px;
+  min-width: 168px;
   padding: 4px;
   background: var(--surface-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px oklch(0 0 0 / 0.35);
+  box-shadow: 4px 4px 16px oklch(0 0 0 / 0.28);
 }
 .player-context-sub.is-flip .player-context-flyout {
   left: auto;
-  right: calc(100% + 2px);
+  right: calc(100% - 1px);
+  box-shadow: -4px 4px 16px oklch(0 0 0 / 0.28);
+}
+.player-context-sub.is-open > .player-context-item-parent .player-context-chevron {
+  opacity: 0.9;
+  color: var(--ink);
 }
 </style>
