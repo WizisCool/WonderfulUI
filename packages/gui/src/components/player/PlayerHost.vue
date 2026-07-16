@@ -19,6 +19,7 @@
         <video
           ref="videoRef"
           class="player-video"
+          :class="{ 'is-freeze-hidden': freezeFrameActive }"
           preload="auto"
           :src="src"
           @loadedmetadata="onLoadedMeta"
@@ -30,6 +31,13 @@
           @waiting="onWaiting"
           @seeking="onSeeking"
           @error="onError"
+        />
+        <!-- Display-only freeze (taint OK): static pixels while save holds playback. -->
+        <canvas
+          ref="freezeCanvasRef"
+          class="player-freeze-canvas"
+          :class="{ 'is-visible': freezeFrameActive }"
+          aria-hidden="true"
         />
 
         <div class="player-loading" :class="{ 'is-hidden': !showLoading }">
@@ -262,6 +270,10 @@ import {
   defaultScreenshotName,
   formatCaptureError,
 } from '../../utils/capture-video-frame.ts';
+import {
+  clearFreezeCanvas,
+  paintVideoFrameToCanvas,
+} from '../../utils/freeze-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
@@ -274,6 +286,9 @@ const ui = useUiStore();
 const closing = ref(false);
 const shareOpen = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
+const freezeCanvasRef = ref<HTMLCanvasElement | null>(null);
+/** Show static canvas over <video> during save freeze (visual ground truth). */
+const freezeFrameActive = ref(false);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
 const progressWrapRef = ref<HTMLElement | null>(null);
@@ -693,7 +708,8 @@ function forceVideoPaused() {
   const v = videoRef.value;
   if (!v) return;
   try {
-    if (!v.paused) v.pause();
+    // Always call pause() — do not gate on v.paused (WebView2 can lie briefly).
+    v.pause();
   } catch {
     /* ignore */
   }
@@ -702,6 +718,24 @@ function forceVideoPaused() {
   }
   clearBufferingTimer();
   bufferingMode.value = 'hidden';
+}
+
+/**
+ * Snap a display freeze of the current frame, then hide the live <video>.
+ * Canvas may be tainted (export blocked) but still shows the frame.
+ */
+function applyDisplayFreeze(): boolean {
+  const v = videoRef.value;
+  const canvas = freezeCanvasRef.value;
+  if (!v || !canvas) return false;
+  const ok = paintVideoFrameToCanvas(v, canvas);
+  if (ok) freezeFrameActive.value = true;
+  return ok;
+}
+
+function clearDisplayFreeze() {
+  freezeFrameActive.value = false;
+  clearFreezeCanvas(freezeCanvasRef.value);
 }
 
 function startScreenshotPauseWatchdog() {
@@ -720,8 +754,9 @@ function stopScreenshotPauseWatchdog() {
 }
 
 /**
- * Hard-hold the player on the capture frame for the whole save flow
- * (dialog + progress). Returns whether playback should resume after success.
+ * Hold the player on the capture frame for the whole save flow
+ * (dialog + progress). Visual freeze canvas is ground truth; pause is best-effort.
+ * Returns whether playback should resume after success.
  */
 async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
@@ -736,6 +771,10 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   stateBeforeSeek = null;
   stopFrameHold();
   forceVideoPaused();
+
+  // Paint freeze FIRST at the current decoded frame (menu click moment),
+  // then seek underneath while the static canvas covers motion.
+  applyDisplayFreeze();
   startScreenshotPauseWatchdog();
 
   const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
@@ -748,13 +787,17 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
     } catch {
       /* best-effort seek */
     }
+    forceVideoPaused();
+    // Refresh freeze after seek settles so canvas matches the saved timestamp.
+    applyDisplayFreeze();
   }
 
   forceVideoPaused();
   currentTime.value = v.currentTime || target;
-  // One more rAF so the frozen frame is painted before Save As / overlay.
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
   forceVideoPaused();
+  // Ensure freeze still covers after layout.
+  if (!freezeFrameActive.value) applyDisplayFreeze();
   showControls();
   return wasPlaying;
 }
@@ -762,6 +805,7 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
 function releaseScreenshotPlaybackHold(resume: boolean) {
   stopScreenshotPauseWatchdog();
   screenshotPlaybackHold = false;
+  clearDisplayFreeze();
   if (!resume) return;
   const v = videoRef.value;
   if (!v || state.value === 'ended' || state.value === 'error') return;
@@ -1742,6 +1786,24 @@ onUnmounted(() => {
   display: block;
   border-radius: 0;
   background-color: #000;
+}
+/* Keep element in layout/media graph; hide pixels while freeze canvas shows. */
+.player-video.is-freeze-hidden {
+  visibility: hidden;
+}
+.player-freeze-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: none;
+  pointer-events: none;
+  background: #000;
+  z-index: 1;
+}
+.player-freeze-canvas.is-visible {
+  display: block;
 }
 
 /* Screenshot busy: gray the player shell + indeterminate accent bar. */
