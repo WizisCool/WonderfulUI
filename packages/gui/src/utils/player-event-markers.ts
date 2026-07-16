@@ -38,7 +38,8 @@ const COMPACT_MARKER_HEIGHT_PX = 22;
 const FULL_DOT_RADIUS_PX = 8;
 const COMPACT_DOT_RADIUS_PX = 3.5;
 const STEM_DOT_OVERLAP_PX = 1;
-const STEM_TRACK_OVERLAP_PX = 2;
+/** Stem tip meets the track top edge — do not cut into the 4px fill. */
+const STEM_TRACK_OVERLAP_PX = 0;
 const DEFAULT_TRACK_HEIGHT_PX = 4;
 const GAP_BELOW_PX = 4;
 

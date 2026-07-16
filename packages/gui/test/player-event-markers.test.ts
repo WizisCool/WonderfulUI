@@ -48,11 +48,12 @@ describe('layoutEventMarkers', () => {
     ], 100_000);
 
     expect(markers.map(m => m.stackLevel)).toEqual([0, 1, 2, 0]);
-    expect(markers.map(m => m.stemPx)).toEqual([20.5, 28.5, 30.5, 20.5]);
+    expect(markers.map(m => m.stemPx)).toEqual([18.5, 26.5, 28.5, 18.5]);
     expect(markers[0]!.topPx).toBe(-32);
     expect(markers[1]!.topPx).toBeLessThan(markers[0]!.topPx);
     expect(markers[2]!.topPx).toBeLessThan(markers[1]!.topPx);
-    expect(markers.map(m => m.topPx + 11 + 3.5 - 1 + m.stemPx)).toEqual([2, 2, 2, 2]);
+    // Stem tip at track top (y=0), not into the 4px progress fill.
+    expect(markers.map(m => m.topPx + 11 + 3.5 - 1 + m.stemPx)).toEqual([0, 0, 0, 0]);
   });
 
   test('uses compact display on dense timelines to reduce visual noise', () => {
