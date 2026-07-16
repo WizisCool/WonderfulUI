@@ -61,10 +61,9 @@ windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
-  "Foundation",
-  "Graphics_Imaging",
-  "Media_Editing",
-  "Media_MediaProperties",
-  "Storage",
-  "Storage_Streams",
+  # Frame capture: IMFSourceReader seek + RGB32 decode
+  "Win32_Media_MediaFoundation",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
 ] }
