@@ -35,7 +35,8 @@ While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss inst
 
 ### Match list selection + context menu
 
-- **Toggle select:** left-click a selected row clears selection (`selectMatch(null)` + route `home`); click another row selects it. **Escape** also clears selection when no higher modal/menu is open.
+- **Toggle select:** left-click a selected row clears selection after a short delay (`selectMatch(null)` + route `home`); click another row selects it. **Double-click** shows detail only (does not open kill-montage player; cancels pending deselect). **Escape** also clears selection when no higher modal/menu is open.
+- **Detail video cards:** double-click plays the video; right-click →「在资源管理器中打开」via `reveal_in_explorer` on that video's `video_src`.
 - **Context menu** (Teleport body, `placeMenuNearCursor`, same dismiss rules as player menu):
   - Right-click **any match row** → select that row first (if needed), then only「打开对局文件夹」(`reveal_in_explorer` on `firstMatchVideoPath`).
   - Right-click **blank / empty list** → only「扫描资料库」(same as header refresh / current scan mode).

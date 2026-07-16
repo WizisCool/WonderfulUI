@@ -73,7 +73,7 @@
           :is-focused="showKeyboardActive && item.match.matches_id === focusedId"
           :account-label="account.accountLabels.get(item.match.openID) ?? item.match.openID"
           @click="onRowClick(item.match)"
-          @dblclick="playFirst(item.match)"
+          @dblclick="onRowDblClick(item.match)"
           @contextmenu="onRowContextMenu($event, item.match)"
         />
         <div v-if="filteredMatches.length === 0" class="empty empty-inside-list">
@@ -130,7 +130,6 @@ import WIcon from '../components/common/WIcon.vue';
 import { useAccountStore } from '../stores/account.ts';
 import { useFilterStore } from '../stores/filter.ts';
 import { useDetailStore } from '../stores/detail.ts';
-import { usePlayerStore } from '../stores/player.ts';
 import { useUiStore } from '../stores/ui.ts';
 import { useVirtualScroll, ROW_HEIGHT } from '../composables/useVirtualScroll.ts';
 import MatchCard from '../components/match/MatchCard.vue';
@@ -152,7 +151,6 @@ const router = useRouter();
 const account = useAccountStore();
 const filter = useFilterStore();
 const detail = useDetailStore();
-const player = usePlayerStore();
 const ui = useUiStore();
 
 const listRef = ref<HTMLElement | null>(null);
@@ -226,18 +224,43 @@ function clearMatchSelection(): boolean {
   return true;
 }
 
-/** Left-click: select; click again on selected → clear selection. */
+/** Deferred so dblclick can cancel (dblclick = show detail, not deselect). */
+let deselectTimer: ReturnType<typeof setTimeout> | null = null;
+const DESELECT_DELAY_MS = 280;
+
+function cancelPendingDeselect() {
+  if (deselectTimer != null) {
+    clearTimeout(deselectTimer);
+    deselectTimer = null;
+  }
+}
+
+/** Left-click: select; click again on selected → clear selection (after delay). */
 function onRowClick(m: MatchRecord) {
   if (Date.now() < suppressClickUntil) return;
   focusedId.value = m.matches_id;
   // Pointer path already cleared keyboardModality via pointerdown.
   // Keep DOM focus on the listbox so the next Arrow key works without re-Tab.
   listRef.value?.focus({ preventScroll: true });
+  cancelPendingDeselect();
   if (detail.selectedMatch?.matches_id === m.matches_id) {
-    clearMatchSelection();
+    deselectTimer = setTimeout(() => {
+      deselectTimer = null;
+      clearMatchSelection();
+    }, DESELECT_DELAY_MS);
     return;
   }
   void router.push({ name: 'detail', params: { id: m.matches_id } });
+}
+
+/** Double-click: ensure detail is shown — do not open kill-montage player. */
+function onRowDblClick(m: MatchRecord) {
+  cancelPendingDeselect();
+  focusedId.value = m.matches_id;
+  listRef.value?.focus({ preventScroll: true });
+  if (detail.selectedMatch?.matches_id !== m.matches_id) {
+    void router.push({ name: 'detail', params: { id: m.matches_id } });
+  }
 }
 
 function pageSize(): number {
@@ -314,12 +337,6 @@ async function onScrape() {
   } finally {
     if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
   }
-}
-
-function playFirst(m: MatchRecord) {
-  const video = m.videos[0];
-  if (!video) return;
-  player.open(video, m);
 }
 
 // ─── Context menu ───────────────────────────────────────────────────────────
@@ -511,6 +528,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', onDocEscClearSelection);
   unbindCtxMenuListeners();
+  cancelPendingDeselect();
   if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
   if (killClickThrough) {
     document.removeEventListener('click', killClickThrough, true);

@@ -93,7 +93,13 @@
       <section v-if="montages.length > 0" class="detail-section">
         <div class="section-title">集锦</div>
         <div class="montage-grid">
-          <div v-for="v in montages" :key="v.video_id" class="montage-card">
+          <div
+            v-for="v in montages"
+            :key="v.video_id"
+            class="montage-card"
+            @dblclick="playVideo(v)"
+            @contextmenu.prevent="onVideoContextMenu($event, v)"
+          >
             <div class="montage-cover">
               <img
                 v-if="v.video_poster && !videoPosterFailed(v.video_id)"
@@ -138,7 +144,13 @@
         </div>
         <div class="moment-grid">
           <template v-if="visibleMoments.length > 0">
-            <div v-for="v in visibleMoments" :key="v.video_id" class="moment-card">
+            <div
+              v-for="v in visibleMoments"
+              :key="v.video_id"
+              class="moment-card"
+              @dblclick="playVideo(v)"
+              @contextmenu.prevent="onVideoContextMenu($event, v)"
+            >
               <div class="moment-cover">
                 <img
                   v-if="v.video_poster && !videoPosterFailed(v.video_id)"
@@ -186,17 +198,43 @@
       @close="onEventListClose"
       @play="onEventListPlay"
     />
+
+    <Teleport to="body">
+      <div
+        v-show="videoCtxMenu"
+        ref="videoCtxMenuRef"
+        class="detail-video-context-menu"
+        :class="{ 'is-closing': videoCtxMenuClosing }"
+        role="menu"
+        :style="videoCtxMenuStyle"
+        @contextmenu.prevent
+        @animationend="onVideoCtxAnimEnd"
+      >
+        <button
+          class="detail-video-context-item"
+          type="button"
+          role="menuitem"
+          :disabled="!videoCtxMenu?.path"
+          @click="onRevealVideoInExplorer"
+        >
+          <WIcon icon="ph:folder-open" :size="14" />
+          <span>在资源管理器中打开</span>
+        </button>
+      </div>
+    </Teleport>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onUnmounted, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
-import { convertFileSrc } from '../tauri-adapter.ts';
+import { convertFileSrc, invoke } from '../tauri-adapter.ts';
 import { useAccountStore } from '../stores/account.ts';
 import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
+import { useUiStore } from '../stores/ui.ts';
+import { placeMenuNearCursor } from '../utils/context-menu.ts';
 import { agentCn, mapCn, modeCn, fmtScore, kdaRatio, fmtMatchDuration } from '../utils/filters.ts';
 import { resolveMatchAssetSrc } from '../utils/valorant-assets.ts';
 import { normalizeMatchEvents, type NormalizedMatchEvent } from '../utils/match-events.ts';
@@ -206,6 +244,7 @@ import EventListModal from '../components/event/EventListModal.vue';
 const account = useAccountStore();
 const detail = useDetailStore();
 const player = usePlayerStore();
+const ui = useUiStore();
 
 const route = useRoute();
 
@@ -348,6 +387,110 @@ function playVideo(v: VideoItem) {
   player.open(v, match.value);
 }
 
+// ─── Video card context menu (reveal in Explorer) ───────────────────────────
+const videoCtxMenu = ref<{ x: number; y: number; path: string | null } | null>(null);
+const videoCtxMenuClosing = ref(false);
+const videoCtxMenuRef = ref<HTMLElement | null>(null);
+const videoCtxMenuStyle = ref<Record<string, string>>({ left: '0px', top: '0px' });
+let videoCtxCloseTimer: ReturnType<typeof setTimeout> | null = null;
+let videoCtxListenersBound = false;
+
+function videoPathOf(v: VideoItem): string | null {
+  const p = typeof v.video_src === 'string' ? v.video_src.trim() : '';
+  return p || null;
+}
+
+function onVideoContextMenu(e: MouseEvent, v: VideoItem) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (videoCtxCloseTimer) {
+    clearTimeout(videoCtxCloseTimer);
+    videoCtxCloseTimer = null;
+  }
+  videoCtxMenuClosing.value = false;
+  videoCtxMenu.value = { x: e.clientX, y: e.clientY, path: videoPathOf(v) };
+  bindVideoCtxListeners();
+  nextTick(() => {
+    const el = videoCtxMenuRef.value;
+    if (!el || !videoCtxMenu.value) return;
+    const pos = placeMenuNearCursor(
+      { x: e.clientX, y: e.clientY },
+      { width: el.offsetWidth || 180, height: el.offsetHeight || 40 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    videoCtxMenuStyle.value = { left: `${pos.x}px`, top: `${pos.y}px` };
+    el.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  });
+}
+
+function closeVideoCtxMenu() {
+  if (!videoCtxMenu.value || videoCtxMenuClosing.value) return;
+  videoCtxMenuClosing.value = true;
+  unbindVideoCtxListeners();
+  if (videoCtxCloseTimer) clearTimeout(videoCtxCloseTimer);
+  videoCtxCloseTimer = setTimeout(() => {
+    videoCtxMenu.value = null;
+    videoCtxMenuClosing.value = false;
+    videoCtxCloseTimer = null;
+  }, 200);
+}
+
+function onVideoCtxAnimEnd(e: AnimationEvent) {
+  if (e.animationName !== 'detail-video-ctxmenu-out') return;
+  if (!videoCtxMenuClosing.value) return;
+  if (videoCtxCloseTimer) {
+    clearTimeout(videoCtxCloseTimer);
+    videoCtxCloseTimer = null;
+  }
+  videoCtxMenu.value = null;
+  videoCtxMenuClosing.value = false;
+}
+
+function onVideoCtxOutside(e: MouseEvent) {
+  if (e.button !== 0) return;
+  const t = e.target as HTMLElement | null;
+  if (t?.closest('.detail-video-context-menu')) return;
+  closeVideoCtxMenu();
+}
+
+function onVideoCtxKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && videoCtxMenu.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeVideoCtxMenu();
+  }
+}
+
+function bindVideoCtxListeners() {
+  if (videoCtxListenersBound) return;
+  videoCtxListenersBound = true;
+  document.addEventListener('mousedown', onVideoCtxOutside, true);
+  document.addEventListener('keydown', onVideoCtxKeydown, true);
+  window.addEventListener('resize', closeVideoCtxMenu);
+  window.addEventListener('scroll', closeVideoCtxMenu, true);
+}
+
+function unbindVideoCtxListeners() {
+  if (!videoCtxListenersBound) return;
+  videoCtxListenersBound = false;
+  document.removeEventListener('mousedown', onVideoCtxOutside, true);
+  document.removeEventListener('keydown', onVideoCtxKeydown, true);
+  window.removeEventListener('resize', closeVideoCtxMenu);
+  window.removeEventListener('scroll', closeVideoCtxMenu, true);
+}
+
+function onRevealVideoInExplorer() {
+  const path = videoCtxMenu.value?.path ?? null;
+  closeVideoCtxMenu();
+  if (!path) {
+    ui.showToast('该视频没有本地路径', 'error');
+    return;
+  }
+  invoke('reveal_in_explorer', { path }).catch((err) => {
+    ui.showToast(`打开资源管理器失败: ${err}`, 'error');
+  });
+}
+
 function openEventList() {
   if (!match.value || !detail.roundsLoaded) return;
   const events = normalizeMatchEvents(match.value);
@@ -383,6 +526,11 @@ watch(() => detail.selectedMatch, (m) => {
     detail.fetchRounds();
   }
 }, { immediate: true });
+
+onUnmounted(() => {
+  unbindVideoCtxListeners();
+  if (videoCtxCloseTimer) clearTimeout(videoCtxCloseTimer);
+});
 </script>
 
 <style scoped>
@@ -676,5 +824,59 @@ watch(() => detail.selectedMatch, (m) => {
 }
 .moment-cover .cover-placeholder {
   font-size: 28px; font-weight: var(--w-bold); color: var(--ink-3);
+}
+</style>
+
+<style>
+.detail-video-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 4px;
+  min-width: 180px;
+  transform-origin: top left;
+  animation: detail-video-ctxmenu-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.detail-video-context-menu.is-closing {
+  animation: detail-video-ctxmenu-out 120ms cubic-bezier(0.7, 0, 0.84, 0) both;
+  pointer-events: none;
+}
+@keyframes detail-video-ctxmenu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes detail-video-ctxmenu-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+.detail-video-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 80ms ease-out, color 80ms ease-out;
+}
+.detail-video-context-item:hover:not(:disabled),
+.detail-video-context-item:focus-visible:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--ink);
+  outline: none;
+}
+.detail-video-context-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 </style>
