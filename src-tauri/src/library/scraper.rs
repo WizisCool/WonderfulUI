@@ -2,14 +2,14 @@
 
 use crate::library::aclos_identity::AclosIdentityIndex;
 use crate::library::events::normalize_match_events;
+use crate::library::{now_ms, sha256_hex};
 use crate::parser;
 use crate::parser::model::{MatchRecord, SnapshotAchievement};
+use rayon::prelude::*;
 use rusqlite::{params, Connection, OptionalExtension};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::Emitter;
-use rayon::prelude::*;
 use uuid::Uuid;
 
 const ACLOS_SOURCE_ID: &str = "aclos_wonderfuldb";
@@ -21,6 +21,11 @@ pub struct ScrapeSummary {
     pub events_seen: usize,
     pub errors_seen: usize,
     pub skipped_accounts: usize,
+    /// Sum of account-file sizes processed so far (parsed + skipped + empty + error).
+    /// Must reach `size_bytes_total` when the scrape finishes so progress UIs hit 100%.
+    pub size_bytes_done: i64,
+    /// Sum of all account-file sizes discovered at the start of the scrape.
+    pub size_bytes_total: i64,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -92,19 +97,6 @@ impl ScrapeMode {
 struct SourceFileMeta {
     size_bytes: i64,
     mtime_ms: Option<i64>,
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
-fn sha256_text(s: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 fn metadata_mtime_ms(meta: &std::fs::Metadata) -> Option<i64> {
@@ -275,7 +267,7 @@ fn upsert_match(conn: &Connection, m: &MatchRecord, now: i64) -> rusqlite::Resul
         .get("career")
         .and_then(|v| serde_json::to_string(v).ok());
     let raw_json = serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string());
-    let raw_hash = sha256_text(&raw_json);
+    let raw_hash = sha256_hex(&raw_json);
     conn.execute(
         "INSERT INTO matches(
             id, source_id, source_match_id, openid, matches_time, game_start_time,
@@ -429,7 +421,7 @@ fn upsert_events(conn: &Connection, m: &MatchRecord) -> rusqlite::Result<usize> 
     )?;
     let events = normalize_match_events(m);
     for ev in &events {
-        let id_hash = sha256_text(&format!("{}|{}", m.matches_id, ev.dedup_key));
+        let id_hash = sha256_hex(&format!("{}|{}", m.matches_id, ev.dedup_key));
         let id = format!("{}:{}", m.matches_id, &id_hash[..16]);
         conn.execute(
             "INSERT INTO events(
@@ -614,13 +606,17 @@ pub fn scrape_wonderful_dir_with_mode(
 
     // Phase C: sequential processing in original index order
     let mut pi = 0;
-    for (idx, (openid, _path, _source_meta)) in account_files.iter().enumerate() {
+    for (idx, (openid, _path, source_meta)) in account_files.iter().enumerate() {
         let current = idx + 1;
 
         if pi >= parsed.len() || parsed[pi].idx != idx {
             // Account was skipped (incremental freshness) — still refresh
             // nick/tag from LevelDB identity (no WonderfulDb re-parse).
             summary.skipped_accounts += 1;
+            // Count skipped files toward progress so size_done reaches total.
+            if let Some(m) = source_meta {
+                size_done += m.size_bytes;
+            }
             let hint = identity.lookup(openid);
             if hint.nick.is_some() || hint.tag.is_some() {
                 let _ = refresh_account_identity(
@@ -791,6 +787,8 @@ pub fn scrape_wonderful_dir_with_mode(
     }
 
     let duration_ms = now_ms() - start_ms;
+    summary.size_bytes_done = size_done;
+    summary.size_bytes_total = total_size;
 
     if let Some(a) = app {
         let _ = a.emit("wui://scrape_summary", ScrapeSummaryEventData {
@@ -1048,6 +1046,12 @@ mod tests {
         assert_eq!(summary.errors_seen, 0);
         assert_eq!(summary.matches_seen, 0);
         assert_eq!(status, "success");
+        // Skipped accounts still count toward progress so the bar reaches 100%.
+        assert_eq!(summary.size_bytes_total, meta.len() as i64);
+        assert_eq!(
+            summary.size_bytes_done, summary.size_bytes_total,
+            "skipped account size must be included in size_bytes_done"
+        );
     }
 
     #[test]
