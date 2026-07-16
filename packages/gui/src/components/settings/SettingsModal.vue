@@ -254,8 +254,22 @@
           <span class="settings-about-version">v{{ APP_VERSION }}</span>
           <span class="settings-about-copy">&copy; 2026 WizisCool</span>
           <div class="settings-about-links">
-            <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <a class="settings-about-link" href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPL-3.0</a>
+            <button
+              class="settings-about-link"
+              type="button"
+              @click="openExternal('https://github.com/WizisCool/WonderfulUI')"
+            >
+              <WIcon icon="ph:github-logo" :size="14" />
+              <span>GitHub</span>
+            </button>
+            <button
+              class="settings-about-link"
+              type="button"
+              @click="openExternal('https://choosealicense.com/licenses/gpl-3.0/')"
+            >
+              <WIcon icon="ph:scales" :size="14" />
+              <span>GPL-3.0</span>
+            </button>
           </div>
           <div class="settings-about-update">
             <button
@@ -296,6 +310,15 @@ const ui = useUiStore();
 const update = useUpdateStore();
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
+
+async function openExternal(url: string) {
+  try {
+    await invoke('open_external_url', { url });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ui.showToast(`无法打开链接: ${msg}`, 'error');
+  }
+}
 
 const statsData = computed<LibraryStats | null>(() => settings.statsData);
 const statsError = computed(() => settings.statsError);
@@ -588,16 +611,23 @@ watch(() => settings.activeTab, (tab) => {
 .settings-about-links {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   margin-top: 10px;
   color: var(--ink-4);
   font-size: 12px;
 }
 .settings-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+  margin: 0;
+  border: 0;
+  background: transparent;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: 12px;
-  text-decoration: none;
+  cursor: pointer;
   transition: color 100ms ease-out;
 }
 .settings-about-link:hover {
@@ -605,8 +635,9 @@ watch(() => settings.activeTab, (tab) => {
 }
 .settings-about-link + .settings-about-link::before {
   content: '\00B7';
-  margin-right: 6px;
+  margin-right: 2px;
   color: var(--ink-4);
+  pointer-events: none;
 }
 .settings-about-update {
   display: flex;

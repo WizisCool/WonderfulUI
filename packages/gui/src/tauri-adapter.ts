@@ -421,6 +421,7 @@ async function mockInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
     case 'get_library_stats':
       return deepClone(libraryStats()) as T;
     case 'play_video':
+    case 'open_external_url':
     case 'reveal_in_explorer':
     case 'reveal_logs_dir':
     case 'log_event':

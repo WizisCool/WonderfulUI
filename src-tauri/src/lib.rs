@@ -32,6 +32,7 @@ pub fn run() {
         save_account_order,
         rename_account,
         play_video,
+        open_external_url,
         cache_hero_image,
         cache_asset,
         cache_assets,
@@ -337,6 +338,21 @@ fn play_video(path: String) -> Result<(), String> {
         return Err(format!("源文件丢失: {}", path));
     }
     os_shell::shell_open(&path)
+}
+
+/// Open an https URL in the system default browser via ShellExecuteW.
+/// WebView `<a target=_blank>` does not leave the app; about-page links
+/// must go through this command.
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://") {
+        return Err("仅允许 https 链接".to_string());
+    }
+    if trimmed.chars().any(|c| c.is_control() || c == ' ') {
+        return Err("无效链接".to_string());
+    }
+    os_shell::shell_open(trimmed)
 }
 
 /// Open Explorer with the given file selected. Fire-and-forget: see
@@ -707,5 +723,13 @@ mod tests {
         let path = missing_dir().to_string_lossy().to_string();
         let err = play_video(path).expect_err("expected error for missing file");
         assert!(err.contains("源文件丢失"), "{err}");
+    }
+
+    #[test]
+    fn open_external_url_rejects_non_https() {
+        let err = open_external_url("http://example.com".into()).expect_err("http blocked");
+        assert!(err.contains("https"), "{err}");
+        let err = open_external_url("file:///C:/Windows".into()).expect_err("file blocked");
+        assert!(err.contains("https"), "{err}");
     }
 }
