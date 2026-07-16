@@ -55,21 +55,63 @@
           aria-label="重播"
           @click.stop="replay"
         >
-          <WIcon icon="ph:play" :size="28" />
+          <WIcon icon="ph:arrow-counter-clockwise" :size="48" />
         </button>
 
-        <div class="player-frame-stepper" :class="{ 'is-visible': showFrameStepper }">
-          <button class="frame-stepper-btn" aria-label="上一帧" @click.stop="stepFrame(-1)">
-            <WIcon icon="ph:caret-left" :size="24" />
+        <!-- Pause-only top-left frame dock: default collapsed; expands in-place. -->
+        <div
+          v-show="showFrameStepper"
+          class="player-frame-panel"
+          :class="{ 'is-open': framePanelOpen }"
+          role="toolbar"
+          aria-label="逐帧"
+          @click.stop
+          @pointerup="stopFrameHold"
+          @pointercancel="stopFrameHold"
+          @pointerleave="stopFrameHold"
+        >
+          <button
+            class="ctrl-btn player-frame-panel-toggle"
+            type="button"
+            :aria-expanded="framePanelOpen"
+            :aria-label="framePanelOpen ? '收起逐帧' : '展开逐帧'"
+            :data-tip="framePanelOpen ? '收起' : '展开逐帧'"
+            @click.stop="toggleFramePanel"
+          >
+            <WIcon icon="ph:film-strip" :size="14" />
+            <span class="player-frame-panel-label">逐帧</span>
           </button>
-          <button class="frame-stepper-btn" aria-label="下一帧" @click.stop="stepFrame(1)">
-            <WIcon icon="ph:caret-right" :size="24" />
-          </button>
+          <div class="player-frame-panel-tools" :aria-hidden="framePanelOpen ? 'false' : 'true'">
+            <div class="player-frame-panel-tools-inner">
+              <span class="player-frame-panel-sep" aria-hidden="true" />
+              <button
+                class="ctrl-btn player-frame-step"
+                type="button"
+                tabindex="-1"
+                aria-label="上一帧"
+                data-tip="上一帧 · 按住连跳 · J"
+                @pointerdown.stop.prevent="onFrameStepPointerDown(-1, $event)"
+              >
+                <span class="player-frame-step-label">−1</span>
+              </button>
+              <button
+                class="ctrl-btn player-frame-step"
+                type="button"
+                tabindex="-1"
+                aria-label="下一帧"
+                data-tip="下一帧 · 按住连跳 · K"
+                @pointerdown.stop.prevent="onFrameStepPointerDown(1, $event)"
+              >
+                <span class="player-frame-step-label">+1</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <PlayerControls
           ref="controlsRef"
           :playing="controlsPlaying"
+          :ended="showReplay"
           :current-time-str="currentTimeStr"
           :duration-str="durationStr"
           :current-time="currentTime"
@@ -203,6 +245,23 @@ const showReplay = computed(() => playerUi.value.showReplay);
 const showFrameStepper = computed(() => playerUi.value.showFrameStepper);
 const showError = computed(() => playerUi.value.showError);
 const controlsPlaying = computed(() => playerUi.value.controlsPlaying);
+/** Expanded tools on the top-left frame dock. Default collapsed. */
+const framePanelOpen = ref(false);
+
+const FRAME_HOLD_DELAY_MS = 320;
+/**
+ * Max continuous step rate. Real pace is min(this, decoder seeked rate) —
+ * flooding currentTime without waiting for seeked is what causes stutter.
+ */
+const FRAME_HOLD_MAX_HZ = 15;
+
+let frameHoldDelay: ReturnType<typeof setTimeout> | null = null;
+/** Monotonic generation — stale seeked / timeouts must no-op after stop. */
+let frameHoldGen = 0;
+/** True while pointer-driven hold-repeat owns frame stepping. */
+let frameHoldActive = false;
+/** In-flight seeked listener for the hold pipeline (removed on stop). */
+let frameHoldOnSeeked: (() => void) | null = null;
 const currentTime = ref(0);
 const duration = ref(0);
 
@@ -219,6 +278,7 @@ watch(() => player.isOpen, (open) => {
     duration.value = 0;
     lastBufferedPct.value = 0;
     seeked = false;
+    framePanelOpen.value = false;
     // Move focus into the dialog once Vue has rendered it.
     nextTick(() => {
       const focusables = getModalFocusables();
@@ -270,7 +330,8 @@ const progressFillStyle = computed(() => ({
 }));
 
 const progressThumbStyle = computed(() => ({
-  transform: `translate(calc(${progressFillPct.value}% - 50%), -50%)`,
+  left: `${progressFillPct.value}%`,
+  transform: 'translate(-50%, -50%)',
 }));
 
 const bufferedStyle = computed(() => ({
@@ -648,10 +709,23 @@ function clearHideTimer() {
 function togglePlay() {
   const v = videoRef.value;
   if (!v) return;
+  // At end, play() alone often stays on the last frame — restart from 0.
+  if (state.value === 'ended') {
+    replay();
+    return;
+  }
   if (v.paused) { v.play().catch(() => {}); } else { v.pause(); }
 }
 
+watch(showFrameStepper, (show) => {
+  if (!show) {
+    stopFrameHold();
+    framePanelOpen.value = false;
+  }
+});
+
 function doClose() {
+  stopFrameHold();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
     unbindCtxMenuListeners();
@@ -680,9 +754,137 @@ function replay() {
 
 function stepFrame(delta: number) {
   const v = videoRef.value;
-  if (!v || !v.paused) return;
-  const t = v.currentTime + delta / fps;
-  v.currentTime = Math.max(0, Math.min(v.duration, t));
+  if (!v || !v.paused) return false;
+  const step = delta / Math.max(fps || 30, 1);
+  const t = Math.max(0, Math.min(v.duration || 0, v.currentTime + step));
+  if (t === v.currentTime) return false;
+  v.currentTime = t;
+  currentTime.value = t;
+  return true;
+}
+
+function clearFrameHoldSeeked() {
+  if (frameHoldOnSeeked) {
+    videoRef.value?.removeEventListener('seeked', frameHoldOnSeeked);
+    frameHoldOnSeeked = null;
+  }
+}
+
+function stopFrameHold() {
+  frameHoldActive = false;
+  frameHoldGen += 1;
+  if (frameHoldDelay != null) {
+    clearTimeout(frameHoldDelay);
+    frameHoldDelay = null;
+  }
+  clearFrameHoldSeeked();
+  // One final UI sync so the progress bar lands on the real frame.
+  const v = videoRef.value;
+  if (v) currentTime.value = v.currentTime;
+}
+
+/**
+ * Continuous step paced by the decoder: only issue the next currentTime
+ * after the previous seeked. Fixed-interval seeks without waiting queue up
+ * and stutter (especially on NAS / high-bitrate H.264).
+ */
+function startFrameHoldRepeat(delta: number, gen: number) {
+  if (gen !== frameHoldGen) return;
+  const v0 = videoRef.value;
+  if (!v0 || !v0.paused) return;
+
+  frameHoldActive = true;
+  const stepSec = delta / Math.max(fps || 30, 1);
+  const minIntervalMs = Math.round(1000 / FRAME_HOLD_MAX_HZ);
+  // Intentional playhead — do not re-read currentTime after each seek
+  // (async lag would cause skipped / doubled frames under load).
+  let target = v0.currentTime;
+  let lastSeekStart = 0;
+  let seeking = false;
+
+  const scheduleNext = () => {
+    if (gen !== frameHoldGen || !frameHoldActive) return;
+    const elapsed = performance.now() - lastSeekStart;
+    const wait = Math.max(0, minIntervalMs - elapsed);
+    if (wait > 0) {
+      frameHoldDelay = setTimeout(() => {
+        frameHoldDelay = null;
+        if (gen === frameHoldGen && frameHoldActive) advance();
+      }, wait);
+    } else {
+      advance();
+    }
+  };
+
+  const advance = () => {
+    if (gen !== frameHoldGen || !frameHoldActive || seeking) return;
+    const video = videoRef.value;
+    if (!video || !video.paused) {
+      stopFrameHold();
+      return;
+    }
+
+    const next = Math.max(0, Math.min(video.duration || 0, target + stepSec));
+    if (next === target) {
+      currentTime.value = video.currentTime;
+      stopFrameHold();
+      return;
+    }
+    target = next;
+    seeking = true;
+    lastSeekStart = performance.now();
+
+    const onSeeked = () => {
+      if (frameHoldOnSeeked === onSeeked) frameHoldOnSeeked = null;
+      if (gen !== frameHoldGen || !frameHoldActive) return;
+      seeking = false;
+      // Throttle Vue updates to seeked cadence (not every timeupdate).
+      currentTime.value = video.currentTime;
+      scheduleNext();
+    };
+    clearFrameHoldSeeked();
+    frameHoldOnSeeked = onSeeked;
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.currentTime = target;
+  };
+
+  advance();
+}
+
+function retargetTooltip() {
+  // Expand/collapse under a still cursor: stale tip host must be dropped.
+  document.dispatchEvent(new CustomEvent('wui:tooltip-retarget'));
+}
+
+function toggleFramePanel() {
+  framePanelOpen.value = !framePanelOpen.value;
+  // After grid 0fr→1fr layout, retarget tip to whatever is under the cursor
+  // (toggle tip must not stick over −1/+1; J/K tips only on step buttons).
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(retargetTooltip);
+    });
+  });
+}
+
+function onFrameStepPointerDown(delta: number, e: PointerEvent) {
+  if (e.button !== 0) return;
+  const el = e.currentTarget as HTMLElement;
+  // Capture so release outside the button still ends the hold.
+  el.setPointerCapture?.(e.pointerId);
+  // Never leave focus on ±1 — Space/Enter would re-fire the button and
+  // race the document keydown handler (play/pause + frame step).
+  el.blur();
+  // Drop tip while holding — avoid tip/keyboard-hint racing the seek loop.
+  document.dispatchEvent(new CustomEvent('wui:tooltip-hide'));
+  stopFrameHold();
+  stepFrame(delta);
+  const gen = frameHoldGen;
+  frameHoldDelay = setTimeout(() => {
+    frameHoldDelay = null;
+    if (gen !== frameHoldGen) return;
+    startFrameHoldRepeat(delta, gen);
+  }, FRAME_HOLD_DELAY_MS);
 }
 
 function onControlsSeek(pct: number) {
@@ -776,6 +978,8 @@ function onWaiting() {
 
 function onSeeking() {
   if (state.value === 'loading') return;
+  // Hold-step owns seeking; do not mark seek windows / dim overlay.
+  if (frameHoldActive) return;
   stateBeforeSeek = state.value;
   lastSeekTime = Date.now();
 }
@@ -799,7 +1003,7 @@ function clearBufferingTimer() {
 }
 
 function onTimeUpdate() {
-  if (isDragging.value) return;
+  if (isDragging.value || frameHoldActive) return;
   const v = videoRef.value;
   if (!v) return;
   const dur = v.duration || 0;
@@ -867,6 +1071,23 @@ function onKeydown(e: KeyboardEvent) {
   if (target?.closest('.player-progress-wrap')) {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') return;
   }
+  // Pointer hold owns continuous frame stepping. Any player hotkey yields
+  // ownership so keyboard seeks / play do not race the seeked hold loop.
+  if (frameHoldActive || frameHoldDelay != null) {
+    stopFrameHold();
+  }
+  // J/K tips on ±1 must not stick after keyboard steps (cursor may still hover).
+  if (e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') {
+    document.dispatchEvent(new CustomEvent('wui:tooltip-hide'));
+  }
+  // Frame-step buttons are mouse-only (tabindex=-1). If focus somehow lands
+  // on one, Space must not both activate the button and togglePlay.
+  if (target?.closest('.player-frame-step')) {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      return;
+    }
+  }
   const v = videoRef.value;
   if (!v) return;
 
@@ -891,10 +1112,12 @@ function onKeydown(e: KeyboardEvent) {
     case 'ArrowLeft':
       e.preventDefault();
       v.currentTime = Math.max(0, v.currentTime - 5);
+      currentTime.value = v.currentTime;
       break;
     case 'ArrowRight':
       e.preventDefault();
       v.currentTime = Math.min(v.duration || 0, v.currentTime + 5);
+      currentTime.value = v.currentTime;
       break;
     case 'ArrowUp':
       e.preventDefault();
@@ -952,6 +1175,7 @@ onUnmounted(() => {
   }
   clearHideTimer();
   clearBufferingTimer();
+  stopFrameHold();
 });
 </script>
 
@@ -1137,34 +1361,6 @@ onUnmounted(() => {
   filter: drop-shadow(0 2px 8px oklch(0 0 0 / 0.5));
 }
 
-.player-frame-stepper {
-  position: absolute;
-  inset: 0;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 12px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 200ms ease-out;
-}
-.player-frame-stepper.is-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-.frame-stepper-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px;
-  border-radius: 50%;
-  border: 0;
-  cursor: pointer;
-  background: oklch(0 0 0 / 0.4);
-  color: var(--ink-2);
-  transition: background 150ms ease-out, color 150ms ease-out;
-}
-.frame-stepper-btn:hover {
-  background: oklch(0 0 0 / 0.6);
-  color: var(--ink);
-}
-
 .player-close-top {
   position: absolute;
   top: 8px; right: 8px;
@@ -1174,6 +1370,105 @@ onUnmounted(() => {
 .player-close-top:hover {
   background: oklch(0 0 0 / 0.65);
   color: var(--ink);
+}
+
+/* Top-left frame dock (pause only). Same chrome as .player-close-top. */
+.player-frame-panel {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 2px 0 0;
+  background: oklch(0 0 0 / 0.45);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.player-frame-panel-toggle {
+  width: auto;
+  min-width: 32px;
+  height: 28px;
+  margin: 0 2px;
+  padding: 0 8px;
+  gap: 5px;
+  color: var(--ink-2);
+  border-radius: calc(var(--radius) - 1px);
+}
+.player-frame-panel-toggle:hover {
+  color: var(--ink);
+  background: oklch(1 0 0 / 0.08);
+}
+.player-frame-panel.is-open .player-frame-panel-toggle {
+  color: var(--ink);
+}
+.player-frame-panel-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: var(--w-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+/* grid 0fr→1fr expands tools without remounting or fixed max-width clipping */
+.player-frame-panel-tools {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 140ms ease-out;
+}
+.player-frame-panel.is-open .player-frame-panel-tools {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+.player-frame-panel-tools-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 2px;
+}
+.player-frame-panel-sep {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
+  margin: 0 2px;
+  background: var(--border-soft);
+}
+.player-frame-step {
+  width: 32px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--ink-2);
+  border-radius: calc(var(--radius) - 1px);
+  touch-action: none;
+}
+.player-frame-step:hover,
+.player-frame-step:active {
+  color: var(--ink);
+  background: oklch(1 0 0 / 0.08);
+}
+.player-frame-step-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--w-semibold);
+  line-height: 1;
+  letter-spacing: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-frame-panel-tools {
+    transition-duration: 1ms;
+  }
 }
 
 .player-context-menu {

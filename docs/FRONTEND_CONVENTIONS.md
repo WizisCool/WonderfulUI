@@ -180,6 +180,7 @@ Account list uses a custom tooltip, not native `title=`.
 - Use `data-tip` attribute with `\n` for multi-line; CSS uses `white-space: pre-line`.
 - One shared `.tooltip` is mounted on `document.body`, positioned via `@floating-ui/dom` (`packages/gui/src/composables/useFloating.ts`).
 - **Wiring is in `App.vue`**: delegated `mouseover`/`mouseout`/`mousemove` listeners on `document` read `[data-tip]` attributes and invoke `useTooltip()`. Components only set `data-tip` on their DOM elements; no directive or per-component binding required.
+- **First-show alignment**: create the tooltip element in `onMounted` (not lazily). Before first `computePosition`, apply `.is-measuring` (laid out, no animation transform), force layout (`offsetWidth`), await `document.fonts.ready` if fonts are still loading, then place. After becoming visible, re-place on a double `rAF`. Track cursor X during the 800ms delay via `trackCursor` so reveal uses the latest mouse X, not the stale `mouseover` coordinate.
 - `relatedTarget` checks prevent re-triggering when the mouse moves between descendants of the same `[data-tip]` element.
 - Show delay is `TOOLTIP_DELAY_MS`, currently 800 ms.
 - Hide on `mouseleave`, `blur`, or window scroll (repositions rather than hiding on scroll when visible).
@@ -366,7 +367,15 @@ Controls click propagation:
 
 - `.player-controls` has `@click.stop` to prevent clicks on the controls bar (volume slider, progress track, time text, gaps between buttons) from bubbling to `.player-stage`'s `togglePlay`.
 - Individual controls buttons have their own `@click.stop`.
-- `.player-frame-stepper` parent must NOT have `@click.stop` — it would block click-to-resume when paused.
+
+Frame stepper (top-left expand dock):
+
+- Shown only while `state === 'paused'` (via `deriveUI.showFrameStepper`).
+- **Single top-left dock** matching player chrome (`oklch(0 0 0 / 0.45)` like `.player-close-top`, `ctrl-btn` children). Not in the control bar (layout shift); not edge carets / center cluster / skip icons (those read as prev/next track).
+- **Default collapsed.** Toggle is `ph:film-strip` +「逐帧」. Expand reveals mono `−1` / `+1` in the same shell via `grid-template-columns: 0fr→1fr` + opacity (no remount). Default closed resets each player open / when leaving pause.
+- Hold `−1`/`+1` (pointerdown ≥320ms) continuous frame-step **paced by `seeked`** (never flood `currentTime` before the previous seek settles). Cap ~15 Hz; intentional target time accumulates so async lag does not skip/double frames. UI `currentTime` updates only on seeked during hold.
+- **No keyboard race:** step buttons are `tabindex="-1"` and blur on pointerdown (Space must not activate them). Any player hotkey calls `stopFrameHold()` before handling so pointer hold never stacks with J/K/Space/arrows.
+- Keyboard J/K works whether expanded or collapsed. `@pointerdown.stop` so stage play-toggle is not fired.
 
 Loading overlay:
 
@@ -452,10 +461,9 @@ Progress-bar markers:
 - Default marker appearance is a compact small dot with a stem, not a visible
   Phosphor icon. The icon expands only on hover or keyboard focus. This keeps
   timelines readable while preserving the clickable target and tooltip.
-- Marker stems must visually connect the dot to the progress track: start with
-  a slight overlap under the dot and end with a slight overlap into the track.
-  When multiple markers collide, later markers stack upward and lengthen their
-  stems so all dots remain visible and connected.
+- Marker stems must visually connect the dot to the progress track: slight
+  overlap under the dot, tip stops at the track top edge (no cut into the
+  4px fill). When markers collide, later ones stack upward and lengthen stems.
 
 The list modal **stays open** behind the player (player z-index 1200 >
 list 1100). When the player closes, the list re-appears in its original

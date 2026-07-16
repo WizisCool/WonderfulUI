@@ -1,8 +1,14 @@
 <template>
   <div class="player-controls" ref="controlsEl" @mouseenter="show" @mouseleave="scheduleHide" @click.stop>
     <div class="player-ctrl-row">
-      <button class="ctrl-btn player-ctrl-play" :aria-label="playing ? '暂停' : '播放'" @click.stop="$emit('playPause')">
+      <button
+        class="ctrl-btn player-ctrl-play"
+        :aria-label="playing ? '暂停' : ended ? '重播' : '播放'"
+        :title="playing ? '暂停' : ended ? '重播' : '播放'"
+        @click.stop="$emit('playPause')"
+      >
         <WIcon v-if="playing" icon="ph:pause" :size="16" />
+        <WIcon v-else-if="ended" icon="ph:arrow-counter-clockwise" :size="16" />
         <WIcon v-else icon="ph:play" :size="16" />
       </button>
 
@@ -61,6 +67,8 @@ import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 
 const props = defineProps<{
   playing: boolean;
+  /** true when playback has ended — show replay glyph instead of play */
+  ended?: boolean;
   currentTimeStr: string;
   durationStr: string;
   currentTime: number;
