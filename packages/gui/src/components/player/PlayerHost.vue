@@ -663,6 +663,22 @@ async function copyScreenshot() {
   }
 }
 
+/**
+ * During save progress: hold the player on the captured frame.
+ * Returns whether playback should resume after success.
+ */
+function holdPlaybackOnSaveFrame(timeSec: number): boolean {
+  const v = videoRef.value;
+  if (!v) return false;
+  const wasPlaying = !v.paused && state.value !== 'ended';
+  v.pause();
+  if (Number.isFinite(timeSec) && Math.abs(v.currentTime - timeSec) > 0.02) {
+    v.currentTime = Math.max(0, timeSec);
+  }
+  currentTime.value = v.currentTime;
+  return wasPlaying;
+}
+
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
@@ -670,6 +686,7 @@ async function saveScreenshot() {
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
   closeCtxMenu();
+  let resumeAfter = false;
   try {
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
@@ -681,14 +698,20 @@ async function saveScreenshot() {
     });
     if (!outPath) return;
 
+    // Pause on the saved frame while progress UI + native encode run.
+    resumeAfter = holdPlaybackOnSaveFrame(timeSec);
     screenshotUi.value = 'save';
     await paintScreenshotUi();
     const blob = await captureFrameAt(timeMs);
     const bytes = await blobToUint8Array(blob);
     await writeFile(outPath, bytes);
     ui.showToast('已保存');
+    if (resumeAfter) {
+      videoRef.value?.play().catch(() => {});
+    }
   } catch (e) {
     ui.showToast(formatCaptureError(e, 'save'), 'error');
+    // On failure leave paused at the freeze frame (user can press play).
   } finally {
     screenshotUi.value = null;
     screenshotBusy = false;
