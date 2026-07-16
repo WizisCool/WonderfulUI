@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   EMPTY_FILTERS, activeFilterCount,
   FilterState, kdaOf, kdOf, matchDurationSec, normalizeVisibleFilters, videoTotalDuration,
-  agentCn, mapCn, mapImageUrl, heroImageUrl, fmtMap,
+  agentCn, mapCn, mapImageUrl, heroImageUrl, fmtMap, fmtMatchDuration,
 } from '../src/utils/filters.ts';
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
 import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
@@ -236,6 +236,17 @@ describe('derived values', () => {
 
   test('matchDurationSec computes correctly', () => {
     expect(matchDurationSec(m1)).toBe(35 * 60); // 35 min
+  });
+
+  test('fmtMatchDuration / matchDurationSec parse ACLOS local wall-clock strings', () => {
+    // ACLOS writes "YYYY-MM-DD HH:mm:ss.mmm" (space, no Z). Must not rely on
+    // implementation-defined Date("…") parsing.
+    const m = mkMatch({
+      gameStartTime: '2026-06-08 21:55:16.535',
+      gameEndTime: '2026-06-08 22:25:16.535',
+    });
+    expect(matchDurationSec(m)).toBe(30 * 60);
+    expect(fmtMatchDuration(m)).toBe('30:00');
   });
 
   test('videoTotalDuration sums', () => {

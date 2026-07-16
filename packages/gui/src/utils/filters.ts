@@ -5,6 +5,7 @@
  * (resolveMatch*). Re-exports keep existing import sites stable.
  */
 import type { MatchRecord } from '@wonderful-ui/parser';
+import { parseAclLocalTime } from './event-state-machine.ts';
 import {
   lookupMapAsset,
   resolveMatchAgentLabel,
@@ -59,12 +60,21 @@ export function kdaRatio(m: MatchRecord): string {
   return ((m.stats.kills + m.stats.assists) / d).toFixed(2);
 }
 
+function aclWallClockMs(value: string): number | undefined {
+  // Prefer the same ACL local parser as the event state machine. Fall back to
+  // Date only for odd fixtures (e.g. trailing Z) that still parse in WebView2.
+  const parsed = parseAclLocalTime(value);
+  if (parsed !== undefined) return parsed;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 export function fmtMatchDuration(m: MatchRecord): string {
   const start = m.gameStartTime, end = m.gameEndTime;
   if (!start || !end) return '';
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
-  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return '';
+  const s = aclWallClockMs(start);
+  const e = aclWallClockMs(end);
+  if (s === undefined || e === undefined || e <= s) return '';
   const total = Math.round((e - s) / 1000);
   const min = Math.floor(total / 60);
   const sec = total % 60;
@@ -102,8 +112,13 @@ export function matchDurationSec(m: MatchRecord): number {
   if (v === undefined) {
     const s = m.gameStartTime, e = m.gameEndTime;
     if (s && e) {
-      const ms = new Date(e).getTime() - new Date(s).getTime();
-      v = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+      const startMs = aclWallClockMs(s);
+      const endMs = aclWallClockMs(e);
+      if (startMs !== undefined && endMs !== undefined && endMs > startMs) {
+        v = Math.round((endMs - startMs) / 1000);
+      } else {
+        v = 0;
+      }
     } else {
       v = 0;
     }
