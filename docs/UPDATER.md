@@ -19,10 +19,11 @@ GitHub Release (latest.json + setup.exe + setup.exe.sig)
 ```
 
 - **检查触发**：
-  1. 启动 `runBoot()` 显露 UI 之后静默检查一次（失败静默；成功有更新 → 红点 + toast「发现新版本 vX.Y.Z」，不自动开弹窗）
+  1. 启动 `runBoot()` 显露 UI 之后静默检查一次（失败静默；成功有更新 → 红点；未「跳过此版本」则**自动打开更新弹窗**，可选「更新」/「稍后」/「跳过此版本」）
+  1b. 「跳过此版本」写入 `localStorage wui:update.skippedVersion`：同版本不再自动弹窗，红点与设置→关于更新入口保留；手动检查/版本号仍可开窗
   2. 设置 →「关于」→「检查更新」手动检查
   3. 侧栏底部版本号点击 → 打开关于页并手动检查；有 badge 时直接开更新弹窗
-  4. 侧栏设置齿轮在有 badge 时优先打开更新弹窗
+  4. 侧栏设置齿轮**始终**打开设置（有 badge 只显示红点，不劫持）；版本号在有 badge 时再开更新弹窗
 - **更新执行**：`update.downloadAndInstall(progress回调)` → 安装 → `relaunch()`。
 - **安装模式**：perMachine NSIS + `installMode: "passive"`（NSIS 进度小窗 + UAC 提权）。
 
@@ -102,9 +103,26 @@ dismiss()               // 仅 available/error 可关；下载中 no-op
 - `App.vue runBoot()` 在 `booted = true` 之后 `checkForUpdate(true)`。
 - 不与后台 scrape 竞争；失败仅 `clientLog`。
 
-## 本地调试 updater（勿提交）
+## DEV UI 调试（日常 `bun run dev`）
 
-临时把 endpoint 指到本地 static server 可以验证 UI，但：
+`import.meta.env.DEV` 时启动后**自动** mock 有更新并打开弹窗（红点 +「更新」/「稍后」）。「更新」走假进度，**不** `downloadAndInstall` / `relaunch`。
+
+生产 / CI release（`DEV === false`）仍走真实 `check()`。
+
+可选 console 细调其它态：
+
+```js
+__WUI_DEBUG_UPDATE__.play()
+__WUI_DEBUG_UPDATE__.error('check')  // 或 'download'
+__WUI_DEBUG_UPDATE__.downloading({ total: 0 })
+__WUI_DEBUG_UPDATE__.reset()
+```
+
+实现：`App.vue` boot 分支 + `utils/update-debug.ts` + `stores/update.ts`。
+
+## 本地调试 updater 真链路（勿提交）
+
+临时把 endpoint 指到本地 static server 可以验证签名下载，但：
 
 1. 不要提交 conf 改动（CI / check-versions 会失败）。
 2. 本地包需用同一私钥签名，否则校验失败。
@@ -116,7 +134,7 @@ dismiss()               // 仅 available/error 可关；下载中 no-op
 1. bun run scripts/check-versions.ts          → 版本 + endpoint 全绿
 2. 公钥与 secrets 成对                         → 已发布 v0.1.5+ 有 .sig
 3. cargo build / tauri build                   → feature updater 默认开
-4. 启动后有新版本 → 红点 + toast，点齿轮/版本进弹窗
+4. 启动后有新版本 → 红点 + 自动弹窗（更新 / 稍后）
 5. 关于页「检查更新」→ checking 文案 → available 弹窗
 6. 断网手动检查 → errorKind=check → 重试再 check
 7. 下载失败 → errorKind=download → 重试再 startUpdate
