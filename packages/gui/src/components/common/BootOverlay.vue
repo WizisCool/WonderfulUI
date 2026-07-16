@@ -35,31 +35,38 @@ const label = ref('正在打开 WonderfulUI…');
 const pct = ref(5);
 
 let unlisteners: UnlistenFn[] = [];
-let disposed = false;
 
 const FADE_OUT_MS = 280;
 const HOLD_MS = 220;
 const FADE_SAFETY_MS = 320;
 
 function start(opts: { mode?: 'boot' | 'overlay'; skipAssetPreWarm?: boolean; initialLabel?: string; initialPct?: number } = {}) {
-  disposed = false;
+  // complete() only hides; do not tear down listeners — full-scan overlay reuses them.
   completePromise = null;
+  paused = false;
   mode.value = opts.mode ?? 'boot';
   label.value = opts.initialLabel ?? '正在打开 WonderfulUI…';
   pct.value = opts.initialPct ?? 5;
   visible.value = true;
+  if (unlisteners.length === 0) {
+    void wireEvents(opts.skipAssetPreWarm ?? false);
+  }
   requestAnimationFrame(() => {
     pulseRendererForMotion(320);
   });
 }
 
 function update(newLabel: string, newPct?: number) {
-  if (disposed) return;
+  // While hidden after complete, ignore stale scrape events until next start().
+  if (paused || !visible.value) return;
   label.value = newLabel;
   if (newPct !== undefined) pct.value = newPct;
 }
 
 let completePromise: Promise<void> | null = null;
+/** After fade-out, ignore events until start() (keeps listeners for next full scan). */
+let paused = false;
+
 function complete(): Promise<void> {
   if (completePromise) return completePromise;
   completePromise = (async () => {
@@ -68,30 +75,30 @@ function complete(): Promise<void> {
       pct.value = 100;
     }
     await new Promise<void>(r => window.setTimeout(r, HOLD_MS));
-    if (disposed) return;
     pulseRendererForMotion(340);
     visible.value = false;
+    paused = true;
     await new Promise<void>(r => window.setTimeout(r, FADE_SAFETY_MS));
-    dispose();
+    // Do NOT dispose listeners here — full-scan overlay after boot needs them.
   })();
   return completePromise;
 }
 
 function dispose() {
-  if (disposed) return;
-  disposed = true;
+  paused = true;
   for (const u of unlisteners) u();
   unlisteners = [];
 }
 
 async function wireEvents(skipAssetPreWarm: boolean) {
-  dispose();
-  disposed = false;
+  for (const u of unlisteners) u();
+  unlisteners = [];
 
   unlisteners.push(await listen<Record<string, unknown>>('wui://phase', (event) => {
     const d = event.payload;
     const phase = (d.phase as string) || '';
-    if (phase === 'scanning') update('正在扫描账户…', 12);
+    if (phase === 'opening') update('正在打开资料库…', Math.max(pct.value, 8));
+    else if (phase === 'scanning') update('正在扫描账户…', Math.max(pct.value, 12));
     else if (phase === 'loading_view') update('正在加载对局…', 80);
     else if (phase === 'caching_assets') update('正在准备素材…', 88);
     else if (phase === 'error') update(`错误: ${d.sub ?? '启动失败'}`, pct.value);
@@ -122,6 +129,22 @@ async function wireEvents(skipAssetPreWarm: boolean) {
     }
   }));
 
+  // Skipped accounts (incremental) only emit finished — still advance the bar.
+  unlisteners.push(await listen<Record<string, unknown>>('wui://account_finished', (event) => {
+    const d = event.payload;
+    const cur = (d.current as number) ?? 0;
+    const tot = (d.total as number) ?? 0;
+    if (tot > 0) {
+      const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
+      const status = (d.status as string) || '';
+      const labelText =
+        status === 'skipped'
+          ? `跳过未变更…  ${cur} / ${tot}`
+          : `正在扫描账户…  ${cur} / ${tot}`;
+      update(labelText, nextPct);
+    }
+  }));
+
   if (!skipAssetPreWarm) {
     unlisteners.push(await listen<Record<string, unknown>>('wui://cache_asset_progress', (event) => {
       const d = event.payload;
@@ -136,7 +159,7 @@ async function wireEvents(skipAssetPreWarm: boolean) {
 }
 
 onMounted(() => {
-  wireEvents(false);
+  void wireEvents(false);
 });
 
 onUnmounted(() => {
@@ -147,7 +170,7 @@ watch(() => ui.scanOverlayVisible, (v) => {
   if (v) {
     start({ mode: 'overlay', initialLabel: ui.scanOverlayLabel, initialPct: ui.scanOverlayPct });
   } else {
-    complete();
+    void complete();
   }
 });
 
