@@ -40,7 +40,7 @@ import { listen } from './tauri-adapter.ts';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
 import { useUpdateStore } from './stores/update.ts';
-import { useTooltip } from './composables/useTooltip.ts';
+import { useTooltip, isTipEligible } from './composables/useTooltip.ts';
 import { clientLog } from './utils/client-log.ts';
 
 const filter = useFilterStore();
@@ -158,7 +158,9 @@ watch(() => account.aclosStatus, () => { /* trigger showOnboarding */ });
 const tooltip = useTooltip();
 
 function tipTarget(e: MouseEvent): HTMLElement | null {
-  return (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  const el = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null;
+  if (!el || !isTipEligible(el)) return null;
+  return el;
 }
 
 function onDocMouseOver(e: MouseEvent) {
@@ -170,9 +172,12 @@ function onDocMouseOver(e: MouseEvent) {
 }
 
 function onDocMouseMove(e: MouseEvent) {
+  // Always track so the 800ms schedule / expand-retarget use the live cursor.
+  tooltip.trackCursor(e.clientX, e.clientY);
   if (!tooltip.visible.value) return;
   const el = tipTarget(e);
   if (el) tooltip.reposition(e.clientX);
+  else tooltip.hide();
 }
 
 function onDocMouseOut(e: MouseEvent) {
@@ -183,16 +188,29 @@ function onDocMouseOut(e: MouseEvent) {
   tooltip.hide();
 }
 
+/** Frame dock expand / other layout flips under a still cursor. */
+function onTipRetarget() {
+  tooltip.retargetFromCursor();
+}
+
+function onTipHide() {
+  tooltip.hide();
+}
+
 onMounted(() => {
   document.addEventListener('mouseover', onDocMouseOver, { passive: true });
   document.addEventListener('mousemove', onDocMouseMove, { passive: true });
   document.addEventListener('mouseout', onDocMouseOut, { passive: true });
+  document.addEventListener('wui:tooltip-retarget', onTipRetarget);
+  document.addEventListener('wui:tooltip-hide', onTipHide);
 });
 
 onUnmounted(() => {
   document.removeEventListener('mouseover', onDocMouseOver);
   document.removeEventListener('mousemove', onDocMouseMove);
   document.removeEventListener('mouseout', onDocMouseOut);
+  document.removeEventListener('wui:tooltip-retarget', onTipRetarget);
+  document.removeEventListener('wui:tooltip-hide', onTipHide);
 });
 </script>
 
