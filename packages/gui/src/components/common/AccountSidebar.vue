@@ -136,15 +136,12 @@ const versionTip = computed(() =>
 );
 
 function onSettingsClick() {
-  // 有可用更新时优先打开更新弹窗，减少「设置 → 关于」两步路径
-  if (update.badge && update.update) {
-    update.openModal();
-    return;
-  }
+  // 「稍后」后 badge 仍在；设置入口必须始终打开设置，不被更新弹窗劫持。
   settings.setOpen(true);
 }
 
 function onVersionClick() {
+  // 版本号：有可用更新时再开更新窗；否则进关于并手动检查。
   if (update.badge && update.update) {
     update.openModal();
     return;
