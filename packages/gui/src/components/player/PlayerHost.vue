@@ -32,6 +32,17 @@
           @seeking="onSeeking"
           @error="onError"
         />
+        <!--
+          Stage-only freeze: covers video pixels but stays under controls (z-index 5)
+          so real paused chrome (play / 逐帧) remains visible.
+        -->
+        <div
+          class="player-freeze-layer"
+          :class="{ 'is-visible': freezeFrameActive }"
+          aria-hidden="true"
+        >
+          <canvas ref="freezeCanvasRef" class="player-freeze-canvas" />
+        </div>
 
         <div class="player-loading" :class="{ 'is-hidden': !showLoading }">
           <img v-if="posterSrc" class="player-loading-poster" :src="posterSrc" alt="" />
@@ -137,23 +148,7 @@
         />
       </div>
 
-      <!--
-        Full-modal freeze layer (above stage / HW video surface).
-        Must sit outside .player-stage: WebView2 accelerated <video> can paint
-        above sibling canvas inside the same stacking context.
-      -->
-      <div
-        class="player-freeze-layer"
-        :class="{ 'is-visible': freezeFrameActive }"
-        aria-hidden="true"
-      >
-        <canvas ref="freezeCanvasRef" class="player-freeze-canvas" />
-        <div v-if="freezeFrameActive && screenshotUi === null" class="player-freeze-badge">
-          已定格
-        </div>
-      </div>
-
-      <!-- Screenshot busy: dim stage + indeterminate progress (native capture lag). -->
+      <!-- Screenshot busy: dim shell + indeterminate progress (native capture lag). -->
       <div
         class="player-screenshot-overlay"
         :class="{ 'is-visible': screenshotUi !== null }"
@@ -693,10 +688,17 @@ async function copyScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
   const timeMs = captureTimeMs();
-  closeCtxMenu();
-  screenshotUi.value = 'copy';
+  const timeSec = timeMs / 1000;
+  closeCtxMenu({ swallowClickThrough: true });
+  let resumeAfter = false;
+  let held = false;
   try {
+    // Same real-pause hold as save (user was testing clipboard path).
+    resumeAfter = await holdPlaybackForScreenshot(timeSec);
+    held = true;
+    screenshotUi.value = 'copy';
     await paintScreenshotUi();
+    forceVideoPaused();
     const blob = await captureFrameAt(timeMs);
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
       throw new Error('当前环境不支持复制图片');
@@ -706,11 +708,18 @@ async function copyScreenshot() {
       new ClipboardItem({ 'image/png': Promise.resolve(blob) }),
     ]);
     ui.showToast('已复制截图');
+    releaseScreenshotPlaybackHold(resumeAfter);
+    held = false;
   } catch (e) {
     ui.showToast(formatCaptureError(e, 'copy'), 'error');
+    releaseScreenshotPlaybackHold(false);
+    held = false;
   } finally {
     screenshotUi.value = null;
     screenshotBusy = false;
+    stopScreenshotPauseWatchdog();
+    screenshotPlaybackHold = false;
+    if (held) clearDisplayFreeze();
   }
 }
 
@@ -788,14 +797,12 @@ function stopScreenshotPauseWatchdog() {
 }
 
 /**
- * Hold the player on the capture frame for the whole save flow
- * (dialog + progress). Visual freeze canvas is ground truth; pause is best-effort.
- * Returns whether playback should resume after success.
- *
- * CRITICAL: must `await flushFreezeToScreen()` BEFORE native Save As — otherwise
- * Vue never paints freezeFrameActive and the video keeps moving under the dialog.
+ * Enter real paused state + stage freeze for copy/save screenshot.
+ * - `state === 'paused'` so controls show play + 逐帧 dock
+ * - freeze canvas covers only video (under controls)
+ * - scrubber pinned; timeupdate ignored while held
  */
-async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
+async function holdPlaybackForScreenshot(timeSec: number): Promise<boolean> {
   const v = videoRef.value;
   if (!v) {
     clientLog('error', 'screenshot', 'holdPlayback: no video element');
@@ -810,25 +817,13 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
   screenshotPlaybackHold = true;
   stateBeforeSeek = null;
   stopFrameHold();
-  forceVideoPaused();
 
-  // 1) Freeze UI at the menu-click frame (cover motion immediately).
-  applyDisplayFreeze();
-  // Pin progress bar / time readout so it cannot crawl while hold is on.
+  // Real pause first — UI must enter paused (play icon + frame stepper).
+  forceVideoPaused();
   const target = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
   currentTime.value = target;
-  startScreenshotPauseWatchdog();
 
-  // 2) MUST paint freeze + hide HW video BEFORE native Save As.
-  await flushFreezeToScreen();
-  forceVideoPaused();
-  clientLog(
-    'info',
-    'screenshot',
-    `hold ready freeze=${freezeFrameActive.value} paused=${v.paused} t=${v.currentTime.toFixed(3)} target=${target.toFixed(3)}`,
-  );
-
-  // 3) Seek under the freeze cover (user only sees the static canvas).
+  // Seek to capture time while still visible, then freeze.
   const needSeek = Math.abs((v.currentTime || 0) - target) > 0.01;
   if (needSeek) {
     try {
@@ -836,16 +831,25 @@ async function holdPlaybackOnSaveFrame(timeSec: number): Promise<boolean> {
       v.currentTime = target;
       await seekWait;
     } catch {
-      /* best-effort seek */
+      /* best-effort */
     }
     forceVideoPaused();
-    // Keep the *pre-seek* freeze image — that is the frame user clicked to save.
-    // Re-painting after seek can flash a different keyframe.
     currentTime.value = target;
   }
 
+  // Display freeze under controls (HW video may still composite without this).
+  applyDisplayFreeze();
+  startScreenshotPauseWatchdog();
+  await flushFreezeToScreen();
   forceVideoPaused();
+
+  // Keep paused chrome visible (逐帧 / play button).
   showControls();
+  clientLog(
+    'info',
+    'screenshot',
+    `hold ready freeze=${freezeFrameActive.value} state=${state.value} paused=${v.paused} t=${v.currentTime.toFixed(3)}`,
+  );
   return wasPlaying;
 }
 
@@ -853,7 +857,12 @@ function releaseScreenshotPlaybackHold(resume: boolean) {
   stopScreenshotPauseWatchdog();
   screenshotPlaybackHold = false;
   clearDisplayFreeze();
-  if (!resume) return;
+  if (!resume) {
+    // Stay in real paused state after a failed/cancel path that already paused.
+    forceVideoPaused();
+    showControls();
+    return;
+  }
   const v = videoRef.value;
   if (!v || state.value === 'ended' || state.value === 'error') return;
   v.play().catch(() => {});
@@ -862,34 +871,28 @@ function releaseScreenshotPlaybackHold(resume: boolean) {
 async function saveScreenshot() {
   if (screenshotBusy) return;
   screenshotBusy = true;
-  // Freeze playhead at menu action — hold for dialog + progress.
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
   closeCtxMenu({ swallowClickThrough: true });
   let resumeAfter = false;
   let held = false;
   try {
-    // Pause on the target frame immediately (before Save As), so the shell
-    // is frozen for the whole save interaction.
-    resumeAfter = await holdPlaybackOnSaveFrame(timeSec);
+    resumeAfter = await holdPlaybackForScreenshot(timeSec);
     held = true;
 
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const name = defaultScreenshotName(videoPath.value, timeSec);
-    // System picker while held paused; then dim + capture.
     const outPath = await save({
       defaultPath: name,
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
     if (!outPath) {
-      // Cancelled: restore prior play state.
       releaseScreenshotPlaybackHold(resumeAfter);
       held = false;
       return;
     }
 
-    // Re-assert freeze after native dialog returns (focus/canplay races).
     forceVideoPaused();
     const v = videoRef.value;
     if (v && Math.abs((v.currentTime || 0) - timeSec) > 0.05) {
@@ -901,6 +904,7 @@ async function saveScreenshot() {
         /* ignore */
       }
       forceVideoPaused();
+      currentTime.value = timeSec;
     }
 
     screenshotUi.value = 'save';
@@ -914,20 +918,14 @@ async function saveScreenshot() {
     held = false;
   } catch (e) {
     ui.showToast(formatCaptureError(e, 'save'), 'error');
-    // On failure leave paused at the freeze frame (user can press play).
     releaseScreenshotPlaybackHold(false);
     held = false;
   } finally {
     screenshotUi.value = null;
     screenshotBusy = false;
-    if (held) {
-      // Safety if an early return path forgot to release.
-      stopScreenshotPauseWatchdog();
-      screenshotPlaybackHold = false;
-    } else {
-      stopScreenshotPauseWatchdog();
-      screenshotPlaybackHold = false;
-    }
+    stopScreenshotPauseWatchdog();
+    screenshotPlaybackHold = false;
+    if (held) clearDisplayFreeze();
   }
 }
 
@@ -1837,9 +1835,8 @@ onUnmounted(() => {
   background-color: #000;
 }
 /*
- * WebView2 HW-accelerated <video> can composite above sibling canvas/z-index.
- * Collapse it out of the visual tree during freeze (opacity+size), not just
- * visibility:hidden which still leaves a top-layer video surface.
+ * Collapse HW video surface during freeze (opacity+size). Layer stays inside
+ * .player-stage under controls (z-index 5) so real paused chrome remains.
  */
 .player-video.is-freeze-hidden {
   opacity: 0 !important;
@@ -1851,19 +1848,16 @@ onUnmounted(() => {
   overflow: hidden !important;
   pointer-events: none !important;
 }
-/* Full-modal freeze — sibling of .player-stage, above video surface. */
 .player-freeze-layer {
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: 2;
   display: none;
-  align-items: center;
-  justify-content: center;
   background: #000;
   pointer-events: none;
 }
 .player-freeze-layer.is-visible {
-  display: flex;
+  display: block;
 }
 .player-freeze-canvas {
   width: 100%;
@@ -1871,21 +1865,6 @@ onUnmounted(() => {
   object-fit: fill;
   display: block;
   background: #000;
-}
-.player-freeze-badge {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  padding: 4px 10px;
-  border-radius: var(--r-md, 6px);
-  background: oklch(0 0 0 / 0.55);
-  border: 1px solid oklch(1 0 0 / 0.12);
-  color: var(--ink-2, oklch(0.78 0.012 30));
-  font-family: var(--font-sans, MiSans, system-ui, sans-serif);
-  font-size: 12px;
-  font-weight: var(--w-medium, 380);
-  letter-spacing: 0.02em;
-  pointer-events: none;
 }
 
 /* Screenshot busy: gray the player shell + indeterminate accent bar. */
