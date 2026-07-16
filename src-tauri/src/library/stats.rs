@@ -1,4 +1,5 @@
 use crate::library::db;
+use crate::library::now_ms;
 use rusqlite::{params, Connection};
 use std::path::Path;
 
@@ -232,13 +233,6 @@ fn walk_asset_cache(base: &Path) -> Result<Vec<AssetKindStat>, String> {
         result.push(AssetKindStat { kind, count, bytes });
     }
     Ok(result)
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
 }
 
 #[cfg(test)]

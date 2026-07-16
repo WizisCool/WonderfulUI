@@ -8,16 +8,10 @@ mod share_server;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use library::sha256_hex;
 use library::stats::LibraryStats;
 use parser::model::{LoadResult, MatchRecord};
-use sha2::{Digest, Sha256};
 use tauri::Emitter;
-
-fn sha256_hex(input: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
