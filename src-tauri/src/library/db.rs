@@ -1,4 +1,5 @@
 use crate::library::model::LibraryLoadResult;
+use crate::library::now_ms;
 use crate::parser::model::{strip_match_rounds, Account, MatchRecord, SnapshotAchievement};
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
@@ -285,13 +286,11 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
     let rows = match_stmt.query_map([], |row| row.get::<_, String>(0))?;
     for raw in rows {
         let raw = raw?;
-        if let Ok(mut m) = serde_json::from_str::<MatchRecord>(&raw) {
-            for v in &mut m.videos {
-                v.rounds.clear();
-            }
+        if let Ok(m) = serde_json::from_str::<MatchRecord>(&raw) {
             matches.push(m);
         }
     }
+    // Strip rounds once after deserialize (bulk list must stay rounds-free for IPC size).
     strip_match_rounds(&mut matches);
     let total_errors: i64 = conn.query_row(
         "SELECT COUNT(*) FROM accounts WHERE parse_error IS NOT NULL AND parse_error <> ''",
@@ -338,13 +337,6 @@ pub fn set_account_custom_name(
         rusqlite::params![openid, trimmed, now],
     )?;
     Ok(())
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
 }
 
 pub fn upsert_asset(
