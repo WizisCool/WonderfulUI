@@ -12,6 +12,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
+import { canBeginShareStart, shouldCommitShareStart } from '../utils/share-start.ts';
 
 export interface ShareServerInfo {
   port: number;
@@ -41,16 +42,22 @@ export const useShareStore = defineStore('share', () => {
   const lastError = ref('');
 
   async function start(videoPath: string) {
+    // Ignore double-clicks while the first invoke is in flight. A second
+    // start while already running is allowed (Rust replaces the server).
+    if (!canBeginShareStart(status.value)) return;
     status.value = 'starting';
     lastError.value = '';
     try {
       const result = await invoke<ShareServerInfo>('start_share_server', {
         path: videoPath,
       });
+      // stop() may have run during await — do not resurrect a closed server UI.
+      if (!shouldCommitShareStart(status.value)) return;
       info.value = result;
       downloadCount.value = 0;
       status.value = 'running';
     } catch (e) {
+      if (!shouldCommitShareStart(status.value)) return;
       lastError.value = e instanceof Error ? e.message : String(e);
       info.value = null;
       status.value = 'error';
