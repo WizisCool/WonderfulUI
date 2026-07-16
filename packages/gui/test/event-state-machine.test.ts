@@ -114,4 +114,14 @@ describe('resolveClipEventState', () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.isHeadshot).toBe(false);
   });
+
+  test('moment events with negative clip_sTime fall back to event_sTime when still in video', () => {
+    const c = clip({ event_sTime: 6_000, event_ext: shot() }, -1);
+    const v = video('三杀时刻', c, 30_000);
+    const state = resolveClipEventState(match([v]), v, v.rounds![0]!, c, c.clip_events[0]!, 0);
+
+    expect(state.kind).toBe('moment');
+    if (state.kind !== 'moment') throw new Error('expected moment event');
+    expect(state.timeMs).toBe(6_000);
+  });
 });

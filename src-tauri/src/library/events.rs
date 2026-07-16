@@ -186,8 +186,14 @@ fn resolve_video_time(
         return is_within_video(ev.event_s_time, duration).then_some(ev.event_s_time);
     }
 
-    if event_type != "kill" || clip.clip_s_time < 0 {
+    // Moment clips (三杀时刻 / etc.): only kills are playable.
+    // Align with TS event-state-machine: when clip_sTime is missing/negative,
+    // fall back to event_sTime alone if it still lies inside the video.
+    if event_type != "kill" {
         return None;
+    }
+    if clip.clip_s_time < 0 {
+        return is_within_video(ev.event_s_time, duration).then_some(ev.event_s_time);
     }
     let time_ms = clip.clip_s_time + ev.event_s_time;
     is_within_video(time_ms, duration).then_some(time_ms)
@@ -593,5 +599,30 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "kill");
         assert_eq!(events[0].source_event_id, "case-and-space");
+    }
+
+    /// Mirrors TS `event-state-machine.ts`: when moment clip_sTime is negative,
+    /// fall back to event_sTime alone if it still lies inside the video.
+    #[test]
+    fn moment_events_with_negative_clip_s_time_fall_back_to_event_s_time() {
+        let m = match_with_videos(vec![video_with_rounds(
+            "三杀时刻",
+            30_000,
+            vec![RoundItem {
+                round_s_time: 0,
+                round_clips: vec![RoundClip {
+                    clip_s_time: -1,
+                    clip_events: vec![event("neg-clip", 6_000, "kill", shot_ext(serde_json::json!({})))],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        )]);
+
+        let events = normalize_match_events(&m);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].time_ms, 6_000);
+        assert_eq!(events[0].seek_ms, 6_000);
     }
 }
