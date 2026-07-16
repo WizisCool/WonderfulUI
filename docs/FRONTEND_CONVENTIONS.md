@@ -41,6 +41,7 @@ While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss inst
   - Right-click **any match row** → select that row first (if needed), then only「打开对局文件夹」(`reveal_in_explorer` on `firstMatchVideoPath`).
   - Right-click **blank / empty list** → only「扫描资料库」(same as header refresh / current scan mode).
   - Outside left mousedown closes menu and arms click-through guard so that click does not toggle select.
+- **Only one context menu at a time** across match list / detail videos / player (`utils/context-menu-bus.ts`): opening a menu broadcasts close to all others.
 
 ### Match listbox keyboard / a11y (do not re-break)
 

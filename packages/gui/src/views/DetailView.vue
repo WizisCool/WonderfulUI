@@ -226,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted, nextTick } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
 import { convertFileSrc, invoke } from '../tauri-adapter.ts';
@@ -235,6 +235,10 @@ import { useDetailStore } from '../stores/detail.ts';
 import { usePlayerStore } from '../stores/player.ts';
 import { useUiStore } from '../stores/ui.ts';
 import { placeMenuNearCursor } from '../utils/context-menu.ts';
+import {
+  broadcastCloseContextMenus,
+  onCloseContextMenus,
+} from '../utils/context-menu-bus.ts';
 import { agentCn, mapCn, modeCn, fmtScore, kdaRatio, fmtMatchDuration } from '../utils/filters.ts';
 import { resolveMatchAssetSrc } from '../utils/valorant-assets.ts';
 import { normalizeMatchEvents, type NormalizedMatchEvent } from '../utils/match-events.ts';
@@ -403,6 +407,7 @@ function videoPathOf(v: VideoItem): string | null {
 function onVideoContextMenu(e: MouseEvent, v: VideoItem) {
   e.preventDefault();
   e.stopPropagation();
+  broadcastCloseContextMenus('detail-video');
   if (videoCtxCloseTimer) {
     clearTimeout(videoCtxCloseTimer);
     videoCtxCloseTimer = null;
@@ -527,7 +532,18 @@ watch(() => detail.selectedMatch, (m) => {
   }
 }, { immediate: true });
 
+let offCloseMenus: (() => void) | null = null;
+
+onMounted(() => {
+  offCloseMenus = onCloseContextMenus((except) => {
+    if (except === 'detail-video') return;
+    if (videoCtxMenu.value) closeVideoCtxMenu();
+  });
+});
+
 onUnmounted(() => {
+  offCloseMenus?.();
+  offCloseMenus = null;
   unbindVideoCtxListeners();
   if (videoCtxCloseTimer) clearTimeout(videoCtxCloseTimer);
 });

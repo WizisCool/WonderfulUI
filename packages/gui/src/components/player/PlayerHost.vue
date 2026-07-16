@@ -269,6 +269,10 @@ import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import {
+  broadcastCloseContextMenus,
+  onCloseContextMenus,
+} from '../../utils/context-menu-bus.ts';
+import {
   base64PngToBlob,
   blobToUint8Array,
   defaultScreenshotName,
@@ -859,6 +863,7 @@ function applyCtxMenuPosition(clientX: number, clientY: number) {
 }
 
 function openContextMenu(e: MouseEvent) {
+  broadcastCloseContextMenus('player');
   if (ctxMenuCloseTimer) {
     clearTimeout(ctxMenuCloseTimer);
     ctxMenuCloseTimer = null;
@@ -1603,16 +1608,24 @@ function onModalMouseMove() {
   scheduleHide();
 }
 
+let offCloseMenus: (() => void) | null = null;
+
 onMounted(() => {
   loadVolume();
   nextTick(() => {
     applyVolumeToVideo();
   });
   document.addEventListener('keydown', onKeydown, true);
+  offCloseMenus = onCloseContextMenus((except) => {
+    if (except === 'player') return;
+    if (ctxMenu.value) closeCtxMenu();
+  });
 });
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown, true);
+  offCloseMenus?.();
+  offCloseMenus = null;
   unbindCtxMenuListeners();
   if (killClickThrough) {
     document.removeEventListener('click', killClickThrough, true);

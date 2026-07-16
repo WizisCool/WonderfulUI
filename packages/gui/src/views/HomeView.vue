@@ -144,6 +144,10 @@ import {
 } from '../utils/match-listbox.ts';
 import { firstMatchVideoPath } from '../utils/match-paths.ts';
 import { placeMenuNearCursor } from '../utils/context-menu.ts';
+import {
+  broadcastCloseContextMenus,
+  onCloseContextMenus,
+} from '../utils/context-menu-bus.ts';
 import { invoke } from '../tauri-adapter.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
@@ -358,6 +362,8 @@ let suppressClickUntil = 0;
 let killClickThrough: ((e: Event) => void) | null = null;
 
 function openCtxMenu(state: CtxMenuState) {
+  // Only one app context menu at a time (never stack list + detail menus).
+  broadcastCloseContextMenus('match-list');
   if (ctxMenuCloseTimer) {
     clearTimeout(ctxMenuCloseTimer);
     ctxMenuCloseTimer = null;
@@ -521,12 +527,20 @@ function onDocEscClearSelection(e: KeyboardEvent) {
   e.preventDefault();
 }
 
+let offCloseMenus: (() => void) | null = null;
+
 onMounted(() => {
   document.addEventListener('keydown', onDocEscClearSelection);
+  offCloseMenus = onCloseContextMenus((except) => {
+    if (except === 'match-list') return;
+    if (ctxMenu.value) closeCtxMenu();
+  });
 });
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onDocEscClearSelection);
+  offCloseMenus?.();
+  offCloseMenus = null;
   unbindCtxMenuListeners();
   cancelPendingDeselect();
   if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
