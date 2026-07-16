@@ -64,7 +64,10 @@ export function base64ToUint8Array(b64: string): Uint8Array {
 
 export function base64PngToBlob(b64: string): Blob {
   const bytes = base64ToUint8Array(b64);
-  return new Blob([bytes], { type: 'image/png' });
+  // Fresh ArrayBuffer-backed view: TS 5.x BlobPart rejects SharedArrayBuffer-like buffer.
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Blob([copy], { type: 'image/png' });
 }
 
 /** User-facing Chinese message for capture/clipboard failures. */
