@@ -471,12 +471,15 @@ fn handle_request(
             .headers()
             .iter()
             .find(|h| h.field.equiv("Host"))
-            .map(|h| h.value.as_str().to_string())
-            .unwrap_or_default();
+            .map(|h| h.value.as_str().to_string());
+        let detail = match host.as_deref() {
+            None | Some("") => "missing Host header".to_string(),
+            Some(h) => format!("possible DNS rebinding?: {h}"),
+        };
         crate::app_log::write(
             crate::app_log::LogLevel::Warn,
             "share",
-            format!("host rejected (possible DNS rebinding?): {host}"),
+            format!("host rejected ({detail})"),
         );
         let _ = req.respond(
             tiny_http::Response::from_string("forbidden")
@@ -498,7 +501,7 @@ fn handle_request(
         }
     };
     let mime = guess_mime(video_name);
-    let disposition = format!("attachment; filename=\"{}\"", video_name);
+    let disposition = content_disposition_attachment(video_name);
 
     let response = tiny_http::Response::from_file(file)
         .with_header(
@@ -561,6 +564,41 @@ fn guess_mime(name: &str) -> &'static str {
     else if lower.ends_with(".webm") { "video/webm" }
     else if lower.ends_with(".mkv") { "video/x-matroska" }
     else { "application/octet-stream" }
+}
+
+/// RFC 6266 / 5987 attachment header. ASCII `filename=` fallback + UTF-8
+/// `filename*=` so Chinese highlight names download correctly on browsers.
+fn content_disposition_attachment(filename: &str) -> String {
+    let ascii_fallback: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ') {
+                c
+            } else if c.is_ascii() && c != '"' && c != '\\' && c != ';' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let encoded = percent_encode_rfc5987(filename);
+    format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        ascii_fallback, encoded
+    )
+}
+
+fn percent_encode_rfc5987(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(*b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 pub fn stop_server(state: &ShareServerState) -> Result<(), String> {
@@ -647,6 +685,28 @@ mod tests {
         assert_eq!(guess_mime("clip.WebM"), "video/webm");
         assert_eq!(guess_mime("recording.MKV"), "video/x-matroska");
         assert_eq!(guess_mime("unknown.xyz"), "application/octet-stream");
+    }
+
+    #[test]
+    fn content_disposition_encodes_non_ascii_filename() {
+        let header = content_disposition_attachment("击杀集锦.mp4");
+        assert!(
+            header.contains("filename*=UTF-8''"),
+            "expected RFC 5987 filename*: {header}"
+        );
+        assert!(
+            header.contains("%E5%87%BB"),
+            "expected percent-encoded Chinese: {header}"
+        );
+        // ASCII fallback must stay quoted-string safe (no raw non-ascii quotes issues).
+        assert!(header.starts_with("attachment; filename=\""));
+    }
+
+    #[test]
+    fn content_disposition_keeps_ascii_filename() {
+        let header = content_disposition_attachment("clip.mp4");
+        assert!(header.contains("filename=\"clip.mp4\""));
+        assert!(header.contains("filename*=UTF-8''clip.mp4"));
     }
 
     #[test]
