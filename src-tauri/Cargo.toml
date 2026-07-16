@@ -50,12 +50,21 @@ base64 = "0.22"
 rusty-leveldb = "4"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# Re-encode MediaComposition thumbnails (often JPEG) to PNG for clipboard/save.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(windows)'.dependencies]
 # 与 tauri 2.0.1 锁定的 windows 0.61 同主版本，直接用 ShellExecuteW 走原生
 # "以默认程序打开" 通道，绕过 cmd /c 解析开销。
+# Media_Editing / Storage: backend video frame capture (GetThumbnailAsync).
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
+  "Foundation",
+  "Graphics_Imaging",
+  "Media_Editing",
+  "Media_MediaProperties",
+  "Storage",
+  "Storage_Streams",
 ] }

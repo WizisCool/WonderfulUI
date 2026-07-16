@@ -239,6 +239,7 @@ import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import {
   captureVideoFramePng,
+  base64PngToBlob,
   blobToUint8Array,
   defaultScreenshotName,
   formatCaptureError,
@@ -597,8 +598,22 @@ function updateSubmenuFlip() {
 async function captureCurrentFrame(): Promise<Blob> {
   const v = videoRef.value;
   if (!v) throw new Error('视频帧尚未就绪');
+  const path = videoPath.value?.trim();
+  const timeMs = Math.max(0, Math.floor((Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000));
+
+  // Preferred: OS decoder seek + rasterize (no canvas taint, no full-file blob).
+  if (path && typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+    try {
+      const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
+      if (b64?.length) return base64PngToBlob(b64);
+    } catch (e) {
+      // Fall through to canvas / blob clone for rare codec / WinRT failures.
+      console.warn('[screenshot] native capture failed, falling back', e);
+    }
+  }
+
   return captureVideoFramePng(v, {
-    filePath: videoPath.value || null,
+    filePath: path || null,
     convertFileSrc,
   });
 }

@@ -1,10 +1,9 @@
 /**
- * Capture the current decoded video frame as PNG (no player chrome).
+ * Capture helpers for the player screenshot menu.
  *
- * Playback uses Tauri asset protocol (progressive Range — do not hot-swap live
- * src to blob: or serve whole files via a custom scheme). Live drawImage from
- * asset.localhost taints canvas; on capture we lazily load a same-origin blob
- * clone (seek only after first read). Never prefetch on player open.
+ * Preferred path (Tauri): Rust `capture_video_frame` — Windows MediaComposition
+ * thumbnail at time_ms (OS decoder, no canvas, no whole-file blob).
+ * Browser-debug fallback: canvas drawImage / optional blob clone.
  */
 
 const WIN_ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/g;
@@ -338,6 +337,18 @@ export async function captureVideoFramePng(
 export async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   const buf = await blob.arrayBuffer();
   return new Uint8Array(buf);
+}
+
+/** Decode standard base64 (no data: prefix) to bytes. */
+export function base64ToUint8Array(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function base64PngToBlob(b64: string): Blob {
+  return new Blob([base64ToUint8Array(b64)], { type: 'image/png' });
 }
 
 /** User-facing Chinese message for capture/clipboard failures. */

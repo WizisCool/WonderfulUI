@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  base64ToUint8Array,
   defaultScreenshotName,
   formatCaptureError,
   formatTimeForFilename,
@@ -79,5 +80,13 @@ describe('export-safe src helpers', () => {
   test('releaseVideoBlobCache is idempotent', () => {
     releaseVideoBlobCache();
     releaseVideoBlobCache('D:\\nope.mp4');
+  });
+});
+
+describe('base64ToUint8Array', () => {
+  test('decodes standard base64', () => {
+    // "PNG" as base64
+    const bytes = base64ToUint8Array(btoa('PNG'));
+    expect(Array.from(bytes)).toEqual([80, 78, 71]);
   });
 });

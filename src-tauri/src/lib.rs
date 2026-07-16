@@ -1,4 +1,5 @@
 mod app_log;
+mod frame_capture;
 mod lan_ip;
 mod library;
 mod media_protocol;
@@ -44,6 +45,7 @@ pub fn run() {
         stop_share_server,
         share_server_status,
         log_event,
+        capture_video_frame,
     ]);
 
     #[cfg(feature = "updater")]
@@ -609,6 +611,19 @@ fn stop_share_server(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn share_server_status(app: tauri::AppHandle) -> share_server::ShareServerStatus {
     share_server::status(share_state(&app).inner())
+}
+
+/// Grab one PNG frame from a local video at `time_ms` via Windows Media APIs.
+/// Returns standard base64 (not data-URL). Runs blocking decode off the UI
+/// thread via `spawn_blocking` so the player shell stays responsive.
+#[tauri::command]
+async fn capture_video_frame(path: String, time_ms: u64) -> Result<String, String> {
+    let path = path;
+    tauri::async_runtime::spawn_blocking(move || {
+        frame_capture::capture_frame_png_base64(&path, time_ms)
+    })
+    .await
+    .map_err(|e| format!("截图任务失败: {}", e))?
 }
 
 /// 通用日志 command：让前端能写一行到 app_log（"share" tag 之类）。
