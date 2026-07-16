@@ -242,6 +242,9 @@ import {
   blobToUint8Array,
   defaultScreenshotName,
   formatCaptureError,
+  prefetchVideoBlob,
+  promoteVideoToBlobSrc,
+  releaseVideoBlobCache,
 } from '../../utils/capture-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
@@ -335,18 +338,48 @@ watch(() => player.isOpen, (open) => {
     lastBufferedPct.value = 0;
     seeked = false;
     framePanelOpen.value = false;
+    blobPromoteGen += 1;
+    // Warm blob cache while the asset:// source paints first frame (fast open).
+    nextTick(() => {
+      const path = player.video?.video_src;
+      if (path) prefetchVideoBlob(path, convertFileSrc);
+    });
     // Move focus into the dialog once Vue has rendered it.
     nextTick(() => {
       const focusables = getModalFocusables();
       const target = focusables[0] ?? modalRef.value;
       target?.focus();
     });
-  } else if (restoreFocusEl && document.contains(restoreFocusEl)) {
-    // Restore focus to the element that opened the player.
-    restoreFocusEl.focus();
-    restoreFocusEl = null;
+  } else {
+    releaseVideoBlobCache();
+    if (restoreFocusEl && document.contains(restoreFocusEl)) {
+      // Restore focus to the element that opened the player.
+      restoreFocusEl.focus();
+      restoreFocusEl = null;
+    }
   }
 });
+
+/** Bump to cancel in-flight promote when the open clip changes. */
+let blobPromoteGen = 0;
+
+/**
+ * After first canplay, swap asset:// → blob: so canvas screenshot is a single
+ * drawImage (ms). Prefetch runs in parallel; promote no-ops if still loading.
+ */
+async function tryPromoteBlobSrc() {
+  const v = videoRef.value;
+  const path = videoPath.value;
+  if (!v || !path) return;
+  const gen = blobPromoteGen;
+  try {
+    await promoteVideoToBlobSrc(v, path, convertFileSrc);
+    if (gen !== blobPromoteGen) return;
+    refreshFrameReady();
+  } catch {
+    /* keep asset:// playback; capture falls back to cached clone */
+  }
+}
 let seeked = false;
 let fps = 60;
 
@@ -864,8 +897,14 @@ function onCtxMenuKeydown(e: KeyboardEvent) {
 }
 
 // Close menu when the open video changes (seek context / next clip).
-watch(() => player.video?.video_id, () => {
+watch(() => player.video?.video_id, (id, prev) => {
   if (ctxMenu.value) closeCtxMenu();
+  if (id !== prev) {
+    blobPromoteGen += 1;
+    releaseVideoBlobCache();
+    const path = player.video?.video_src;
+    if (path && player.isOpen) prefetchVideoBlob(path, convertFileSrc);
+  }
 });
 
 function fmtTime(sec: number): string {
@@ -970,6 +1009,8 @@ watch(showFrameStepper, (show) => {
 
 function doClose() {
   stopFrameHold();
+  blobPromoteGen += 1;
+  releaseVideoBlobCache();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
     unbindCtxMenuListeners();
@@ -1194,6 +1235,8 @@ function onCanPlay() {
   if (transition.shouldPlay) {
     videoRef.value?.play().catch(() => {});
   }
+  // Background: same-origin blob hot-swap for ms-level screenshots.
+  void tryPromoteBlobSrc();
 }
 
 function onPlay() {
@@ -1422,6 +1465,8 @@ onUnmounted(() => {
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
+  blobPromoteGen += 1;
+  releaseVideoBlobCache();
 });
 </script>
 

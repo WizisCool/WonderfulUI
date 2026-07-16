@@ -3,7 +3,10 @@ import {
   defaultScreenshotName,
   formatCaptureError,
   formatTimeForFilename,
+  isBlobUrl,
   isCanvasTaintError,
+  isExportSafeVideoSrc,
+  releaseVideoBlobCache,
   sanitizeFileStem,
   videoStemFromPath,
 } from '../src/utils/capture-video-frame.ts';
@@ -62,5 +65,19 @@ describe('isCanvasTaintError / formatCaptureError', () => {
     const taint = new Error('Tainted canvases may not be exported.');
     expect(formatCaptureError(taint, 'save')).toBe('保存截图失败：无法导出当前帧');
     expect(formatCaptureError(taint, 'copy')).toBe('复制截图失败：无法导出当前帧');
+  });
+});
+
+describe('export-safe src helpers', () => {
+  test('blob and data URLs are export-safe', () => {
+    expect(isBlobUrl('blob:http://localhost/abc')).toBe(true);
+    expect(isExportSafeVideoSrc('blob:http://localhost/abc')).toBe(true);
+    expect(isExportSafeVideoSrc('data:video/mp4;base64,aa')).toBe(true);
+    expect(isExportSafeVideoSrc('https://asset.localhost/x')).toBe(false);
+  });
+
+  test('releaseVideoBlobCache is idempotent', () => {
+    releaseVideoBlobCache();
+    releaseVideoBlobCache('D:\\nope.mp4');
   });
 });
