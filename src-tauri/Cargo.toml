@@ -46,6 +46,8 @@ qrcode = "0.14"
 rand = "0.8"
 base64 = "0.22"
 rusty-leveldb = "4"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 
 [target.'cfg(windows)'.dependencies]
 # 与 tauri 2.0.1 锁定的 windows 0.61 同主版本，直接用 ShellExecuteW 走原生

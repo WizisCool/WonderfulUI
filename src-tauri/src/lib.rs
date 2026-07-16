@@ -51,6 +51,11 @@ pub fn run() {
     #[cfg(feature = "process")]
     let app = app.plugin(tauri_plugin_process::init());
 
+    // Screenshot save: native Save As + write user-chosen path.
+    let app = app
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init());
+
     app_log::write(app_log::LogLevel::Info, "app", "WonderfulUI starting");
 
     app.run(tauri::generate_context!())
