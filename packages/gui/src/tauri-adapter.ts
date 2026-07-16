@@ -441,17 +441,6 @@ export function convertFileSrc(path: string): string {
   return tauriConvertFileSrc(path);
 }
 
-/**
- * Local highlight video URL for the in-app player.
- * Uses the `wui-media` custom protocol (CORS + Range) so canvas screenshot
- * export works with `crossOrigin="anonymous"` without blob hot-swap.
- * Images / posters keep `convertFileSrc` (default asset protocol).
- */
-export function convertVideoSrc(path: string): string {
-  if (isBrowserDebugRuntime) return path;
-  return tauriConvertFileSrc(path, 'wui-media');
-}
-
 export async function listen<T>(event: string, handler: Listener<T>): Promise<UnlistenFn> {
   if (!isBrowserDebugRuntime) return tauriListen<T>(event, handler);
   const listeners = mockEventListeners.get(event) ?? new Set<Listener<unknown>>();

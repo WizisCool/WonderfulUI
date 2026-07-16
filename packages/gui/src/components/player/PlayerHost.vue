@@ -20,7 +20,6 @@
           ref="videoRef"
           class="player-video"
           preload="auto"
-          crossorigin="anonymous"
           :src="src"
           @loadedmetadata="onLoadedMeta"
           @canplay="onCanPlay"
@@ -235,7 +234,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { usePlayerStore } from '../../stores/player.ts';
 import { useUiStore } from '../../stores/ui.ts';
-import { invoke, convertFileSrc, convertVideoSrc } from '../../tauri-adapter.ts';
+import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
 import {
@@ -371,8 +370,9 @@ const LS_MUTED = 'wui:player.muted';
 
 const src = computed(() => {
   if (!player.video) return '';
-  // wui-media: progressive Range + CORS so live frame export does not taint canvas.
-  return convertVideoSrc(player.video.video_src);
+  // Built-in asset protocol streams with Range; do not use wui-media here —
+  // full-file buffering in a custom scheme freezes the UI on open.
+  return convertFileSrc(player.video.video_src);
 });
 
 const posterSrc = computed(() => {

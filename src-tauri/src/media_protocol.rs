@@ -155,7 +155,21 @@ fn error_response(status: StatusCode, msg: &str) -> Response<Vec<u8>> {
     res
 }
 
+/// Max body size per response. Uri scheme handlers buffer the full body in a
+/// `Vec` — serving multi‑MB ranges (or whole files) freezes the app. Cap chunks
+/// so clients re-request with further Range headers.
+pub const MAX_CHUNK_BYTES: u64 = 512 * 1024;
+
+/// Clamp an inclusive range so `end - start + 1 <= MAX_CHUNK_BYTES`.
+pub fn clamp_range_chunk(start: u64, end: u64) -> (u64, u64) {
+    let max_end = start.saturating_add(MAX_CHUNK_BYTES.saturating_sub(1));
+    (start, end.min(max_end))
+}
+
 /// Build the HTTP response for a `wui-media` request (runs off the UI thread).
+///
+/// Always serves at most [`MAX_CHUNK_BYTES`] per response (206 Partial Content)
+/// so large highlight files never get fully buffered in process memory.
 pub fn handle_request(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     if request.method() == Method::OPTIONS {
         return empty_response(StatusCode::NO_CONTENT);
@@ -179,62 +193,55 @@ pub fn handle_request(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let mime = guess_video_mime(&path);
     let is_head = request.method() == Method::HEAD;
 
+    if file_len == 0 {
+        return error_response(StatusCode::NOT_FOUND, "empty file");
+    }
+
     let range_hdr = request
         .headers()
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    if let Some(ref range_val) = range_hdr {
-        if let Some((start, end)) = parse_bytes_range(range_val, file_len) {
-            let len = end - start + 1;
-            let body = if is_head {
-                Vec::new()
-            } else {
-                match read_file_range(&path, start, len) {
-                    Ok(b) => b,
-                    Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read failed"),
+    // Prefer client Range; otherwise start at 0. Always clamp to MAX_CHUNK.
+    let (start, end) = if let Some(ref range_val) = range_hdr {
+        match parse_bytes_range(range_val, file_len) {
+            Some((s, e)) => clamp_range_chunk(s, e),
+            None => {
+                let mut res = Response::builder()
+                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::CONTENT_RANGE, format!("bytes */{}", file_len))
+                    .body(Vec::new())
+                    .expect("416 response");
+                for (k, v) in cors_headers().iter() {
+                    res.headers_mut().insert(k, v.clone());
                 }
-            };
-            let content_range = format!("bytes {}-{}/{}", start, end, file_len);
-            let mut res = Response::builder()
-                .status(StatusCode::PARTIAL_CONTENT)
-                .header(header::CONTENT_TYPE, mime)
-                .header(header::CONTENT_LENGTH, len.to_string())
-                .header(header::CONTENT_RANGE, content_range)
-                .body(body)
-                .expect("range response");
-            for (k, v) in cors_headers().iter() {
-                res.headers_mut().insert(k, v.clone());
+                return res;
             }
-            return res;
         }
-        // Unsatisfiable range
-        let mut res = Response::builder()
-            .status(StatusCode::RANGE_NOT_SATISFIABLE)
-            .header(header::CONTENT_RANGE, format!("bytes */{}", file_len))
-            .body(Vec::new())
-            .expect("416 response");
-        for (k, v) in cors_headers().iter() {
-            res.headers_mut().insert(k, v.clone());
-        }
-        return res;
-    }
+    } else {
+        clamp_range_chunk(0, file_len - 1)
+    };
 
+    let len = end - start + 1;
     let body = if is_head {
         Vec::new()
     } else {
-        match std::fs::read(&path) {
+        match read_file_range(&path, start, len) {
             Ok(b) => b,
             Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read failed"),
         }
     };
+    let content_range = format!("bytes {}-{}/{}", start, end, file_len);
+    // Always 206 so clients keep issuing Range requests instead of expecting
+    // a single full-body 200 that we refuse to buffer entirely.
     let mut res = Response::builder()
-        .status(StatusCode::OK)
+        .status(StatusCode::PARTIAL_CONTENT)
         .header(header::CONTENT_TYPE, mime)
-        .header(header::CONTENT_LENGTH, file_len.to_string())
+        .header(header::CONTENT_LENGTH, len.to_string())
+        .header(header::CONTENT_RANGE, content_range)
         .body(body)
-        .expect("full response");
+        .expect("chunk response");
     for (k, v) in cors_headers().iter() {
         res.headers_mut().insert(k, v.clone());
     }
@@ -281,5 +288,13 @@ mod tests {
     fn mime_from_extension() {
         assert_eq!(guess_video_mime(Path::new("a.mp4")), "video/mp4");
         assert_eq!(guess_video_mime(Path::new("a.WEBM")), "video/webm");
+    }
+
+    #[test]
+    fn clamp_range_caps_open_ended_to_chunk() {
+        let (s, e) = clamp_range_chunk(0, 50_000_000);
+        assert_eq!(s, 0);
+        assert_eq!(e, MAX_CHUNK_BYTES - 1);
+        assert_eq!(e - s + 1, MAX_CHUNK_BYTES);
     }
 }

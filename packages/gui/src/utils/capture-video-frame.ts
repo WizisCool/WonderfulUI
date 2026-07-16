@@ -1,10 +1,10 @@
 /**
  * Capture the current decoded video frame as PNG (no player chrome).
  *
- * Playback uses `wui-media` + `crossOrigin="anonymous"` so live `drawImage` is
- * CORS-clean (one draw + toBlob, ms-level). If the live element still taints
- * (legacy asset URL / browser debug), fall back to a same-origin blob clone.
- * Do not hot-swap the live player `src` — that kills first-play performance.
+ * Playback uses Tauri asset protocol (progressive Range — do not hot-swap live
+ * src to blob: or serve whole files via a custom scheme). Live drawImage from
+ * asset.localhost taints canvas; on capture we lazily load a same-origin blob
+ * clone (seek only after first read). Never prefetch on player open.
  */
 
 const WIN_ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/g;
