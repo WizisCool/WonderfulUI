@@ -12,6 +12,7 @@
 //! Production code never hard-codes maintainer openids or nicks.
 //! Read-only; never writes ACLOS / Riot / game paths.
 
+use crate::library::now_ms;
 use rusty_leveldb::{LdbIterator, Options, DB};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -217,13 +218,6 @@ fn copy_leveldb_to_temp(src: &Path) -> Result<PathBuf, std::io::Error> {
         }
     }
     Ok(tmp)
-}
-
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
 }
 
 /// Chromium Local Storage key: `_` + origin + `\0` + optional `\x01` + name.
@@ -451,10 +445,25 @@ fn tail_utf8_slice(bytes: &[u8], max_len: usize) -> &[u8] {
     &bytes[start..]
 }
 
+/// Single left-to-right pass over `text`. Formerly three full scans for clean /
+/// loose / masked openid patterns; same record rules and window sizes preserved.
 fn harvest_text(text: &str, idx: &mut AclosIdentityIndex) {
-    harvest_clean_full(text, idx);
-    harvest_loose_full(text, idx);
-    harvest_masked(text, idx);
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find("\"openid\"") {
+        let start = search_from + rel;
+        let window600 = str_window(text, start, 600);
+        let window400 = str_window(text, start, 400);
+        if let Some((oid, nick, tag)) = parse_openid_nick_tag(window600, true) {
+            record_exact(idx, &oid, Some(nick), tag, SCORE_LOG_CLEAN);
+        }
+        if let Some((oid, nick, tag)) = parse_openid_nick_optional_tag(window400) {
+            record_exact(idx, &oid, Some(nick), tag, SCORE_LOG_LOOSE);
+        }
+        if let Some((mask, nick, tag)) = parse_masked_openid_nick_tag(window600) {
+            record_mask(idx, &mask, Some(nick), tag, SCORE_LOG_MASK);
+        }
+        search_from = start + 8;
+    }
 }
 
 fn str_window(text: &str, start: usize, max_len: usize) -> &str {
@@ -463,42 +472,6 @@ fn str_window(text: &str, start: usize, max_len: usize) -> &str {
     }
     let end = text.floor_char_boundary((start + max_len).min(text.len()));
     &text[start..end]
-}
-
-fn harvest_clean_full(text: &str, idx: &mut AclosIdentityIndex) {
-    let mut search_from = 0;
-    while let Some(rel) = text[search_from..].find("\"openid\"") {
-        let start = search_from + rel;
-        let window = str_window(text, start, 600);
-        if let Some((oid, nick, tag)) = parse_openid_nick_tag(window, true) {
-            record_exact(idx, &oid, Some(nick), tag, SCORE_LOG_CLEAN);
-        }
-        search_from = start + 8;
-    }
-}
-
-fn harvest_loose_full(text: &str, idx: &mut AclosIdentityIndex) {
-    let mut search_from = 0;
-    while let Some(rel) = text[search_from..].find("\"openid\"") {
-        let start = search_from + rel;
-        let window = str_window(text, start, 400);
-        if let Some((oid, nick, tag)) = parse_openid_nick_optional_tag(window) {
-            record_exact(idx, &oid, Some(nick), tag, SCORE_LOG_LOOSE);
-        }
-        search_from = start + 8;
-    }
-}
-
-fn harvest_masked(text: &str, idx: &mut AclosIdentityIndex) {
-    let mut search_from = 0;
-    while let Some(rel) = text[search_from..].find("\"openid\"") {
-        let start = search_from + rel;
-        let window = str_window(text, start, 600);
-        if let Some((mask, nick, tag)) = parse_masked_openid_nick_tag(window) {
-            record_mask(idx, &mask, Some(nick), tag, SCORE_LOG_MASK);
-        }
-        search_from = start + 8;
-    }
 }
 
 fn parse_openid_nick_tag(
