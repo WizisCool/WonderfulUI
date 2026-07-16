@@ -167,7 +167,7 @@ describe('PlayerHost context menu', () => {
     expect(menu.classList.contains('is-closing')).toBe(false);
   });
 
-  test('menu includes share and system actions with menuitem roles', async () => {
+  test('menu includes share, system actions, screenshot flyout, and separators', async () => {
     const stage = wrapper.find('.player-stage');
     await stage.trigger('contextmenu', { clientX: 120, clientY: 80 });
     await nextTick();
@@ -179,7 +179,19 @@ describe('PlayerHost context menu', () => {
     expect(labels.some(t => t?.includes('系统播放器'))).toBe(true);
     expect(labels.some(t => t?.includes('资源管理器'))).toBe(true);
     expect(labels.some(t => t?.includes('复制视频路径'))).toBe(true);
+    expect(labels.some(t => t?.includes('截图'))).toBe(true);
     expect(labels.some(t => t?.includes('快传'))).toBe(true);
+    expect(menu?.querySelectorAll('[role="separator"]').length ?? 0).toBeGreaterThanOrEqual(2);
+
+    // Open screenshot flyout via hover parent.
+    const shotParent = Array.from(items).find(el => el.textContent?.includes('截图')) as HTMLElement | undefined;
+    expect(shotParent).toBeTruthy();
+    shotParent!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    await nextTick();
+    const flyLabels = Array.from(menu?.querySelectorAll('.player-context-flyout [role="menuitem"]') ?? [])
+      .map(el => el.textContent?.replace(/\s+/g, ' ').trim());
+    expect(flyLabels.some(t => t?.includes('复制到剪贴板'))).toBe(true);
+    expect(flyLabels.some(t => t?.includes('保存为 PNG'))).toBe(true);
   });
 
   test('Escape closes the menu without removing the player', async () => {

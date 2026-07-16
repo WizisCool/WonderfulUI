@@ -385,8 +385,11 @@ Loading overlay:
 Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 
 - Fixed-position `.player-context-menu`, **Teleported** to `document.fullscreenElement` when fullscreen, otherwise `body` (menu must not stay a sibling of the fullscreen modal — it would be invisible).
-- Items (icons via `WIcon`): 系统播放器 / 资源管理器 / 复制路径 / **快传**. Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard).
-- Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`).
+- Grouped with separators (no section titles): 系统播放器 · 资源管理器 / 复制路径 · **截图 ▸** · 快传.
+- **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel (flip left when overflowing). Esc closes flyout first, then root.
+- Screenshot capture: `utils/capture-video-frame.ts` draws only the `<video>` frame to PNG. Clipboard via `ClipboardItem`; save via `plugin-dialog` + `plugin-fs`. Disabled when `videoWidth/Height` is 0.
+- Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
+- Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
 - Close on: left mousedown outside, Escape (**menu first**, not the player), scroll, resize, fullscreenchange, video change, player close.
 - **Dismiss ≠ activate (click-through):** OS menus and major players treat the left-click that closes a context menu as dismiss-only. After outside `mousedown` closes the menu, arm a one-shot capture `click` killer + a short `suppressStageClickUntil` window so `.player-stage` does **not** `togglePlay` on that same gesture. Esc/scroll/resize closes do not need the guard.
 - **Animation**: `player-ctxmenu-in` 160 ms / `player-ctxmenu-out` 120 ms; `v-show` + `is-closing`; `animationend` filtered by `animationName === 'player-ctxmenu-out'`; 200 ms safety timeout.

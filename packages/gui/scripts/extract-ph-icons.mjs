@@ -27,6 +27,7 @@ const used = [
   'arrow-counter-clockwise',
   'warning',
   'film-strip',
+  'camera',
   'caret-left',
   'caret-right',
   'caret-down',

@@ -155,18 +155,66 @@
         @animationend="onCtxMenuAnimEnd"
         @keydown="onCtxMenuKeydown"
       >
-        <button
-          v-for="item in ctxMenuItems"
-          :key="item.id"
-          type="button"
-          role="menuitem"
-          class="player-context-item"
-          :disabled="item.disabled"
-          @click="item.action()"
-        >
-          <WIcon :icon="item.icon" :size="14" />
-          <span>{{ item.label }}</span>
-        </button>
+        <template v-for="(entry, idx) in ctxMenuEntries" :key="entry.kind === 'separator' ? `sep-${idx}` : entry.id">
+          <div
+            v-if="entry.kind === 'separator'"
+            class="player-context-sep"
+            role="separator"
+          />
+          <button
+            v-else-if="entry.kind === 'item'"
+            type="button"
+            role="menuitem"
+            class="player-context-item"
+            :disabled="entry.disabled"
+            @click="entry.action()"
+          >
+            <WIcon :icon="entry.icon" :size="14" />
+            <span>{{ entry.label }}</span>
+          </button>
+          <div
+            v-else
+            class="player-context-sub"
+            :class="{ 'is-open': openSubmenuId === entry.id, 'is-flip': submenuFlipLeft }"
+            @mouseenter="openSubmenu(entry.id)"
+            @focusin="openSubmenu(entry.id)"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="player-context-item player-context-item-parent"
+              :disabled="entry.disabled"
+              :aria-haspopup="true"
+              :aria-expanded="openSubmenuId === entry.id"
+              @click.stop="toggleSubmenu(entry.id)"
+              @keydown.right.prevent="openSubmenu(entry.id)"
+            >
+              <WIcon :icon="entry.icon" :size="14" />
+              <span class="player-context-item-label">{{ entry.label }}</span>
+              <WIcon icon="ph:caret-right" :size="12" class="player-context-chevron" />
+            </button>
+            <div
+              v-show="openSubmenuId === entry.id"
+              class="player-context-flyout"
+              role="menu"
+              :aria-label="entry.label"
+              @keydown.left.prevent="closeSubmenu()"
+            >
+              <button
+                v-for="child in entry.children"
+                :key="child.id"
+                type="button"
+                role="menuitem"
+                class="player-context-item"
+                :disabled="child.disabled || entry.disabled"
+                @click="child.action()"
+              >
+                <WIcon :icon="child.icon" :size="14" />
+                <span>{{ child.label }}</span>
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </Teleport>
 
@@ -187,6 +235,12 @@ import { useUiStore } from '../../stores/ui.ts';
 import { invoke, convertFileSrc } from '../../tauri-adapter.ts';
 import { clampSeekMsForDuration } from '../../utils/event-time.ts';
 import { placeMenuNearCursor } from '../../utils/context-menu.ts';
+import {
+  captureVideoFramePng,
+  blobToUint8Array,
+  defaultScreenshotName,
+  CaptureFrameError,
+} from '../../utils/capture-video-frame.ts';
 import { type PlayerState, type BufferingMode, BUFFERING_DEBOUNCE_MS, SEEK_WINDOW_MS, canPlayTransition, deriveUI } from '../../utils/player-state.ts';
 import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
@@ -365,19 +419,42 @@ const ctxMenuStyle = computed(() => ({
   top: `${ctxMenuY.value}px`,
 }));
 
-interface CtxMenuItem {
+interface CtxMenuAction {
   id: string;
   label: string;
   icon: string;
   disabled?: boolean;
-  action: () => void;
+  action: () => void | Promise<void>;
 }
 
-const ctxMenuItems = computed((): CtxMenuItem[] => {
+type CtxMenuEntry =
+  | { kind: 'separator' }
+  | ({ kind: 'item' } & CtxMenuAction)
+  | {
+      kind: 'submenu';
+      id: string;
+      label: string;
+      icon: string;
+      disabled?: boolean;
+      children: CtxMenuAction[];
+    };
+
+const openSubmenuId = ref<string | null>(null);
+const submenuFlipLeft = ref(false);
+let screenshotBusy = false;
+
+const canCaptureFrame = computed(() => {
+  const v = videoRef.value;
+  return !!(v && v.videoWidth > 0 && v.videoHeight > 0);
+});
+
+const ctxMenuEntries = computed((): CtxMenuEntry[] => {
   const path = videoPath.value;
   const missing = !path;
+  const noFrame = !canCaptureFrame.value;
   return [
     {
+      kind: 'item',
       id: 'system-player',
       label: '在系统播放器中打开',
       icon: 'ph:monitor-play',
@@ -392,7 +469,9 @@ const ctxMenuItems = computed((): CtxMenuItem[] => {
           });
       },
     },
+    { kind: 'separator' },
     {
+      kind: 'item',
       id: 'explorer',
       label: '在资源管理器中打开',
       icon: 'ph:folder-open',
@@ -408,6 +487,7 @@ const ctxMenuItems = computed((): CtxMenuItem[] => {
       },
     },
     {
+      kind: 'item',
       id: 'copy-path',
       label: '复制视频路径',
       icon: 'ph:copy',
@@ -425,7 +505,33 @@ const ctxMenuItems = computed((): CtxMenuItem[] => {
           });
       },
     },
+    { kind: 'separator' },
     {
+      kind: 'submenu',
+      id: 'screenshot',
+      label: '截图',
+      icon: 'ph:camera',
+      disabled: noFrame,
+      children: [
+        {
+          id: 'shot-copy',
+          label: '复制到剪贴板',
+          icon: 'ph:copy',
+          disabled: noFrame,
+          action: () => void copyScreenshot(),
+        },
+        {
+          id: 'shot-save',
+          label: '保存为 PNG…',
+          icon: 'ph:download-simple',
+          disabled: noFrame,
+          action: () => void saveScreenshot(),
+        },
+      ],
+    },
+    { kind: 'separator' },
+    {
+      kind: 'item',
       id: 'share',
       label: '快传',
       icon: SHARE_ICON,
@@ -437,6 +543,85 @@ const ctxMenuItems = computed((): CtxMenuItem[] => {
     },
   ];
 });
+
+function openSubmenu(id: string) {
+  openSubmenuId.value = id;
+  nextTick(() => updateSubmenuFlip());
+}
+
+function closeSubmenu() {
+  openSubmenuId.value = null;
+  submenuFlipLeft.value = false;
+}
+
+function toggleSubmenu(id: string) {
+  if (openSubmenuId.value === id) closeSubmenu();
+  else openSubmenu(id);
+}
+
+function updateSubmenuFlip() {
+  const root = ctxMenuRef.value;
+  if (!root || !openSubmenuId.value) return;
+  const fly = root.querySelector('.player-context-flyout') as HTMLElement | null;
+  if (!fly) return;
+  const parent = fly.closest('.player-context-sub') as HTMLElement | null;
+  if (!parent) return;
+  const pr = parent.getBoundingClientRect();
+  const fw = fly.offsetWidth || 160;
+  submenuFlipLeft.value = pr.right + 2 + fw > window.innerWidth - 8;
+}
+
+async function captureCurrentFrame(): Promise<Blob> {
+  const v = videoRef.value;
+  if (!v) throw new CaptureFrameError('视频帧尚未就绪');
+  return captureVideoFramePng(v);
+}
+
+async function copyScreenshot() {
+  if (screenshotBusy) return;
+  screenshotBusy = true;
+  closeCtxMenu();
+  try {
+    const blob = await captureCurrentFrame();
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
+      throw new Error('当前环境不支持复制图片');
+    }
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    ui.showToast('已复制截图');
+  } catch (e) {
+    const msg = e instanceof CaptureFrameError ? e.message
+      : e instanceof Error ? e.message : String(e);
+    ui.showToast(msg.includes('截') || msg.includes('复制') ? msg : `复制截图失败: ${msg}`, 'error');
+  } finally {
+    screenshotBusy = false;
+  }
+}
+
+async function saveScreenshot() {
+  if (screenshotBusy) return;
+  screenshotBusy = true;
+  closeCtxMenu();
+  try {
+    const blob = await captureCurrentFrame();
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeFile } = await import('@tauri-apps/plugin-fs');
+    const name = defaultScreenshotName(videoPath.value, currentTime.value);
+    const path = await save({
+      defaultPath: name,
+      filters: [{ name: 'PNG', extensions: ['png'] }],
+    });
+    if (!path) return;
+    const bytes = await blobToUint8Array(blob);
+    await writeFile(path, bytes);
+    ui.showToast('已保存');
+  } catch (e) {
+    const msg = e instanceof CaptureFrameError ? e.message
+      : e instanceof Error ? e.message : String(e);
+    ui.showToast(msg.includes('截') || msg.includes('保存') ? msg : `保存截图失败: ${msg}`, 'error');
+  } finally {
+    screenshotBusy = false;
+  }
+}
 
 function syncCtxMenuTeleport() {
   const fs = document.fullscreenElement;
@@ -485,6 +670,7 @@ function openContextMenu(e: MouseEvent) {
     ctxMenuCloseTimer = null;
   }
   ctxMenuClosing.value = false;
+  closeSubmenu();
   syncCtxMenuTeleport();
   // Seed position immediately; refine after layout with real menu size.
   ctxMenuX.value = e.clientX;
@@ -496,7 +682,7 @@ function openContextMenu(e: MouseEvent) {
     // Focus first enabled item for keyboard users (best-effort in tests/DOM).
     try {
       const first = ctxMenuRef.value?.querySelector<HTMLElement>(
-        '[role="menuitem"]:not([disabled])',
+        ':scope > .player-context-item:not([disabled]), :scope > .player-context-sub > .player-context-item:not([disabled])',
       );
       first?.focus({ preventScroll: true });
     } catch {
@@ -509,6 +695,7 @@ function closeCtxMenu(opts: { swallowClickThrough?: boolean } = {}) {
   if (!ctxMenu.value && !ctxMenuClosing.value) return;
   if (!ctxMenu.value) return;
   if (opts.swallowClickThrough) armClickThroughGuard();
+  closeSubmenu();
   ctxMenuClosing.value = true;
   if (ctxMenuCloseTimer) clearTimeout(ctxMenuCloseTimer);
   ctxMenuCloseTimer = setTimeout(() => {
@@ -581,6 +768,11 @@ function onCtxMenuEsc(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
   e.preventDefault();
   e.stopPropagation();
+  // Submenu first, then root (native menu pattern).
+  if (openSubmenuId.value) {
+    closeSubmenu();
+    return;
+  }
   closeCtxMenu();
 }
 
@@ -596,9 +788,20 @@ function onCtxMenuFullscreenChange() {
 }
 
 function onCtxMenuKeydown(e: KeyboardEvent) {
-  const items = Array.from(
-    ctxMenuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [],
-  );
+  const root = ctxMenuRef.value;
+  if (!root) return;
+  const inFlyout = !!(document.activeElement instanceof HTMLElement
+    && document.activeElement.closest('.player-context-flyout'));
+  const scope = inFlyout
+    ? root.querySelector('.player-context-flyout')
+    : root;
+  if (!scope) return;
+  // Root: only direct row items (not flyout children). Flyout: its menuitems.
+  const items = inFlyout
+    ? Array.from(scope.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]:not([disabled])'))
+    : Array.from(root.querySelectorAll<HTMLElement>(
+      ':scope > .player-context-item:not([disabled]), :scope > .player-context-sub > .player-context-item:not([disabled])',
+    ));
   if (items.length === 0) return;
   const active = document.activeElement as HTMLElement | null;
   const idx = items.findIndex(el => el === active);
@@ -616,6 +819,24 @@ function onCtxMenuKeydown(e: KeyboardEvent) {
   } else if (e.key === 'End') {
     e.preventDefault();
     items[items.length - 1]!.focus();
+  } else if (e.key === 'ArrowRight' && !inFlyout) {
+    const parent = active?.closest('.player-context-sub');
+    if (parent && !active?.hasAttribute('disabled')) {
+      e.preventDefault();
+      const id = openSubmenuId.value ?? 'screenshot';
+      openSubmenu(id);
+      nextTick(() => {
+        const first = root.querySelector<HTMLElement>(
+          '.player-context-flyout > [role="menuitem"]:not([disabled])',
+        );
+        first?.focus({ preventScroll: true });
+      });
+    }
+  } else if (e.key === 'ArrowLeft' && inFlyout) {
+    e.preventDefault();
+    closeSubmenu();
+    const parentBtn = root.querySelector<HTMLElement>('.player-context-item-parent');
+    parentBtn?.focus({ preventScroll: true });
   }
 }
 
@@ -1494,6 +1715,11 @@ onUnmounted(() => {
   from { opacity: 1; transform: scale(1); }
   to   { opacity: 0; transform: scale(0.97); }
 }
+.player-context-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-soft);
+}
 .player-context-item {
   display: flex;
   align-items: center;
@@ -1511,6 +1737,15 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 80ms ease-out, color 80ms ease-out;
 }
+.player-context-item-label {
+  flex: 1;
+  min-width: 0;
+}
+.player-context-chevron {
+  margin-left: auto;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
 .player-context-item:hover:not(:disabled),
 .player-context-item:focus-visible:not(:disabled) {
   background: var(--surface-3);
@@ -1520,5 +1755,28 @@ onUnmounted(() => {
 .player-context-item:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.player-context-sub {
+  position: relative;
+}
+.player-context-sub.is-open > .player-context-item-parent {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.player-context-flyout {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 2px);
+  z-index: 1;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px oklch(0 0 0 / 0.35);
+}
+.player-context-sub.is-flip .player-context-flyout {
+  left: auto;
+  right: calc(100% + 2px);
 }
 </style>
