@@ -8,9 +8,13 @@ use crate::parser::model::{MatchRecord, SnapshotAchievement};
 use rayon::prelude::*;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use uuid::Uuid;
+
+/// Serialize scrapes so startup background scan and manual full/incremental
+/// scrapes never interleave SQLite writes.
+static SCRAPE_LOCK: Mutex<()> = Mutex::new(());
 
 const ACLOS_SOURCE_ID: &str = "aclos_wonderfuldb";
 
@@ -363,6 +367,12 @@ fn file_mtime_ms(path: &str) -> Option<i64> {
 }
 
 fn upsert_videos(conn: &Connection, m: &MatchRecord, now: i64) -> rusqlite::Result<usize> {
+    // Replace the match video set (same pattern as events): drop stale rows first
+    // so stats/`videos` no longer retain highlights ACLOS removed from the match.
+    conn.execute(
+        "DELETE FROM videos WHERE match_id = ?1 AND source_id = ?2",
+        params![m.matches_id.as_str(), ACLOS_SOURCE_ID],
+    )?;
     let mut count = 0;
     for v in &m.videos {
         let exists = std::path::Path::new(&v.video_src).exists();
@@ -373,22 +383,7 @@ fn upsert_videos(conn: &Connection, m: &MatchRecord, now: i64) -> rusqlite::Resu
                 poster_path, duration_ms, fps, resolution, size_bytes, mtime_ms,
                 video_hash, cover_hash, exists_on_disk, last_seen_at
              )
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-             ON CONFLICT(source_id, source_video_id) DO UPDATE SET
-                match_id = excluded.match_id,
-                video_type = excluded.video_type,
-                name = excluded.name,
-                path = excluded.path,
-                poster_path = excluded.poster_path,
-                duration_ms = excluded.duration_ms,
-                fps = excluded.fps,
-                resolution = excluded.resolution,
-                size_bytes = excluded.size_bytes,
-                mtime_ms = excluded.mtime_ms,
-                video_hash = excluded.video_hash,
-                cover_hash = excluded.cover_hash,
-                exists_on_disk = excluded.exists_on_disk,
-                last_seen_at = excluded.last_seen_at",
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 v.video_id,
                 m.matches_id,
@@ -476,6 +471,9 @@ pub fn scrape_wonderful_dir_with_mode(
     mode: ScrapeMode,
     app: Option<&tauri::AppHandle>,
 ) -> Result<ScrapeSummary, String> {
+    let _scrape_guard = SCRAPE_LOCK
+        .lock()
+        .map_err(|e| format!("scrape lock poisoned: {e}"))?;
     let start_ms = now_ms();
     let now = start_ms;
 
@@ -1114,5 +1112,61 @@ mod tests {
         assert!(err.contains("read_dir"), "{err}");
         assert_eq!(status, "failed");
         assert!(message.contains("read_dir"), "{message}");
+    }
+
+    #[test]
+    fn upsert_videos_removes_orphan_rows_for_match() {
+        use crate::parser::model::{MatchRecord, VideoItem};
+
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+
+        // Stale video no longer present in the match payload.
+        conn.execute(
+            "INSERT INTO videos(
+                id, match_id, source_id, source_video_id, video_type, name, path,
+                duration_ms, fps, size_bytes, exists_on_disk, last_seen_at
+             )
+             VALUES('old-v', 'match-1', ?1, 'old-v', '击杀集锦', 'old', 'Z:\\old.mp4',
+                    1000, 60, 1, 0, 1)",
+            params![ACLOS_SOURCE_ID],
+        )
+        .expect("seed orphan video");
+
+        let m = MatchRecord {
+            matches_id: "match-1".into(),
+            videos: vec![VideoItem {
+                video_id: "new-v".into(),
+                video_type: "击杀集锦".into(),
+                video_name: "new".into(),
+                video_src: "Z:\\new.mp4".into(),
+                video_duration: 2000,
+                video_fps: 60,
+                video_size: 2,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let n = upsert_videos(&conn, &m, now_ms()).expect("upsert videos");
+        assert_eq!(n, 1);
+
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM videos WHERE match_id = 'match-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count videos");
+        assert_eq!(rows, 1);
+
+        let kept: String = conn
+            .query_row(
+                "SELECT source_video_id FROM videos WHERE match_id = 'match-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("kept id");
+        assert_eq!(kept, "new-v");
     }
 }
