@@ -1,6 +1,6 @@
 {
   "$schema": "https://example.com/wonderful-ui/versions.schema.json",
-  "current": "0.1.8",
+  "current": "0.1.9",
   "min_supported": "0.1.0",
   "releases": {
     "v0.1.0": {
@@ -103,6 +103,18 @@
       "tag": "v0.1.8",
       "date": "2026-07-16",
       "notes": "- 更新：启动发现新版本自动弹窗；支持「稍后 / 更新 / 跳过此版本」；设置齿轮不再被更新红点劫持\n- 关于：GitHub / GPL-3.0 图标；外链经系统浏览器打开（GPL 指向 choosealicense）\n- 全量扫描：修复进度条卡在「准备中」后直接完成（保留 scrape 事件监听）\n- 桌面习惯：屏蔽 WebView 原生右键；F12 开发者工具可用；Ctrl+W/Q/F/, 与 F5 刷新等快捷键；关层复用 × 动画\n- 对局列表：右键选中并「打开对局文件夹」；空白处扫描；再点取消选中；Esc 清空选中；双击只进详情\n- 详情栏：双击视频播放；右键「在资源管理器中打开」该文件\n- 右键菜单：列表 / 详情 / 播放器全局互斥，同时只显示一个\n- 播放器：截图（复制/保存）、逐帧增强、进度条与 tooltip 稳定性修复",
+      "min_supported_version": "0.1.0",
+      "assets": {
+        "windows-x86_64": {
+          "url": "",
+          "signature": ""
+        }
+      }
+    },
+    "v0.1.9": {
+      "tag": "v0.1.9",
+      "date": "2026-07-17",
+      "notes": "- 播放器：击杀/死亡集锦进度条事件时间分桶合并，避免标记 stem 叠满画面\n- 发版 CI：validate 与 build 并行，缩短 Release 耗时\n- 同步 Cargo.lock 与应用版本号",
       "min_supported_version": "0.1.0",
       "assets": {
         "windows-x86_64": {
