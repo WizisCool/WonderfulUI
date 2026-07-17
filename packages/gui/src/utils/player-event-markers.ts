@@ -4,6 +4,11 @@ export interface EventMarkerInput {
   isHeadshot: boolean;
 }
 
+/** Marker after time-bucketing (count ≥ 1). */
+export type BucketedEventMarker<T extends EventMarkerInput = EventMarkerInput> = T & {
+  count: number;
+};
+
 export type EventMarkerLane = 'upper' | 'lower';
 export type EventMarkerDisplayMode = 'full' | 'compact';
 export type EventMarkerPlacement = 'top' | 'bottom';
@@ -27,10 +32,20 @@ export interface EventMarkerLayoutOptions {
   trackHeightPx?: number;
 }
 
+export interface BucketOptions {
+  trackWidthPx?: number;
+  /** Floor for bucket width in ms (default 500). */
+  minBucketMs?: number;
+}
+
 const MARKER_WIDTH_PX = 20;
 const MARKER_GAP_PX = 4;
 const DEFAULT_TRACK_WIDTH_PX = 640;
 const STACK_STEP_PX = 8;
+/** Hard cap so stems never climb through the video frame. */
+export const MAX_STACK = 2;
+/** Minimum time window for merging dense kill/death montage markers. */
+export const MIN_BUCKET_MS = 500;
 const UPPER_TOP_PX = -32;
 const LOWER_TOP_PX = -26;
 const FULL_MARKER_HEIGHT_PX = 24;
@@ -64,6 +79,86 @@ export function effectiveMarkerDurationMs<T extends EventMarkerInput>(
   return Math.max(maxMarkerMs, mediaDurationMs, declaredDurationMs);
 }
 
+/**
+ * Bucket width in ms: at least minBucketMs, and at least the time span of one
+ * marker footprint on the track (so dots that would stack are merged first).
+ */
+export function bucketWidthMs(
+  durationMs: number,
+  options: BucketOptions = {},
+): number {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return options.minBucketMs ?? MIN_BUCKET_MS;
+  }
+  const width = Number.isFinite(options.trackWidthPx) && options.trackWidthPx && options.trackWidthPx > 0
+    ? options.trackWidthPx
+    : DEFAULT_TRACK_WIDTH_PX;
+  const gapMs = durationMs * ((MARKER_WIDTH_PX + MARKER_GAP_PX) / width);
+  const min = options.minBucketMs ?? MIN_BUCKET_MS;
+  return Math.max(min, Math.round(gapMs));
+}
+
+/**
+ * Merge nearby markers into time buckets so dense kill montages do not
+ * stack stems into the video frame. Seek time = earliest member in the bucket.
+ */
+export function bucketEventMarkers<T extends EventMarkerInput>(
+  markers: T[],
+  durationMs: number,
+  options: BucketOptions = {},
+): BucketedEventMarker<T>[] {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return [];
+  const bucketMs = bucketWidthMs(durationMs, options);
+  const sorted = markers
+    .filter(m => Number.isFinite(m.timeMs) && m.timeMs >= 0)
+    .map(m => ({
+      ...m,
+      timeMs: Math.min(durationMs, m.timeMs),
+    }))
+    .sort((a, b) => a.timeMs - b.timeMs || a.type.localeCompare(b.type));
+
+  if (sorted.length === 0) return [];
+
+  const groups = new Map<number, T[]>();
+  for (const m of sorted) {
+    const key = Math.floor(m.timeMs / bucketMs);
+    const list = groups.get(key);
+    if (list) list.push(m);
+    else groups.set(key, [m]);
+  }
+
+  const out: BucketedEventMarker<T>[] = [];
+  const keys = [...groups.keys()].sort((a, b) => a - b);
+  for (const key of keys) {
+    const members = groups.get(key)!;
+    out.push(mergeBucketMembers(members));
+  }
+  return out;
+}
+
+function mergeBucketMembers<T extends EventMarkerInput>(members: T[]): BucketedEventMarker<T> {
+  const first = members[0]!;
+  const types = new Set(members.map(m => m.type));
+  let type = first.type;
+  if (types.size > 1) {
+    // Prefer kill for mixed (upper lane); pure death stays death.
+    type = types.has('kill') && types.has('death')
+      ? 'mixed'
+      : types.has('kill')
+        ? 'kill'
+        : types.has('death')
+          ? 'death'
+          : first.type;
+  }
+  return {
+    ...first,
+    timeMs: Math.min(...members.map(m => m.timeMs)),
+    type,
+    isHeadshot: members.some(m => m.isHeadshot),
+    count: members.length,
+  };
+}
+
 export function layoutEventMarkers<T extends EventMarkerInput>(
   markers: T[],
   durationMs: number,
@@ -84,7 +179,8 @@ export function layoutEventMarkers<T extends EventMarkerInput>(
 
   return validMarkers.map(marker => {
     const leftPct = roundPct(timeToPct(marker.timeMs, durationMs));
-    const lane = marker.type === 'kill' ? 'upper' as const : 'lower' as const;
+    // death → lower lane; kill / mixed / other → upper
+    const lane = marker.type === 'death' ? 'lower' as const : 'upper' as const;
     const stackLevel = nextStackLevel(layouts, leftPct, minGapPct);
     const displayMode = 'compact' as const;
     const topPx = placement === 'top'
@@ -129,7 +225,8 @@ function nextStackLevel<T extends EventMarkerInput>(
 ): number {
   const colliding = layouts.filter(layout => Math.abs(leftPct - layout.leftPct) < minGapPct);
   if (colliding.length === 0) return 0;
-  return Math.max(...colliding.map(layout => layout.stackLevel)) + 1;
+  const next = Math.max(...colliding.map(layout => layout.stackLevel)) + 1;
+  return Math.min(MAX_STACK, next);
 }
 
 function laneTopPx(lane: EventMarkerLane): number {

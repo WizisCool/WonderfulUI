@@ -1,5 +1,12 @@
 import { ref, watch, type Ref } from 'vue';
-import { layoutEventMarkers, renderCanvasMarkers, CANVAS_MARKER_THRESHOLD, type EventMarkerLayout } from '../utils/player-event-markers.ts';
+import {
+  bucketEventMarkers,
+  layoutEventMarkers,
+  renderCanvasMarkers,
+  CANVAS_MARKER_THRESHOLD,
+  type EventMarkerLayout,
+  type BucketedEventMarker,
+} from '../utils/player-event-markers.ts';
 import { eventMarkersForVideo, type EventMarker } from '../utils/match-events.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 
@@ -8,8 +15,9 @@ export function useEventMarkers(
   match: Ref<MatchRecord | null>,
   canvasRef: Ref<HTMLCanvasElement | null>,
 ) {
+  /** Raw per-event markers (pre-bucket). */
   const markers = ref<EventMarker[]>([]);
-  const layouts = ref<EventMarkerLayout[]>([]);
+  const layouts = ref<EventMarkerLayout<BucketedEventMarker<EventMarker>>[]>([]);
   const useCanvas = ref(false);
 
   function recompute() {
@@ -22,9 +30,14 @@ export function useEventMarkers(
     useCanvas.value = markers.value.length > CANVAS_MARKER_THRESHOLD;
   }
 
-  function renderLayouts(width: number) {
-    if (markers.value.length === 0) { layouts.value = []; return; }
-    layouts.value = layoutEventMarkers(markers.value, width);
+  /** `durationMs` = media duration in ms; optional track width for density. */
+  function renderLayouts(durationMs: number, trackWidthPx?: number) {
+    if (markers.value.length === 0) {
+      layouts.value = [];
+      return;
+    }
+    const bucketed = bucketEventMarkers(markers.value, durationMs, { trackWidthPx });
+    layouts.value = layoutEventMarkers(bucketed, durationMs, { trackWidthPx });
   }
 
   function drawCanvas() {

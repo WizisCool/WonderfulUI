@@ -103,15 +103,21 @@ const thumbStyle = computed(() => ({
   transform: 'translate(-50%, -50%)',
 }));
 
+function layoutForTrack() {
+  if (props.duration <= 0) return;
+  const w = trackRef.value?.getBoundingClientRect().width;
+  renderLayouts(props.duration * 1000, w && w > 0 ? w : undefined);
+}
+
 watch(() => props.duration, () => {
-  if (props.duration > 0) renderLayouts(props.duration * 1000);
+  layoutForTrack();
   nextTick(() => drawCanvas());
 });
 
 watch(layouts, () => nextTick(() => drawCanvas()));
 watch(() => props.video, () => {
   recompute();
-  if (props.duration > 0) renderLayouts(props.duration * 1000);
+  layoutForTrack();
   nextTick(() => drawCanvas());
 });
 
@@ -174,11 +180,14 @@ function onSliderKeydown(e: KeyboardEvent) {
 
 function markerClasses(layout: EventMarkerLayout<EventMarker>): Record<string, boolean> {
   const toneLabel = layout.marker.type === 'death' ? 'death'
+    : layout.marker.type === 'mixed' ? 'mixed'
     : layout.isHeadshot ? 'headshot' : 'attack';
+  const count = (layout.marker as EventMarker & { count?: number }).count ?? 1;
   return {
     [`lane-${layout.lane}`]: true,
     [`tone-${toneLabel}`]: true,
     'is-compact': layout.displayMode === 'compact',
+    'is-cluster': count > 1,
     headshot: layout.isHeadshot,
   };
 }
@@ -192,9 +201,14 @@ function markerStyle(layout: EventMarkerLayout<EventMarker>): Record<string, str
 }
 
 function markerTip(layout: EventMarkerLayout<EventMarker>): string {
-  const m = layout.marker;
-  const isKill = m.type === 'kill';
+  const m = layout.marker as EventMarker & { count?: number };
+  const count = m.count ?? 1;
   const timeFmt = fmtMs(m.timeMs);
+  if (count > 1) {
+    const kind = m.type === 'death' ? '阵亡' : m.type === 'mixed' ? '事件' : '击杀';
+    return `${kind} ×${count} · ${timeFmt}`;
+  }
+  const isKill = m.type === 'kill';
   return `${isKill ? '击杀' : '阵亡'}${m.playerName ? ` ${m.playerName}` : ''}${m.isHeadshot ? ' · 爆头' : ''} · ${timeFmt}`;
 }
 
@@ -398,6 +412,14 @@ defineExpose({
 .player-event-marker.is-compact.headshot::after {
   outline: 1px solid color-mix(in oklch, var(--event-marker-color), transparent 32%);
   outline-offset: 1px;
+}
+.player-event-marker.is-cluster {
+  --event-marker-dot-size: 9px;
+  --event-marker-dot-radius: 4.5px;
+  opacity: 0.92;
+}
+.player-event-marker.tone-mixed {
+  --event-marker-color: var(--ink-2);
 }
 .player-event-marker:hover,
 .player-event-marker:focus-visible {

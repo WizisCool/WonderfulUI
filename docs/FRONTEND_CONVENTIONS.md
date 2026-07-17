@@ -497,7 +497,12 @@ Progress-bar markers:
   timelines readable while preserving the clickable target and tooltip.
 - Marker stems must visually connect the dot to the progress track: slight
   overlap under the dot, tip stops at the track top edge (no cut into the
-  4px fill). When markers collide, later ones stack upward and lengthen stems.
+  4px fill).
+- **Density (kill/death montages):** `bucketEventMarkers` merges nearby events
+  into time buckets (`MIN_BUCKET_MS` + track-footprint width) before layout.
+  Merged markers expose `count`; tooltip shows `击杀 ×N · m:ss`. Seek uses the
+  earliest time in the bucket. Residual collisions stack at most `MAX_STACK`
+  (2) so stems never climb through the video frame.
 
 The list modal **stays open** behind the player (player z-index 1200 >
 list 1100). When the player closes, the list re-appears in its original
