@@ -45,6 +45,7 @@ import WIcon from '../common/WIcon.vue';
 import EventRow from './EventRow.vue';
 import type { NormalizedMatchEvent } from '../../utils/match-events.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
 
 const props = defineProps<{
   events: NormalizedMatchEvent[];
@@ -71,8 +72,9 @@ function onPlayEvent(video: VideoItem, seekMs: number) {
 
 // Escape key
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && ownsTopModalLayer('event')) {
     e.preventDefault();
+    e.stopPropagation();
     close();
   }
 }

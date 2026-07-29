@@ -287,6 +287,7 @@ import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
 import { SHARE_ICON } from '../../share/icons.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
 
 const player = usePlayerStore();
 const ui = useUiStore();
@@ -1491,6 +1492,10 @@ function onKeydown(e: KeyboardEvent) {
   // AGENTS.md: only handle keys while the player is actually open; otherwise
   // a stale listener can swallow events from the underlying app.
   if (!player.isOpen) return;
+  // This listener is mounted before later settings/update/share dialogs.
+  // Registration order must not let hidden player hotkeys reach through a
+  // visually higher modal.
+  if (!ownsTopModalLayer('player')) return;
   // Context menu owns Escape / arrows while open (stopPropagation on its
   // capture listener). Still early-return here as a second guard.
   if (ctxMenu.value && !ctxMenuClosing.value) {
@@ -1504,11 +1509,11 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
   }
-  const tag = (e.target as HTMLElement)?.tagName;
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  const tag = target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   // The progress slider handles its own arrow / page / home / end keys
   // (WAI-ARIA slider pattern). Skip those here to avoid double-seek.
-  const target = e.target as HTMLElement | null;
   if (target?.closest('.player-progress-wrap')) {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') return;
   }

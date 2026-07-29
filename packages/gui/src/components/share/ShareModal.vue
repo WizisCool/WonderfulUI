@@ -21,6 +21,7 @@ import { useUiStore } from '../../stores/ui.ts';
 import { SHARE_ICON } from '../../share/icons.ts';
 import { listen } from '../../tauri-adapter.ts';
 import { clientLog } from '../../utils/client-log.ts';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
 import type {
   ShareDownloadedEvent,
   ShareStoppedEvent,
@@ -60,7 +61,7 @@ let copyCooldownTimer: ReturnType<typeof setTimeout> | null = null;
 let disposed = false;
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && ownsTopModalLayer('share')) {
     e.preventDefault();
     e.stopPropagation();
     close();

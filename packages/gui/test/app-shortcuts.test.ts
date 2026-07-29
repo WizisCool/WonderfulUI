@@ -66,22 +66,25 @@ describe('nextCloseableLayer', () => {
         shareOpen: true,
         settingsOpen: true,
         playerOpen: true,
-      }),
-    ).toBe('update');
-    expect(
-      nextCloseableLayer({
-        updateCloseable: false,
-        shareOpen: true,
-        settingsOpen: true,
-        playerOpen: true,
+        eventOpen: true,
       }),
     ).toBe('share');
+    expect(
+      nextCloseableLayer({
+        updateCloseable: true,
+        shareOpen: false,
+        settingsOpen: true,
+        playerOpen: true,
+        eventOpen: true,
+      }),
+    ).toBe('update');
     expect(
       nextCloseableLayer({
         updateCloseable: false,
         shareOpen: false,
         settingsOpen: true,
         playerOpen: true,
+        eventOpen: true,
       }),
     ).toBe('settings');
     expect(
@@ -90,6 +93,7 @@ describe('nextCloseableLayer', () => {
         shareOpen: false,
         settingsOpen: false,
         playerOpen: true,
+        eventOpen: true,
       }),
     ).toBe('player');
     expect(
@@ -98,6 +102,16 @@ describe('nextCloseableLayer', () => {
         shareOpen: false,
         settingsOpen: false,
         playerOpen: false,
+        eventOpen: true,
+      }),
+    ).toBe('event');
+    expect(
+      nextCloseableLayer({
+        updateCloseable: false,
+        shareOpen: false,
+        settingsOpen: false,
+        playerOpen: false,
+        eventOpen: false,
       }),
     ).toBeNull();
   });

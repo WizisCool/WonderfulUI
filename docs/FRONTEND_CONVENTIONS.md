@@ -31,7 +31,19 @@ Global shell shortcuts live in `utils/app-shortcuts.ts` + `composables/useAppSho
 
 While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss install). Layer Esc handlers stay component-owned.
 
-**Close animation:** `Ctrl+W` / `Ctrl+Q` must not hard-clear layer state. Prefer `clickLayerCloseButton` on the real × control (player `doClose`, settings `setOpen(false)`, update `dismiss`, share close). Player fallback is `player.requestClose()` → `doClose()`, never `player.close()` from shortcuts.
+**Close animation:** `Ctrl+W` / `Ctrl+Q` must not hard-clear layer state. Prefer `clickLayerCloseButton` on the real × control (event list, player `doClose`, settings `setOpen(false)`, update `dismiss`, share close). Player fallback is `player.requestClose()` → `doClose()`, never `player.close()` from shortcuts.
+
+### Modal keyboard ownership
+
+- Visual z-order is the source of truth: share (1500) → update (1400) →
+  settings (1300) → player (1200) → event list (1100).
+- Every document-level modal key handler must call
+  `ownsTopModalLayer()` from `utils/modal-layer.ts` before acting. Component
+  mount/listener registration order is not layer order; without this gate a
+  settings Escape or arrow key can also close/seek the player underneath.
+- Keep `MODAL_LAYER_ORDER`, component z-index values, and
+  `nextCloseableLayer` aligned. `Ctrl+W` includes the event-list modal and
+  closes only the visually topmost closeable layer.
 
 ### Match list selection + context menu
 

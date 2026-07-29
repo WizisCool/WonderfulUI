@@ -19,6 +19,7 @@ import { watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSettingsStore } from '../stores/settings.ts';
 import SettingsModal from '../components/settings/SettingsModal.vue';
+import { ownsTopModalLayer } from '../utils/modal-layer.ts';
 
 const route = useRoute();
 const router = useRouter();
@@ -39,7 +40,8 @@ watch(() => settings.isOpen, (open) => {
 });
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && settings.isOpen) {
+  if (e.key === 'Escape' && settings.isOpen && ownsTopModalLayer('settings')) {
+    e.preventDefault();
     e.stopPropagation();
     settings.setOpen(false);
   }

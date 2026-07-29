@@ -16,6 +16,7 @@ import WIcon from '../common/WIcon.vue';
 import { useUpdateStore } from '../../stores/update.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 import { clientLog } from '../../utils/client-log.ts';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
 
 const SCOPE = 'update-modal';
 
@@ -48,6 +49,7 @@ const showNetworkHint = computed(
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
   if (!update.modalOpen) return;
+  if (!ownsTopModalLayer('update')) return;
   if (!isCloseable.value) {
     e.preventDefault();
     e.stopPropagation();

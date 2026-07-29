@@ -210,6 +210,21 @@ describe('PlayerHost context menu', () => {
     expect(wrapper.find('.player-backdrop').exists()).toBe(true);
   });
 
+  test('higher app dialogs block player Escape hotkeys', async () => {
+    const settingsLayer = document.createElement('div');
+    settingsLayer.className = 'settings-modal-backdrop';
+    document.body.append(settingsLayer);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.player-backdrop').classes()).not.toContain('is-closing');
+
+    settingsLayer.remove();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.player-backdrop').classes()).toContain('is-closing');
+  });
+
   test('second right-click repositions without stacking listeners (still one close)', async () => {
     const stage = wrapper.find('.player-stage');
     await stage.trigger('contextmenu', { clientX: 100, clientY: 100 });

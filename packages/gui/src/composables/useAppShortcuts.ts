@@ -67,6 +67,7 @@ export function useAppShortcuts(): void {
       shareOpen: isShareOpen(),
       settingsOpen: settings.isOpen,
       playerOpen: player.isOpen,
+      eventOpen: document.querySelector('.event-list-modal-backdrop') !== null,
     });
     if (!layer) return false;
     // Prefer the real close button so leave animations match a user click.
@@ -84,6 +85,9 @@ export function useAppShortcuts(): void {
         break;
       case 'player':
         player.requestClose();
+        break;
+      case 'event':
+        document.querySelector<HTMLElement>('.event-list-modal-backdrop')?.click();
         break;
     }
     return true;
