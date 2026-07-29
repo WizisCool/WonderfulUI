@@ -320,8 +320,9 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
 
 pub fn save_account_order(conn: &Connection, openids: &[String]) -> Result<()> {
     let now = now_ms();
+    let transaction = conn.unchecked_transaction()?;
     for (idx, openid) in openids.iter().enumerate() {
-        conn.execute(
+        transaction.execute(
             "INSERT INTO account_preferences(openid, custom_name, sort_order, updated_at)
              VALUES(?1, NULL, ?2, ?3)
              ON CONFLICT(openid) DO UPDATE SET
@@ -330,7 +331,7 @@ pub fn save_account_order(conn: &Connection, openids: &[String]) -> Result<()> {
             rusqlite::params![openid, idx as i64, now],
         )?;
     }
-    Ok(())
+    transaction.commit()
 }
 
 pub fn set_account_custom_name(
@@ -528,5 +529,41 @@ mod tests {
             .find(|a| a.openid == "b")
             .expect("b exists");
         assert_eq!(renamed.custom_name, None);
+    }
+
+    #[test]
+    fn account_order_rolls_back_if_any_row_fails() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO account_preferences(openid, sort_order, updated_at)
+             VALUES('a', 7, 1), ('b', 8, 1)",
+            [],
+        )
+        .expect("preferences seeded");
+        conn.execute_batch(
+            "CREATE TRIGGER reject_b_order
+             BEFORE UPDATE OF sort_order ON account_preferences
+             WHEN OLD.openid = 'b'
+             BEGIN
+               SELECT RAISE(ABORT, 'injected order failure');
+             END;",
+        )
+        .expect("failure trigger installed");
+
+        let error =
+            save_account_order(&conn, &["a".into(), "b".into()]).expect_err("second row must fail");
+        assert!(error.to_string().contains("injected order failure"));
+
+        let orders = conn
+            .prepare("SELECT openid, sort_order FROM account_preferences ORDER BY openid")
+            .expect("query prepared")
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .expect("query runs")
+            .collect::<Result<Vec<_>>>()
+            .expect("rows collected");
+        assert_eq!(orders, vec![("a".into(), 7), ("b".into(), 8)]);
     }
 }
