@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import { nextTick } from 'vue';
 import PlayerHost from '../src/components/player/PlayerHost.vue';
+import { usePlayerStore } from '../src/stores/player.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
 
 // Mock @tauri-apps so the Tauri runtime check in tauri-adapter.ts does not
@@ -223,6 +224,26 @@ describe('PlayerHost context menu', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await nextTick();
     expect(wrapper.find('.player-backdrop').classes()).toContain('is-closing');
+  });
+
+  test('a late close timer cannot close a replacement video', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = usePlayerStore();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await nextTick();
+      expect(wrapper.find('.player-backdrop').classes()).toContain('is-closing');
+
+      const replacement = { ...mkVideo(), video_id: 'v2', video_src: 'D:\\videos\\v2.mp4' };
+      store.open(replacement);
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(store.isOpen).toBe(true);
+      expect(store.video?.video_id).toBe('v2');
+      expect(wrapper.find('.player-backdrop').classes()).not.toContain('is-closing');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('second right-click repositions without stacking listeners (still one close)', async () => {

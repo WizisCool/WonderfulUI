@@ -291,6 +291,7 @@ const player = usePlayerStore();
 const ui = useUiStore();
 
 const closing = ref(false);
+let playerCloseTimer: ReturnType<typeof setTimeout> | null = null;
 const shareOpen = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
 const freezeCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -1123,6 +1124,7 @@ watch(showFrameStepper, (show) => {
 });
 
 function doClose() {
+  if (closing.value) return;
   stopFrameHold();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
@@ -1134,12 +1136,16 @@ function doClose() {
     ctxMenu.value = false;
     ctxMenuClosing.value = false;
   }
+  const closingVideo = player.video;
   closing.value = true;
-  setTimeout(() => {
+  playerCloseTimer = setTimeout(() => {
     clearHideTimer();
     clearBufferingTimer();
-    player.close();
+    // A new video may be opened programmatically while the exit animation is
+    // running. The old timer must never close that replacement session.
+    if (player.video === closingVideo) player.close();
     closing.value = false;
+    playerCloseTimer = null;
   }, 200);
 }
 
@@ -1612,6 +1618,10 @@ onUnmounted(() => {
   if (ctxMenuCloseTimer) {
     clearTimeout(ctxMenuCloseTimer);
     ctxMenuCloseTimer = null;
+  }
+  if (playerCloseTimer) {
+    clearTimeout(playerCloseTimer);
+    playerCloseTimer = null;
   }
   clearHideTimer();
   clearBufferingTimer();
