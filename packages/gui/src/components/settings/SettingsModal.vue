@@ -58,17 +58,17 @@
         <section class="settings-section">
           <div class="settings-section-head">
             <h3>资料库概览</h3>
-            <template v-if="statsError && !settings.statsData">
+            <template v-if="statsError && !statsData">
               <span class="settings-section-sub" />
             </template>
-            <template v-else-if="settings.statsLoading && !settings.statsData">
+            <template v-else-if="settings.statsLoading && !statsData">
               <span class="settings-section-sub" />
             </template>
             <template v-else>
               <span class="settings-section-sub">{{ fmtAccountLabel() }}</span>
             </template>
           </div>
-          <template v-if="statsError && !settings.statsData">
+          <template v-if="statsError && !statsData">
             <div class="settings-row">
               <span class="settings-row-sub is-error">{{ statsError }}</span>
             </div>
@@ -76,12 +76,12 @@
               <button class="btn settings-action" type="button" @click="settings.fetchLibraryStats()">重试</button>
             </div>
           </template>
-          <template v-else-if="settings.statsLoading && !settings.statsData">
+          <template v-else-if="settings.statsLoading && !statsData">
             <div class="settings-row">
               <span class="settings-row-sub">正在加载...</span>
             </div>
           </template>
-          <template v-else-if="!settings.statsData">
+          <template v-else-if="!statsData">
             <div class="settings-row">
               <span class="settings-row-sub">暂无视频数据</span>
             </div>
@@ -96,7 +96,7 @@
                   class="stats-video-metric stats-video-metric--toggle"
                   :class="{ 'is-active': settings.chartMetric === 'video' }"
                   type="button"
-                  :aria-pressed="String(settings.chartMetric === 'video')"
+                  :aria-pressed="settings.chartMetric === 'video'"
                   :aria-label="'按视频查看占比'"
                   @click="settings.setChartMetric('video')"
                 >
@@ -110,7 +110,7 @@
                   class="stats-video-metric stats-video-metric--toggle"
                   :class="{ 'is-active': settings.chartMetric === 'match' }"
                   type="button"
-                  :aria-pressed="String(settings.chartMetric === 'match')"
+                  :aria-pressed="settings.chartMetric === 'match'"
                   :aria-label="'按对局查看占比'"
                   @click="settings.setChartMetric('match')"
                 >
@@ -165,7 +165,7 @@
                 :class="{ 'is-active': filter.refreshScanMode === 'incremental' }"
                 type="button"
                 role="radio"
-                :aria-checked="String(filter.refreshScanMode === 'incremental')"
+                :aria-checked="filter.refreshScanMode === 'incremental'"
                 @click="filter.setScanMode('incremental')"
               >增量扫描</button>
               <button
@@ -173,7 +173,7 @@
                 :class="{ 'is-active': filter.refreshScanMode === 'full' }"
                 type="button"
                 role="radio"
-                :aria-checked="String(filter.refreshScanMode === 'full')"
+                :aria-checked="filter.refreshScanMode === 'full'"
                 @click="filter.setScanMode('full')"
               >全量扫描</button>
             </div>
@@ -217,7 +217,7 @@
                 class="btn settings-action"
                 :class="{ 'is-loading': settings.logLoading }"
                 type="button"
-                :aria-busy="String(settings.logLoading)"
+                :aria-busy="settings.logLoading"
                 @click="settings.fetchLogs()"
               >
                 <WIcon icon="ph:arrows-clockwise" :size="15" />
@@ -276,7 +276,7 @@
               class="btn settings-action"
               type="button"
               :disabled="isUpdateBusy"
-              :aria-busy="String(isUpdateBusy)"
+              :aria-busy="isUpdateBusy"
               @click="onCheckUpdate"
             >
               <WIcon icon="ph:arrows-clockwise" :size="14" />

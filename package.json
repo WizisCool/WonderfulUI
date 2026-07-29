@@ -13,7 +13,7 @@
     "test": "bun test --path-ignore-patterns \"packages/gui/test/*.component.test.ts\"",
     "test:components": "bun run --cwd packages/gui test:components",
     "test:all": "bun run test && bun run test:components",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit",
     "assets:check": "bun run tools/check-valorant-assets.ts",
     "assets:build": "bun run tools/build-valorant-assets.ts",
     "version:patch": "bun run scripts/version-bump.ts patch",
@@ -26,7 +26,8 @@
     "@tauri-apps/cli": "^2.0.0",
     "sharp": "0.35.3",
     "typescript": "^5.5.0",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "vue-tsc": "3.3.8"
   },
   "dependencies": {}
 }

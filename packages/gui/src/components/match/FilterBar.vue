@@ -42,7 +42,7 @@
       class="filter-num-group-header"
       :class="{ 'is-active': advancedActiveCount > 0 }"
       type="button"
-      :aria-expanded="String(advancedExpanded)"
+      :aria-expanded="advancedExpanded"
       @click="advancedExpanded = !advancedExpanded"
     >
       <span class="filter-num-group-chevron" aria-hidden="true">
@@ -259,7 +259,7 @@ const advancedRows = computed(() => {
       placeholderHi: fmtInputValue(kind, bounds[1]),
     };
   }).filter(Boolean) as Array<{
-    key: string;
+    key: RangeKey;
     label: string;
     bounds: [number, number];
     active: boolean;

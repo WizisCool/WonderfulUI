@@ -95,6 +95,10 @@ bun run test
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 ```
 
+`bun run typecheck` runs `vue-tsc --noEmit`, not plain `tsc`. It checks both
+standalone TypeScript and Vue SFC scripts/templates; do not replace it with a
+TS-only command that silently skips `.vue` bindings and ARIA prop types.
+
 Use `bun run build` only when the feature affects Tauri config, bundling,
 release behavior, or runtime integration.
 

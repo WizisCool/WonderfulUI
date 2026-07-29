@@ -1,16 +1,21 @@
 <template>
-  <button
+  <div
     ref="triggerRef"
-    class="dr-trigger"
-    :class="{ 'is-active': hasRange, 'is-expanded': isOpen }"
-    type="button"
-    aria-label="选择日期范围"
-    aria-haspopup="dialog"
-    :aria-expanded="String(isOpen)"
-    @click.stop="toggle"
+    class="dr-trigger-wrap"
+    :class="{ 'has-clear': hasRange }"
   >
-    <WIcon icon="ph:calendar" :size="12" />
-    <span class="dr-trigger-text">{{ triggerText }}</span>
+    <button
+      class="dr-trigger"
+      :class="{ 'is-active': hasRange, 'is-expanded': isOpen }"
+      type="button"
+      aria-label="选择日期范围"
+      aria-haspopup="dialog"
+      :aria-expanded="isOpen"
+      @click.stop="toggle"
+    >
+      <WIcon icon="ph:calendar" :size="12" />
+      <span class="dr-trigger-text">{{ triggerText }}</span>
+    </button>
     <button
       v-if="hasRange"
       class="dr-trigger-clear"
@@ -21,7 +26,7 @@
     >
       <WIcon icon="ph:x" :size="10" />
     </button>
-  </button>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -36,7 +41,7 @@ const emit = defineEmits<{
   'update:modelValue': [range: [number | null, number | null]];
 }>();
 
-const triggerRef = ref<HTMLButtonElement | null>(null);
+const triggerRef = ref<HTMLDivElement | null>(null);
 const isOpen = ref(false);
 const viewDate = ref(new Date());
 let draftRange: { start: Date | null; end: Date | null } = { start: null, end: null };

@@ -305,6 +305,10 @@ Account list uses a custom tooltip, not native `title=`.
 
 - Date-range picker UI lives in `packages/gui/src/utils/date-picker.ts` (pure logic) with a Vue wrapper in `packages/gui/src/components/match/DateRangePicker.vue`, styled by the `.dr-*` block in `packages/gui/src/assets/style.css`.
 - It is a filter-rail control, not a modal or standalone calendar card. Keep it visually aligned with filter chips and numeric inputs: low elevation, token colors, no decorative shadow, no red top border.
+- The main trigger and the conditional clear action are sibling `<button>`
+  elements inside `.dr-trigger-wrap`. Never nest the clear button inside the
+  trigger: nested interactive controls are invalid HTML and produce ambiguous
+  keyboard/screen-reader behavior. Both siblings need visible focus rings.
 - Date clicks update an internal draft only. The applied filter must change only when the user clicks `完成`.
 - The trigger clear button may clear the already-applied date filter immediately. The popover `清除` button clears only the draft until `完成` is clicked.
 - Selecting a single date and then clicking `完成` applies that one day as both start and end; the end timestamp remains inclusive through `23:59:59.999` local time.

@@ -8,7 +8,7 @@
           :class="{ 'is-open': filter.filterBarOpen }"
           type="button"
           :aria-label="filter.filterBarOpen ? '收起筛选' : '展开筛选'"
-          :aria-pressed="String(filter.filterBarOpen)"
+          :aria-pressed="filter.filterBarOpen"
           data-tip="展开筛选"
           @click="filter.toggleFilterBar()"
         >

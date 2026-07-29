@@ -7,7 +7,7 @@
     :data-tip="tooltipText"
     role="option"
     tabindex="-1"
-    :aria-selected="String(isSelected)"
+    :aria-selected="isSelected"
     :aria-label="rowAriaLabel"
     @click="$emit('click')"
     @dblclick="$emit('dblclick')"
