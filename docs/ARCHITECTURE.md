@@ -25,6 +25,11 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - Git: single repository, main branch, no pre-commit hook.
 - **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
 - **Frontend virtual scrolling**: match list renders only visible + buffer rows (~12 DOM nodes instead of hundreds), using `position: absolute` + `transform: translateY()` with a `.vlist-spacer` for scrollable height and rAF-batched scroll handler.
+- **Frontend code splitting**: the low-frequency settings center is loaded by
+  async component/router imports only when `settings.isOpen`. Its ECharts
+  registry includes only the current donut modules. The audited production
+  build reduced startup JS from 1,112.12 kB / 384.62 kB gzip to 498.39 kB /
+  175.39 kB gzip; the separate settings chunk is 468.94 kB / 160.98 kB gzip.
 - **In-app updater** (since v0.1.5): `tauri-plugin-updater` + `tauri-plugin-process` are default features. The GUI calls `check()` / `downloadAndInstall()` / `relaunch()` only through `packages/gui/src/stores/update.ts`. Manifest is GitHub Releases `latest.json` (signed NSIS setup). Details: `docs/UPDATER.md`.
 - **Screenshot** (player context menu, Windows only): Tauri `capture_video_frame` (`src-tauri/src/frame_capture.rs`) uses Media Foundation `IMFSourceReader` (seek + RGB32 sample), caches one reader per path, returns PNG base64 (fast filter). No frontend canvas path.
 - **In-app player media:** playback uses Tauri **asset** protocol (`convertFileSrc`) for progressive Range streaming.

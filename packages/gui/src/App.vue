@@ -16,7 +16,7 @@
         <PlayerHost />
       </Teleport>
       <ToastHost />
-      <SettingsView />
+      <SettingsView v-if="settings.isOpen" />
       <UpdateModal />
     </template>
   </div>
@@ -32,10 +32,16 @@ import AccountSidebar from './components/common/AccountSidebar.vue';
 import FilterRail from './components/match/FilterRail.vue';
 import ToastHost from './components/common/ToastHost.vue';
 import DetailView from './views/DetailView.vue';
-import SettingsView from './views/SettingsView.vue';
 import OnboardingView from './components/common/OnboardingView.vue';
 import UpdateModal from './components/update/UpdateModal.vue';
-import { watch, onMounted, onUnmounted, ref, computed } from 'vue';
+import {
+  watch,
+  onMounted,
+  onUnmounted,
+  ref,
+  computed,
+  defineAsyncComponent,
+} from 'vue';
 import { listen } from './tauri-adapter.ts';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
@@ -44,6 +50,7 @@ import { useTooltip, isTipEligible } from './composables/useTooltip.ts';
 import { clientLog } from './utils/client-log.ts';
 import { installUpdateDebug } from './utils/update-debug.ts';
 import { useAppShortcuts } from './composables/useAppShortcuts.ts';
+import { useSettingsStore } from './stores/settings.ts';
 import {
   parseStartupRefreshResult,
   type StartupRefreshResult,
@@ -53,6 +60,8 @@ const filter = useFilterStore();
 const account = useAccountStore();
 const ui = useUiStore();
 const update = useUpdateStore();
+const settings = useSettingsStore();
+const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue'));
 const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
 const booted = ref(false);
 const bootError = ref<string | null>(null);

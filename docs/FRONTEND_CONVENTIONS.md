@@ -287,11 +287,16 @@ Account list uses a custom tooltip, not native `title=`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
 - The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus a donut chart of per-account share. It is a library composition view, not a storage/disk-usage view.
 - **Settings charts stack:** Apache ECharts + `vue-echarts` (not hand-rolled SVG, not imperative `echarts.init` singletons).
-  - Register modules once in `packages/gui/src/charts/register.ts` (pie/bar/line + grid/tooltip/legend/dataset/dataZoom already registered for future settings widgets).
+  - Register only modules used by shipping UI in
+    `packages/gui/src/charts/register.ts`. The current donut needs Pie,
+    Tooltip, Legend, and CanvasRenderer. Do not pre-register bar/line/grid/
+    dataset/dataZoom/title “for later”; that bypasses ECharts tree-shaking.
   - Pure option builders live next to data helpers (`buildAccountShareChartOption` in `library-stats.ts`). Keep them free of DOM instances so `bun test` can cover them.
   - UI shell: `AccountShareChart.vue` — `<VChart autoresize :option="…" />` with a **sibling** center overlay for totals (never pie `series.label`, which joins hover state).
   - Tab switches / modal close unmount the component; `vue-echarts` disposes the instance. Do not reintroduce module-level chart handles.
   - Prefer extending ECharts options (bar for scan history, line for trends) over adding a second chart library.
+    Register the new chart/component modules in the same commit that adds the
+    visible feature.
   - **Pie motion:** quiet enter (`animationType: 'expansion'`, ~480ms) + short hover state (~180ms). Subtle `emphasis.scale` is OK with **`scaleSize ≤ 4`** if tooltip stays `pointer-events:none`, `enterable: false`, short `transitionDuration`, and tip parked off the wedge. Sibling dim: `focus: 'self'` + `blur.opacity ≈ 0.55`. Keep center totals as Vue overlay (keyed on metric for a soft re-fade).
   - **Canvas color space:** ECharts draws with Canvas2D. Do **not** pass `oklch(...)`, `color-mix(...)`, or unresolved CSS variables into `option.color` / `itemStyle`. WebView2 may paint those as transparent (huge “missing” slice that still tooltips). Use hex/rgb palette (`CHART_PALETTE`) and canvas-safe token resolution.
 - Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the match-list header refresh button / settings full-scan action are the scan controls.
@@ -302,6 +307,10 @@ Account list uses a custom tooltip, not native `title=`.
 - Do not show the full absolute log path as primary UI. Show the log filename/status and rely on `打开目录` for filesystem location.
 - The log preview should present timestamps in a human-readable local format and stay pinned to the latest lines after refresh.
 - Settings tab changes replace only the internal nav/content regions. Do not remount the backdrop or modal on tab switch; open/close animation belongs only to the modal lifecycle.
+- `SettingsView` is a low-frequency async component in both `App.vue` and the
+  router, and App does not instantiate it until `settings.isOpen`. This keeps
+  ECharts and settings CSS out of the startup chunk while preserving the
+  store-owned 150 ms close animation.
 - Keep the modal at a fixed desktop size so page changes do not resize the window. Small viewports may clamp via max-width/max-height.
 - Escape and backdrop click close the modal; Tab focus must stay inside it while open.
 - Settings modal z-index is 1300, above event modals (1100) and the player (1200). Toasts sit above it so scan feedback remains visible.
