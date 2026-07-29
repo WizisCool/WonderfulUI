@@ -345,7 +345,7 @@ defineExpose({
   cursor: pointer;
   color: var(--event-marker-color);
   opacity: 0.92;
-  transition: opacity 100ms ease, transform 120ms ease, width 120ms ease;
+  transition: opacity 100ms ease, transform 120ms ease;
 }
 .player-event-marker::before {
   content: "";
@@ -428,12 +428,10 @@ defineExpose({
 }
 .player-event-marker.lane-upper:hover,
 .player-event-marker.lane-upper:focus-visible {
-  width: 22px;
   transform: translateX(-50%) translateY(-2px) scale(1.05);
 }
 .player-event-marker.lane-lower:hover,
 .player-event-marker.lane-lower:focus-visible {
-  width: 22px;
   transform: translateX(-50%) translateY(-2px) scale(1.05);
 }
 .player-event-marker:hover::after,
