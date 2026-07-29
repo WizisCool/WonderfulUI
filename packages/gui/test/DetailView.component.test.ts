@@ -4,6 +4,8 @@ import { createTestingPinia } from '@pinia/testing';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import DetailView from '../src/views/DetailView.vue';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
+import { useAccountStore } from '../src/stores/account.ts';
+import { useDetailStore } from '../src/stores/detail.ts';
 
 function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
   return {
@@ -26,7 +28,13 @@ function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
   } as MatchRecord;
 }
 
-async function mountDetail(match: MatchRecord | null, roundsLoaded = false) {
+interface RoundState {
+  roundsLoaded?: boolean;
+  roundsLoading?: boolean;
+  roundsError?: string | null;
+}
+
+async function mountDetail(match: MatchRecord | null, roundState: RoundState = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -47,7 +55,13 @@ async function mountDetail(match: MatchRecord | null, roundsLoaded = false) {
           // rounds IPC action; store/action behavior has dedicated tests.
           stubActions: true,
           initialState: {
-            detail: { selectedMatch: match, momentFilter: null, roundsLoaded },
+            detail: {
+              selectedMatch: match,
+              momentFilter: null,
+              roundsLoaded: roundState.roundsLoaded ?? false,
+              roundsLoading: roundState.roundsLoading ?? false,
+              roundsError: roundState.roundsError ?? null,
+            },
             account: {
               accounts: match ? [{ openid: match.openID, path: '', matchCount: 1 }] : [],
               matches: match ? [match] : [],
@@ -95,15 +109,59 @@ describe('DetailView', () => {
   });
 
   test('shows spinner when rounds not loaded', async () => {
-    const wrapper = await mountDetail(mkMatch(), false);
+    const wrapper = await mountDetail(mkMatch());
     expect(wrapper.find('.spin').exists()).toBe(true);
+    expect(wrapper.find('.event-stat-cell').attributes('aria-label')).toBe('正在加载本局事件');
   });
 
   test('event button disabled when rounds loaded with no events', async () => {
-    const wrapper = await mountDetail(mkMatch(), true);
+    const wrapper = await mountDetail(mkMatch(), { roundsLoaded: true });
     const btn = wrapper.find('.event-stat-cell');
-    if (btn.exists()) {
-      expect(btn.attributes('disabled')).toBeDefined();
-    }
+    expect(btn.attributes('disabled')).toBeDefined();
+    expect(btn.attributes('aria-label')).toBe('这场高光没有事件数据');
+  });
+
+  test('shows a retry action after round loading fails', async () => {
+    const wrapper = await mountDetail(mkMatch(), {
+      roundsError: '事件数据加载失败，请重试',
+    });
+    const detail = useDetailStore();
+    const btn = wrapper.find('.event-stat-cell');
+
+    expect(btn.attributes('disabled')).toBeUndefined();
+    expect(btn.attributes('aria-label')).toBe('事件数据加载失败，点击重试');
+    expect(btn.text()).toContain('重试');
+    expect(btn.find('.stat-icon svg').exists()).toBe(true);
+
+    vi.mocked(detail.fetchRounds).mockClear();
+    await btn.trigger('click');
+    expect(detail.fetchRounds).toHaveBeenCalledOnce();
+  });
+
+  test('reselects the fresh match object when a library refresh keeps the same id', async () => {
+    const original = mkMatch();
+    await mountDetail(original, { roundsLoaded: true });
+    const account = useAccountStore();
+    const detail = useDetailStore();
+    const refreshed = mkMatch({ career: { ...original.career, hero_name: '更新后的捷风' } });
+
+    vi.mocked(detail.selectMatch).mockClear();
+    account.matches = [refreshed];
+    await Promise.resolve();
+
+    expect(detail.selectMatch).toHaveBeenCalledWith(refreshed);
+  });
+
+  test('clears a selected match that disappears after a library refresh', async () => {
+    const original = mkMatch();
+    await mountDetail(original, { roundsLoaded: true });
+    const account = useAccountStore();
+    const detail = useDetailStore();
+
+    vi.mocked(detail.selectMatch).mockClear();
+    account.matches = [];
+    await Promise.resolve();
+
+    expect(detail.selectMatch).toHaveBeenCalledWith(null);
   });
 });

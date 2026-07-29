@@ -477,7 +477,22 @@ it opens the per-match event list. The flow is **3 steps**, layered:
 
 - **Stat card** (DetailView.vue): always shown in the detail pane.
   Shows total event count once rounds are loaded; spinner while loading.
-  Becomes a `disabled` button if the match has no events.
+  A failed `get_match_rounds` request becomes an enabled, keyboard-accessible
+  retry action with a non-technical message; the backend detail stays in the
+  local client log. It becomes a `disabled` button only while loading or when
+  the loaded match has no events.
+- **Round request ownership** (`stores/detail.ts`): every selection change goes
+  through `selectMatch`, increments a private selection version, and resets the
+  loading/error state. A response may update video rounds or terminal state only
+  when both its stable match id and selection version are still current. This
+  rejects `m1 -> m2 -> m1` late responses and responses for an object replaced
+  by a library refresh. Duplicate in-flight requests are suppressed; matches
+  without videos are complete without IPC.
+- **Refresh reconciliation** (DetailView.vue): watch both the route id and the
+  account match array. A refreshed match object with the same `matches_id` must
+  be reselected by object identity so the detail pane cannot retain a stale
+  rounds-stripped snapshot. If the selected match disappears, clear the detail
+  state and replace the now-invalid route with the home route.
 - **List modal** (`EventListModal.vue`): shows all kill/death events for the
   match, sorted by `timeMs`. Header shows the **real** K/D from `m.stats.*`
   (not the event count — ACLOS highlights can include team kills, so the

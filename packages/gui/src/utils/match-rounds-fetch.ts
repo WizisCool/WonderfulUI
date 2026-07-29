@@ -5,6 +5,10 @@
 export function shouldCommitMatchRounds(
   requestMatchId: string,
   currentMatchId: string | null | undefined,
+  requestSelectionVersion: number,
+  currentSelectionVersion: number,
 ): boolean {
-  return !!currentMatchId && currentMatchId === requestMatchId;
+  return !!currentMatchId
+    && currentMatchId === requestMatchId
+    && requestSelectionVersion === currentSelectionVersion;
 }
