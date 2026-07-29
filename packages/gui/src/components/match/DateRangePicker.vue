@@ -46,6 +46,7 @@ const isOpen = ref(false);
 const viewDate = ref(new Date());
 let draftRange: { start: Date | null; end: Date | null } = { start: null, end: null };
 let popover: HTMLElement | null = null;
+let outsideListenerTimer: ReturnType<typeof setTimeout> | null = null;
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
@@ -133,7 +134,9 @@ function openPopover() {
   popover.style.visibility = '';
   isOpen.value = true;
 
-  setTimeout(() => {
+  outsideListenerTimer = setTimeout(() => {
+    outsideListenerTimer = null;
+    if (!popover) return;
     document.addEventListener('mousedown', onDocDown, true);
   }, 0);
   document.addEventListener('keydown', onKey, true);
@@ -145,6 +148,10 @@ function openPopover() {
 }
 
 function closePopover() {
+  if (outsideListenerTimer !== null) {
+    clearTimeout(outsideListenerTimer);
+    outsideListenerTimer = null;
+  }
   document.removeEventListener('keydown', onKey, true);
   document.removeEventListener('mousedown', onDocDown, true);
   window.removeEventListener('resize', onResize);

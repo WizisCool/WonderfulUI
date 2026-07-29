@@ -1,6 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import DateRangePicker from '../src/components/match/DateRangePicker.vue';
+
+afterEach(() => {
+  vi.useRealTimers();
+  document.querySelectorAll('.dr-popover').forEach(node => node.remove());
+});
 
 describe('DateRangePicker trigger', () => {
   test('renders the trigger and clear action as sibling buttons', () => {
@@ -24,5 +29,24 @@ describe('DateRangePicker trigger', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[[null, null]]]);
     expect(wrapper.find('.dr-trigger').attributes('aria-expanded')).toBe('false');
     expect(document.querySelector('.dr-popover')).toBeNull();
+  });
+
+  test('does not bind a late outside-click listener after immediate close', async () => {
+    vi.useFakeTimers();
+    const addListener = vi.spyOn(document, 'addEventListener');
+    const wrapper = mount(DateRangePicker, {
+      props: { modelValue: [null, null] },
+    });
+
+    await wrapper.find('.dr-trigger').trigger('click');
+    await wrapper.find('.dr-trigger').trigger('click');
+    vi.runAllTimers();
+
+    const outsideBindings = addListener.mock.calls.filter(([event]) => event === 'mousedown');
+    expect(outsideBindings).toHaveLength(0);
+    expect(wrapper.find('.dr-trigger').attributes('aria-expanded')).toBe('false');
+
+    wrapper.unmount();
+    addListener.mockRestore();
   });
 });
