@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "icons:extract": "node scripts/extract-ph-icons.mjs",
-    "test": "bun test --path-ignore-patterns \"**/*.component.test.ts\"",
+    "test": "bun test --path-ignore-patterns \"test/*.component.test.ts\"",
     "test:components": "vitest run"
   },
   "dependencies": {

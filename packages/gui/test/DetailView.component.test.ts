@@ -34,7 +34,8 @@ async function mountDetail(match: MatchRecord | null, roundsLoaded = false) {
       { path: '/match/:id', name: 'detail', component: { template: '<div />' } },
     ],
   });
-  await router.push('/');
+  await router.push(match ? `/match/${match.matches_id}` : '/');
+  await router.isReady();
 
   return mount(DetailView, {
     global: {
@@ -46,7 +47,8 @@ async function mountDetail(match: MatchRecord | null, roundsLoaded = false) {
           initialState: {
             detail: { selectedMatch: match, momentFilter: null, roundsLoaded },
             account: {
-              accounts: [],
+              accounts: match ? [{ openid: match.openID, path: '', matchCount: 1 }] : [],
+              matches: match ? [match] : [],
               assetPathCache: new Map(),
             },
             player: { video: null, matchContext: null, seekMs: undefined, isOpen: false },

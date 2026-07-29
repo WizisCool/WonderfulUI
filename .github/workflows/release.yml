@@ -57,7 +57,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
       - run: bun run typecheck
-      - run: bun run test
+      - run: bun run test:all
 
       # Debug-profile unit tests only — never release-profile, so we do not
       # recompile what the parallel build job already compiles as release.
