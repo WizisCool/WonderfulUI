@@ -204,6 +204,21 @@ img { display: block; max-width: 100%; }
 .pane.detail { grid-column: 4; }
 .pane.full { grid-column: 1 / -1; }
 
+/* At the supported 960 px minimum, four simultaneous panes leave the match
+   list only 120 px wide. While filtering, prioritize the working pair
+   (filters + results) and restore the detail pane as soon as filters close. */
+@media (max-width: 1160px) {
+  .app.is-filter-open {
+    --pane-r: 0px;
+  }
+  .app.is-filter-open .pane.list {
+    grid-column: 3 / -1;
+  }
+  .app.is-filter-open .pane.detail {
+    display: none;
+  }
+}
+
 .pane-head {
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 12px var(--pad);
