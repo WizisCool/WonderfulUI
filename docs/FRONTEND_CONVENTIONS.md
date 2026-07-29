@@ -84,6 +84,13 @@ Hard rules:
 Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.component.test.ts` “listbox a11y” block.
 - **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. `hasAccounts` uses the scraper's exact rule: at least one regular file with a fully numeric openid basename. Snapshot/index/README/hidden files and numeric directories do not count. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but has no usable matches — they point at ACLOS as the data source rather than dumping raw paths.
 - **Boot terminal event.** Subscribe to `wui://startup_refresh_finished` before invoking `scan_shell`. It settles as `finished`, `degraded`, or `error`; the last two carry the backend failure. Do not wait only on `wui://scrape_summary`, because scraper setup/read failures cannot emit a success summary and would strand the boot overlay until timeout.
+- **Recoverable library errors.** Clean zero-match shells stay hidden, but an
+  account with `accounts[].error` remains visible as a generic error row even
+  when `matchCount` is zero. Raw parser/database messages can contain local
+  paths and belong only in `wonderful-ui.log`; the UI says to retry a full
+  scan. `LoadResult.totalErrors` also covers malformed SQLite match rows, so
+  HomeView keeps a compact recovery banner visible while healthy matches stay
+  browseable.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
 
@@ -290,6 +297,10 @@ Account list uses a custom tooltip, not native `title=`.
 - The sidebar-bottom settings button opens a centered settings modal, not a side drawer.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
+- Header refresh, `F5` / `Ctrl+R`, the error-banner retry, and Settings full
+  scan all use `scanCompletionFeedback`: zero errors produce the mode-specific
+  success message; nonzero `totalErrors` is a partial failure; a rejected IPC
+  call produces one generic recoverable message and logs the technical cause.
 - The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus a donut chart of per-account share. It is a library composition view, not a storage/disk-usage view.
 - **Settings charts stack:** Apache ECharts + `vue-echarts` (not hand-rolled SVG, not imperative `echarts.init` singletons).
   - Register only modules used by shipping UI in

@@ -27,6 +27,17 @@ beforeEach(() => {
 });
 
 describe('account store request lifecycle', () => {
+  test('keeps parse-error accounts visible while hiding clean empty shells', () => {
+    const account = useAccountStore();
+    account.accounts = [
+      { openid: 'broken', path: 'D:\\WonderfulDb\\broken', matchCount: 0, error: 'parse failed' },
+      { openid: 'empty', path: 'D:\\WonderfulDb\\empty', matchCount: 0 },
+      { openid: 'ready', path: 'D:\\WonderfulDb\\ready', matchCount: 3 },
+    ];
+
+    expect(account.realAccounts.map(item => item.openid)).toEqual(['broken', 'ready']);
+  });
+
   test('coalesces overlapping scrape requests and clears loading once', async () => {
     const reply = deferred<LoadResult>();
     invokeMock.mockReturnValue(reply.promise);

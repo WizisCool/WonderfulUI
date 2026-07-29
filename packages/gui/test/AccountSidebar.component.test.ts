@@ -10,6 +10,41 @@ vi.mock('sortablejs', () => ({
 }));
 
 describe('AccountSidebar rename lifecycle', () => {
+  test('renders a recoverable generic row for an account parse failure', () => {
+    const wrapper = mount(AccountSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [
+          createTestingPinia({
+            createSpy: vi.fn,
+            stubActions: false,
+            initialState: {
+              account: {
+                accounts: [{
+                  openid: 'broken-openid',
+                  path: 'D:\\WonderfulDb\\broken-openid',
+                  matchCount: 0,
+                  error: 'parse D:\\private\\broken-openid: invalid payload',
+                }],
+                matches: [],
+                selectedAccountId: 'broken-openid',
+                accountLabels: new Map([['broken-openid', '读取失败账户']]),
+              },
+              filter: { filters: {} },
+              update: { badge: false, update: null },
+            },
+          }),
+        ],
+      },
+    });
+
+    const row = wrapper.get('.account.is-error');
+    expect(row.text()).toContain('!');
+    expect(row.attributes('data-tip')).toContain('全量扫描重试');
+    expect(row.attributes('data-tip')).not.toContain('D:\\private');
+    wrapper.unmount();
+  });
+
   test('focuses and selects the v-for rename input without a template-ref array', async () => {
     const wrapper = mount(AccountSidebar, {
       attachTo: document.body,

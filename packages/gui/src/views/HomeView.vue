@@ -36,6 +36,10 @@
         </button>
       </div>
     </div>
+    <div v-if="account.totalErrors > 0" class="library-error-banner" role="alert">
+      <span>有 {{ account.totalErrors }} 个账户或记录未能读取</span>
+      <button type="button" :disabled="account.scraping" @click="onRecoveryScan">全量扫描重试</button>
+    </div>
     <div
       class="match-list"
       :class="{ 'is-empty': accountMatches.length === 0, 'is-loading': isBootLoading }"
@@ -58,8 +62,10 @@
         </div>
       </template>
       <template v-else-if="accountMatches.length === 0">
-        <div class="empty">
-          <div class="empty-title">还没有高光</div>
+        <div class="empty" :class="{ error: !!selectedAccountError }" :role="selectedAccountError ? 'alert' : undefined">
+          <div class="empty-title">{{ selectedAccountError ? '账户读取失败' : '还没有高光' }}</div>
+          <div v-if="selectedAccountError" class="empty-sub error-message">请执行全量扫描重试，详细原因已写入本地日志。</div>
+          <button v-if="selectedAccountError" class="btn btn-primary" type="button" @click="onRecoveryScan">全量扫描重试</button>
         </div>
       </template>
       <template v-else>
@@ -149,6 +155,12 @@ import {
   onCloseContextMenus,
 } from '../utils/context-menu-bus.ts';
 import { invoke } from '../tauri-adapter.ts';
+import { clientLog } from '../utils/client-log.ts';
+import {
+  SCAN_FAILURE_MESSAGE,
+  scanCompletionFeedback,
+  type ScanMode,
+} from '../utils/scan-feedback.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
 const router = useRouter();
@@ -167,6 +179,11 @@ const accountMatches = computed(() => {
 });
 
 const filteredMatches = computed(() => filter.applyToMatches(accountMatches.value));
+const selectedAccountError = computed(() => {
+  const openid = account.selectedAccountId;
+  if (!openid || openid === '__all__') return null;
+  return account.accounts.find(item => item.openid === openid)?.error?.trim() || null;
+});
 
 // Spinner for the user-driven refresh path (the Refresh button calls
 // account.scrapeLibrary, which sets scraping=true). The first-launch
@@ -333,14 +350,26 @@ function onListKeydown(e: KeyboardEvent) {
   moveActiveToIndex(nextIdx, listboxNavAlwaysScroll(e.key));
 }
 
-async function onScrape() {
-  if (filter.refreshScanMode === 'full') ui.showScanOverlay();
+async function runScan(mode: ScanMode) {
+  if (mode === 'full') ui.showScanOverlay();
   try {
-    await account.scrapeLibrary(filter.refreshScanMode);
-    ui.showToast('资料库已' + scanLabel.value, 'ok');
+    const result = await account.scrapeLibrary(mode);
+    const feedback = scanCompletionFeedback(mode, result.totalErrors);
+    ui.showToast(feedback.message, feedback.tone);
+  } catch (error) {
+    clientLog('error', 'library-scan', error instanceof Error ? error.message : String(error));
+    ui.showToast(SCAN_FAILURE_MESSAGE, 'error');
   } finally {
-    if (filter.refreshScanMode === 'full') ui.hideScanOverlay();
+    if (mode === 'full') ui.hideScanOverlay();
   }
+}
+
+async function onScrape() {
+  await runScan(filter.refreshScanMode);
+}
+
+async function onRecoveryScan() {
+  await runScan('full');
 }
 
 // ─── Context menu ───────────────────────────────────────────────────────────
@@ -613,6 +642,41 @@ onUnmounted(() => {
   animation: spin 900ms linear infinite;
   transform-origin: center;
   transform-box: fill-box;
+}
+
+.library-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px var(--pad);
+  color: var(--warn);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--step-3);
+}
+.library-error-banner span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-error-banner button {
+  flex-shrink: 0;
+  color: var(--ink);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+}
+.library-error-banner button:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+.library-error-banner button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.match-list .empty.error .btn {
+  margin-top: 12px;
 }
 
 /* Listbox owns focus; option active state is painted on MatchCard.

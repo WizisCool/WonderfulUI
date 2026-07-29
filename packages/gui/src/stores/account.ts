@@ -31,6 +31,10 @@ export interface AclosStatus {
 
 export const ALL_ACCOUNTS = '__all__';
 
+export function isVisibleAccount(account: Account): boolean {
+  return (account.matchCount ?? 0) > 0 || !!account.error?.trim();
+}
+
 export const useAccountStore = defineStore('account', () => {
   const accounts = ref<Account[]>([]);
   const selectedAccountId = ref<string | null>(null);
@@ -48,10 +52,10 @@ export const useAccountStore = defineStore('account', () => {
   // first-run / onboarding screen.
   const aclosStatus = ref<AclosStatus | null>(null);
 
-  // Highlight browser: never list WonderfulDb shells with zero matches
-  // (backend also filters; this is a display safety net for older library.db).
+  // Hide only clean, empty WonderfulDb shells. Parse failures remain visible
+  // so the user has a recovery path instead of a misleading empty library.
   const realAccounts = computed(() =>
-    accounts.value.filter((a) => (a.matchCount ?? 0) > 0),
+    accounts.value.filter(isVisibleAccount),
   );
 
   function assignAccountLabels() {
@@ -64,10 +68,11 @@ export const useAccountStore = defineStore('account', () => {
 
   const accountsForRender = computed(() => {
     if (realAccounts.value.length === 0) return [];
-    return [
-      { openid: ALL_ACCOUNTS, path: '', matchCount: matches.value.length },
-      ...realAccounts.value,
-    ] as Account[];
+    const visible = [...realAccounts.value];
+    if (matches.value.length > 0) {
+      visible.unshift({ openid: ALL_ACCOUNTS, path: '', matchCount: matches.value.length });
+    }
+    return visible as Account[];
   });
 
   const accountOrder = computed(() => realAccounts.value.map(a => a.openid));
@@ -108,11 +113,12 @@ export const useAccountStore = defineStore('account', () => {
     if (
       selectedAccountId.value &&
       selectedAccountId.value !== ALL_ACCOUNTS &&
-      !data.accounts.some((a) => a.openid === selectedAccountId.value && (a.matchCount ?? 0) > 0)
+      !data.accounts.some((a) => a.openid === selectedAccountId.value && isVisibleAccount(a))
     ) {
-      selectedAccountId.value = data.accounts.some((a) => (a.matchCount ?? 0) > 0)
+      const visible = data.accounts.filter(isVisibleAccount);
+      selectedAccountId.value = data.matches.length > 0
         ? ALL_ACCOUNTS
-        : null;
+        : (visible[0]?.openid ?? null);
     }
     dir.value = data.dir;
     totalErrors.value = data.totalErrors;

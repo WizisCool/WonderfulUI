@@ -198,7 +198,7 @@ function rowTip(a: Account): string {
     const fc = filteredCounts.value.get(ALL_ACCOUNTS) ?? account.matches.length;
     return hasActiveFilters.value ? `所有账户的高光\n${fc} / ${account.matches.length} 条命中` : `所有账户的高光\n${account.matches.length} 条高光`;
   }
-  if (a.error) return a.error;
+  if (a.error) return '账户读取失败\n请执行全量扫描重试，详细原因已写入本地日志';
   const label = accountLabel(a);
   const cnt = countText(a);
   return hasActiveFilters.value

@@ -171,8 +171,10 @@ async function performBoot() {
       clientLog('warn', 'boot', 'background refresh exceeded the 30 second boot wait');
     }
     await account.cacheAssets();
-    if (account.realAccounts.length > 0) {
+    if (account.matches.length > 0) {
       account.selectAccount('__all__');
+    } else if (account.realAccounts.length > 0) {
+      account.selectAccount(account.realAccounts[0]!.openid);
     }
     booted.value = true;
     bootRef.value?.complete();

@@ -299,6 +299,8 @@ import { useSettingsStore } from '../../stores/settings.ts';
 import { useUiStore } from '../../stores/ui.ts';
 import { useUpdateStore } from '../../stores/update.ts';
 import { invoke } from '../../tauri-adapter.ts';
+import { clientLog } from '../../utils/client-log.ts';
+import { SCAN_FAILURE_MESSAGE, scanCompletionFeedback } from '../../utils/scan-feedback.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 import { fmtBytes } from '../../utils/library-stats.ts';
 import type { LibraryStats } from '../../utils/library-stats.ts';
@@ -407,11 +409,16 @@ watch(logPreviewText, () => {
 async function onFullScan() {
   ui.showScanOverlay();
   try {
-    await account.scrapeLibrary('full');
+    const result = await account.scrapeLibrary('full');
+    const feedback = scanCompletionFeedback('full', result.totalErrors);
+    ui.showToast(feedback.message, feedback.tone);
+    await settings.fetchLibraryStats();
+  } catch (error) {
+    clientLog('error', 'library-scan', error instanceof Error ? error.message : String(error));
+    ui.showToast(SCAN_FAILURE_MESSAGE, 'error');
   } finally {
     ui.hideScanOverlay();
   }
-  settings.fetchLibraryStats();
 }
 
 async function revealLogsDir() {
