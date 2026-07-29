@@ -416,8 +416,10 @@ async function onFullScan() {
 
 async function revealLogsDir() {
   try {
-    await invoke('reveal_path', { path: settings.logStatus?.logDir ?? '' });
-  } catch { /* ignore */ }
+    await invoke('reveal_logs_dir');
+  } catch (e) {
+    ui.showToast(`打开日志目录失败: ${(e as Error)?.message ?? String(e)}`, 'error');
+  }
 }
 
 watch(() => settings.isOpen, (open) => {

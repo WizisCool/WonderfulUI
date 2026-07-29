@@ -23,6 +23,11 @@ const tauriConfig = JSON.parse(
 const capability = JSON.parse(
   readFileSync(join(repoRoot, 'src-tauri', 'capabilities', 'default.json'), 'utf8'),
 ) as Capability;
+const tauriCommands = readFileSync(join(repoRoot, 'src-tauri', 'src', 'lib.rs'), 'utf8');
+const settingsModal = readFileSync(
+  join(repoRoot, 'packages', 'gui', 'src', 'components', 'settings', 'SettingsModal.vue'),
+  'utf8',
+);
 
 describe('Tauri security boundaries', () => {
   test('ships a restrictive production CSP while leaving Vite dev explicit', () => {
@@ -61,5 +66,11 @@ describe('Tauri security boundaries', () => {
     expect(identifiers).toContain('fs:allow-write-file');
     expect(identifiers).not.toContain('fs:allow-read-file');
     expect(identifiers).not.toContain('fs:scope');
+  });
+
+  test('settings uses the registered, path-free log directory command', () => {
+    expect(settingsModal).toContain("invoke('reveal_logs_dir')");
+    expect(settingsModal).not.toContain("invoke('reveal_path'");
+    expect(tauriCommands).toMatch(/generate_handler!\[[\s\S]*\breveal_logs_dir,/);
   });
 });
