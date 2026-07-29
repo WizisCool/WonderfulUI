@@ -83,9 +83,7 @@ pub fn compute(conn: &Connection) -> Result<LibraryStats, String> {
         asset_kinds = kinds;
     }
 
-    let log_bytes: i64 = crate::app_log::status()
-        .map(|s| s.size as i64)
-        .unwrap_or(0);
+    let log_bytes: i64 = crate::app_log::status().map(|s| s.size as i64).unwrap_or(0);
 
     let (total_videos, videos_bytes, missing_videos, missing_videos_bytes): (i64, i64, i64, i64) = conn
         .query_row(
@@ -210,8 +208,8 @@ fn walk_asset_cache(base: &Path) -> Result<Vec<AssetKindStat>, String> {
         return Ok(Vec::new());
     }
     let mut result = Vec::new();
-    let mut dir_reader =
-        std::fs::read_dir(&assets_dir).map_err(|e| format!("read_dir {}: {}", assets_dir.display(), e))?;
+    let mut dir_reader = std::fs::read_dir(&assets_dir)
+        .map_err(|e| format!("read_dir {}: {}", assets_dir.display(), e))?;
     while let Some(entry) = dir_reader.next() {
         let entry = entry.map_err(|e| e.to_string())?;
         if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -352,10 +350,16 @@ mod tests {
         std::fs::write(assets.join("map_image").join("c.png"), "data").expect("write file");
         let kinds = walk_asset_cache(&dir).expect("walk succeeds");
         assert_eq!(kinds.len(), 2);
-        let hero = kinds.iter().find(|k| k.kind == "hero_image").expect("hero kind");
+        let hero = kinds
+            .iter()
+            .find(|k| k.kind == "hero_image")
+            .expect("hero kind");
         assert_eq!(hero.count, 2);
         assert_eq!(hero.bytes, 10);
-        let map = kinds.iter().find(|k| k.kind == "map_image").expect("map kind");
+        let map = kinds
+            .iter()
+            .find(|k| k.kind == "map_image")
+            .expect("map kind");
         assert_eq!(map.count, 1);
         assert_eq!(map.bytes, 4);
         let _ = std::fs::remove_dir_all(&dir);

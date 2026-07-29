@@ -184,16 +184,28 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE accounts ADD COLUMN parse_error TEXT", [])?;
     }
     if !column_exists(conn, "accounts", "source_size_bytes")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN source_size_bytes INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN source_size_bytes INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "source_mtime_ms")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN source_mtime_ms INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN source_mtime_ms INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "snapshot_size_bytes")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN snapshot_size_bytes INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN snapshot_size_bytes INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "snapshot_mtime_ms")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN snapshot_mtime_ms INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN snapshot_mtime_ms INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "scrape_jobs", "skipped_accounts")? {
         conn.execute(

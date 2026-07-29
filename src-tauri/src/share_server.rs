@@ -92,8 +92,7 @@ impl Default for ShareServerState {
 /// 找一个空闲端口。
 fn pick_free_port() -> Result<u16, String> {
     use std::net::TcpListener;
-    let listener = TcpListener::bind("0.0.0.0:0")
-        .map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
+    let listener = TcpListener::bind("0.0.0.0:0").map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("local_addr: {e}"))?
@@ -209,7 +208,11 @@ pub fn start_server(
         .to_string();
 
     let port = pick_free_port().map_err(|e| {
-        crate::app_log::write(crate::app_log::LogLevel::Error, "share", format!("port pick: {e}"));
+        crate::app_log::write(
+            crate::app_log::LogLevel::Error,
+            "share",
+            format!("port pick: {e}"),
+        );
         e
     })?;
     let token = make_token();
@@ -322,8 +325,7 @@ fn run_server(
         .map_err(|e| format!("bind 0.0.0.0:{port}: {e}"))?;
 
     // 鉴权辅助：检查 Host header 是不是本机
-    let lan_ip_v4: Option<Ipv4Addr> = lan_ip::detect_lan_ipv4()
-        .and_then(|s| s.parse().ok());
+    let lan_ip_v4: Option<Ipv4Addr> = lan_ip::detect_lan_ipv4().and_then(|s| s.parse().ok());
 
     // 期望的 path 前缀
     let expected_prefix = format!("/w/{token}");
@@ -342,15 +344,13 @@ fn run_server(
 
     let accept_thread = thread::Builder::new()
         .name("wui-share-accept".into())
-        .spawn(move || {
-            loop {
-                let req = match server.recv() {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-                if req_tx.send(req).is_err() {
-                    return;
-                }
+        .spawn(move || loop {
+            let req = match server.recv() {
+                Ok(r) => r,
+                Err(_) => return,
+            };
+            if req_tx.send(req).is_err() {
+                return;
             }
         })
         .map_err(|e| format!("spawn accept thread: {e}"))?;
@@ -432,10 +432,8 @@ fn handle_request(
             "share",
             format!("method not allowed: {} {}", req.method(), req.url()),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("method not allowed")
-                .with_status_code(405),
-        );
+        let _ = req
+            .respond(tiny_http::Response::from_string("method not allowed").with_status_code(405));
         return;
     }
 
@@ -446,10 +444,7 @@ fn handle_request(
             "share",
             format!("path mismatch: {}", req.url()),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("not found")
-                .with_status_code(404),
-        );
+        let _ = req.respond(tiny_http::Response::from_string("not found").with_status_code(404));
         return;
     }
 
@@ -481,10 +476,7 @@ fn handle_request(
             "share",
             format!("host rejected ({detail})"),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("forbidden")
-                .with_status_code(403),
-        );
+        let _ = req.respond(tiny_http::Response::from_string("forbidden").with_status_code(403));
         return;
     }
 
@@ -494,8 +486,7 @@ fn handle_request(
         Ok(f) => f,
         Err(e) => {
             let _ = req.respond(
-                tiny_http::Response::from_string(format!("open file: {e}"))
-                    .with_status_code(500),
+                tiny_http::Response::from_string(format!("open file: {e}")).with_status_code(500),
             );
             return;
         }
@@ -505,18 +496,12 @@ fn handle_request(
 
     let response = tiny_http::Response::from_file(file)
         .with_header(
-            tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                mime.as_bytes(),
-            )
-            .expect("static header"),
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                .expect("static header"),
         )
         .with_header(
-            tiny_http::Header::from_bytes(
-                &b"Content-Disposition"[..],
-                disposition.as_bytes(),
-            )
-            .expect("static header"),
+            tiny_http::Header::from_bytes(&b"Content-Disposition"[..], disposition.as_bytes())
+                .expect("static header"),
         );
     // **真正把文件流式发出去**。tiny_http 的 `respond()` 同步等文件
     // 读完 + 写到 socket 才返回。**只有成功返回才算"下载完成"**。
@@ -560,10 +545,15 @@ fn handle_request(
 
 fn guess_mime(name: &str) -> &'static str {
     let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".mp4") { "video/mp4" }
-    else if lower.ends_with(".webm") { "video/webm" }
-    else if lower.ends_with(".mkv") { "video/x-matroska" }
-    else { "application/octet-stream" }
+    if lower.ends_with(".mp4") {
+        "video/mp4"
+    } else if lower.ends_with(".webm") {
+        "video/webm"
+    } else if lower.ends_with(".mkv") {
+        "video/x-matroska"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 /// RFC 6266 / 5987 attachment header. ASCII `filename=` fallback + UTF-8

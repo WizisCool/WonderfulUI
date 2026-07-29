@@ -194,11 +194,8 @@ fn try_open_local_storage(dir: &Path, idx: &mut AclosIdentityIndex) -> bool {
 }
 
 fn copy_leveldb_to_temp(src: &Path) -> Result<PathBuf, std::io::Error> {
-    let tmp = std::env::temp_dir().join(format!(
-        "wui-aclos-ls-{}-{}",
-        std::process::id(),
-        now_ms()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("wui-aclos-ls-{}-{}", std::process::id(), now_ms()));
     if tmp.exists() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -617,11 +614,14 @@ fn record_exact(
     tag: Option<String>,
     score: u32,
 ) {
-    let entry = idx.exact.entry(openid.to_string()).or_insert(ScoredIdentity {
-        nick: None,
-        tag: None,
-        score: 0,
-    });
+    let entry = idx
+        .exact
+        .entry(openid.to_string())
+        .or_insert(ScoredIdentity {
+            nick: None,
+            tag: None,
+            score: 0,
+        });
     let better = score > entry.score
         || (score == entry.score && tag.is_some() && entry.tag.is_none() && nick.is_some());
     if better {
@@ -769,11 +769,8 @@ mod tests {
             Some("11111".into()),
             SCORE_LEVELDB_HIGHLIGHT_USER,
         );
-        let (nick, tag) = idx.merge_with_snapshot(
-            OID_A,
-            Some("FromSnapshot".into()),
-            Some("22222".into()),
-        );
+        let (nick, tag) =
+            idx.merge_with_snapshot(OID_A, Some("FromSnapshot".into()), Some("22222".into()));
         assert_eq!(nick.as_deref(), Some("FromLevelDb"));
         assert_eq!(tag.as_deref(), Some("11111"));
     }

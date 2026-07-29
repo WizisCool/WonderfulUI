@@ -24,9 +24,7 @@ fn detect_via_connect() -> Option<String> {
     // connect 不会真发包；只是让 OS 选出口接口
     sock.connect(("8.8.8.8", 80)).ok()?;
     match sock.local_addr().ok() {
-        Some(SocketAddr::V4(v4)) if is_lan_ipv4(v4.ip()) => {
-            Some(v4.ip().to_string())
-        }
+        Some(SocketAddr::V4(v4)) if is_lan_ipv4(v4.ip()) => Some(v4.ip().to_string()),
         _ => None,
     }
 }
@@ -52,11 +50,17 @@ fn detect_via_interface_enum() -> Option<String> {
 pub fn is_lan_ipv4(ip: &Ipv4Addr) -> bool {
     let octets = ip.octets();
     // 10.0.0.0/8
-    if octets[0] == 10 { return true; }
+    if octets[0] == 10 {
+        return true;
+    }
     // 172.16.0.0/12
-    if octets[0] == 172 && (16..=31).contains(&octets[1]) { return true; }
+    if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+        return true;
+    }
     // 192.168.0.0/16
-    if octets[0] == 192 && octets[1] == 168 { return true; }
+    if octets[0] == 192 && octets[1] == 168 {
+        return true;
+    }
     false
 }
 

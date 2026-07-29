@@ -80,9 +80,7 @@ fn with_reader<T>(
     path: &str,
     f: impl FnOnce(&windows::Win32::Media::MediaFoundation::IMFSourceReader) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut guard = SESSION
-        .lock()
-        .map_err(|_| "截图会话锁失败".to_string())?;
+    let mut guard = SESSION.lock().map_err(|_| "截图会话锁失败".to_string())?;
 
     let need_new = match guard.as_ref() {
         Some(s) => s.path != path,

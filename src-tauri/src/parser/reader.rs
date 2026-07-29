@@ -17,14 +17,15 @@
 use crate::parser::crypto::{aes_decrypt, derive_key_iv};
 use crate::parser::error::ParseError;
 use crate::parser::hex::decode_hex;
-use crate::parser::model::{MatchRecord, WonderfulDbFile, SnapshotAchievement};
+use crate::parser::model::{MatchRecord, SnapshotAchievement, WonderfulDbFile};
 use std::path::Path;
 
 /// Parse a WonderfulDb file. `openid` is the file name without path
 /// (ACLOS uses the openid as the file name with no extension).
 pub fn parse_wonderful_db(path: &Path, openid: &str) -> Result<WonderfulDbFile, ParseError> {
     let bytes = std::fs::read(path)?;
-    let hex_text = std::str::from_utf8(&bytes).map_err(|e| ParseError::Crypto(format!("file is not valid UTF-8: {}", e)))?;
+    let hex_text = std::str::from_utf8(&bytes)
+        .map_err(|e| ParseError::Crypto(format!("file is not valid UTF-8: {}", e)))?;
     let cipher = decode_hex(hex_text)?;
 
     let (key, iv) = derive_key_iv(openid);
@@ -129,10 +130,7 @@ pub fn parse_snapshot_db(path: &Path, openid: &str) -> Result<SnapshotData, Pars
         let rec_time = rec
             .get("matches_time")
             .and_then(|v| v.as_i64())
-            .or_else(|| {
-                snap.get("ss_time")
-                    .and_then(|v| v.as_i64())
-            })
+            .or_else(|| snap.get("ss_time").and_then(|v| v.as_i64()))
             .unwrap_or(0);
         let cand_nick = snap
             .get("ss_nick")
@@ -161,10 +159,7 @@ pub fn parse_snapshot_db(path: &Path, openid: &str) -> Result<SnapshotData, Pars
         if achv != "mvp" && achv != "svp" {
             continue;
         }
-        let mid = rec
-            .get("matches_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let mid = rec.get("matches_id").and_then(|v| v.as_str()).unwrap_or("");
         if mid.is_empty() {
             continue;
         }
@@ -180,7 +175,11 @@ pub fn parse_snapshot_db(path: &Path, openid: &str) -> Result<SnapshotData, Pars
         });
     }
 
-    Ok(SnapshotData { nick, tag, achievements })
+    Ok(SnapshotData {
+        nick,
+        tag,
+        achievements,
+    })
 }
 
 // ─── tests ────────────────────────────────────────────────────────────────
@@ -215,24 +214,9 @@ mod tests {
 
     // min_matches is a soft floor only — local WonderfulDb can be wiped.
     const REAL_DBS: &[(&str, &str, usize, &str)] = &[
-        (
-            "4807045517549591240",
-            "4807045517549591240",
-            0,
-            "",
-        ),
-        (
-            "14121192131852595386",
-            "14121192131852595386",
-            0,
-            "",
-        ),
-        (
-            "13794749312275947089",
-            "13794749312275947089",
-            0,
-            "",
-        ),
+        ("4807045517549591240", "4807045517549591240", 0, ""),
+        ("14121192131852595386", "14121192131852595386", 0, ""),
+        ("13794749312275947089", "13794749312275947089", 0, ""),
     ];
 
     const REAL_SNAPSHOTS: &[(&str, &str, &str, &str)] = &[
@@ -334,8 +318,7 @@ mod tests {
             );
             if !expected_agent.is_empty() {
                 assert_eq!(
-                    result.matches[0].agent.agent_name,
-                    *expected_agent,
+                    result.matches[0].agent.agent_name, *expected_agent,
                     "{}: first match agent mismatch",
                     openid
                 );
@@ -355,16 +338,31 @@ mod tests {
                 .unwrap_or_else(|e| panic!("parse_snapshot_db({}) failed: {}", openid, e));
             eprintln!(
                 "\n--- {} ---\n  nick: {:?}\n  tag:  {:?}\n  achievements: {}",
-                openid, data.nick, data.tag, data.achievements.len()
+                openid,
+                data.nick,
+                data.tag,
+                data.achievements.len()
             );
-            let exp_nick: Option<&str> = if expected_nick.is_empty() { None } else { Some(expected_nick) };
-            let exp_tag: Option<&str> = if expected_tag.is_empty() { None } else { Some(expected_tag) };
+            let exp_nick: Option<&str> = if expected_nick.is_empty() {
+                None
+            } else {
+                Some(expected_nick)
+            };
+            let exp_tag: Option<&str> = if expected_tag.is_empty() {
+                None
+            } else {
+                Some(expected_tag)
+            };
             assert_eq!(data.nick.as_deref(), exp_nick, "{}: nick mismatch", openid);
             assert_eq!(data.tag.as_deref(), exp_tag, "{}: tag mismatch", openid);
             // Prefer non-empty nick when expected; achievements are optional for
             // newer snapshots that ACLOS may populate later.
             if openid == &"4807045517549591240" || openid == &"14121192131852595386" {
-                assert!(!data.achievements.is_empty(), "{}: should have achievements", openid);
+                assert!(
+                    !data.achievements.is_empty(),
+                    "{}: should have achievements",
+                    openid
+                );
             }
         }
     }

@@ -22,12 +22,12 @@ pub fn shell_open(path: &str) -> Result<(), String> {
     // ShellExecuteW 同步返回（关联程序由 shell 在另一个进程启动）。
     let result = unsafe {
         ShellExecuteW(
-            None,                       // 父窗口
-            PCWSTR(verb.as_ptr()),      // "open" 触发默认关联
-            PCWSTR(target.as_ptr()),    // 目标文件绝对路径
-            PCWSTR::null(),             // 参数（关联程序不需要）
-            PCWSTR::null(),             // 工作目录（沿用当前）
-            SW_SHOWNORMAL,              // 显示方式
+            None,                    // 父窗口
+            PCWSTR(verb.as_ptr()),   // "open" 触发默认关联
+            PCWSTR(target.as_ptr()), // 目标文件绝对路径
+            PCWSTR::null(),          // 参数（关联程序不需要）
+            PCWSTR::null(),          // 工作目录（沿用当前）
+            SW_SHOWNORMAL,           // 显示方式
         )
     };
 
