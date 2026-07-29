@@ -343,7 +343,7 @@ describe('career-missing map/agent fallbacks', () => {
   test('mapCn/fmtMap resolve Skirmish_A and RangeV2', () => {
     expect(fmtMap('/Game/Maps/Duel/Duel_1/Skirmish_A')).toBe('斗牛 1');
     expect(fmtMap('/Game/Maps/Duel/Duel_Heady/Skirmish_E')).toBe('斗牛 5');
-    expect(fmtMap('/Game/Maps/PovegliaV2/RangeV2')).toBe('训练场');
+    expect(fmtMap('/Game/Maps/PovegliaV2/RangeV2')).toBe('靶场');
     expect(fmtMap('/Game/Maps/HURM/HURM_Helix/HURM_Helix')).toBe('渔市');
     expect(fmtMap('/Game/Maps/HURM/HURM_Alley/HURM_Alley')).toBe('商街');
     expect(fmtMap('/Game/Maps/HURM/HURM_Bowl/HURM_Bowl')).toBe('古城');
@@ -359,11 +359,11 @@ describe('career-missing map/agent fallbacks', () => {
     });
     expect(agentCn(m)).toBe('捷风');
     expect(mapCn(m)).toBe('斗牛 1');
-    expect(heroImageUrl(m)).toContain('headicon');
-    expect(mapImageUrl(m)).toContain('skirmish_a');
+    expect(heroImageUrl(m)).toBe('/valorant/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png');
+    expect(mapImageUrl(m)).toBe('/valorant/maps/a9009649-421f-d5d5-f80c-0cbe02c125bb.png');
   });
 
-  test('career values win for text and images when present', () => {
+  test('canonical values win over inconsistent career values for known entities', () => {
     const m = mkMatch({
       agent: { agent_id: 'x', agent_name: 'Jett' },
       career: {
@@ -374,9 +374,9 @@ describe('career-missing map/agent fallbacks', () => {
       },
       map: { map_id: '/Game/Maps/Ascent/Ascent' },
     });
-    expect(agentCn(m)).toBe('自定义');
-    expect(mapCn(m)).toBe('自定义图');
-    expect(mapImageUrl(m)).toBe('https://example.com/m.png');
-    expect(heroImageUrl(m)).toBe('https://example.com/h.png');
+    expect(agentCn(m)).toBe('捷风');
+    expect(mapCn(m)).toBe('亚海悬城');
+    expect(mapImageUrl(m)).toBe('/valorant/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319.png');
+    expect(heroImageUrl(m)).toBe('/valorant/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png');
   });
 });

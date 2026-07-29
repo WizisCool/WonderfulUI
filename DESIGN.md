@@ -195,7 +195,7 @@ Both shadows use pure black at 40–45% opacity — no color cast, so they read 
 ### Chips
 - **Style:** Pill-shaped (border-radius 999px), Panel Raised background, 1px Line Faint border, Dispatch Gray text. 1px 7px padding for list chips (mode), 4px 10px for filter chips (moments).
 - **Active state:** Ember background, Signal Red border and text. Used for selected filter and the current match list filter.
-- **Mode chip variant:** Inline-flex with a 12×12px mode icon (loaded from ACLOS CDN) sitting left of the text. On icon load failure, the `<img>` self-removes and the chip degrades to text-only.
+- **Mode chip variant:** Inline-flex with a 12×12px mode icon from the bundled canonical game-mode registry sitting left of the text. Unknown modes or invalid local assets degrade to text-only; never fetch an icon at runtime.
 
 ### Cards
 - **Corner Style:** 6px radius (`--radius`) for match rows and video cards. 8px radius for stat cells. 4px radius for cover thumbnails.

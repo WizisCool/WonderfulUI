@@ -106,24 +106,27 @@ Rules:
 
 ## Display Field Semantics
 
-Prefer the ACLOS `career.*` strings for user-facing labels when present:
+Known Valorant entities use one generated, offline registry so old ACLOS
+records cannot make the same map/agent change label or image URL:
 
-- Hero name: `career.hero_name`, else local EN→CN table (`packages/gui/src/utils/valorant-assets.ts`), else `m.agent.agent_name`.
-- Map name: `career.map_name`, else local `map_id` table (Skirmish / Range / HURM included), else last path segment of `map_id`.
+- Hero name: canonical `agent.agent_id` UUID / `agent.agent_name` lookup, then unknown-only `career.hero_name`, then `agent.agent_name`.
+- Map name: canonical `map.map_id` lookup, then unknown-only `career.map_name` / `map.map_name`, then the last path segment.
 - Game mode: `career.game_mode`, fallback empty string.
 - Hero avatar / map cover / mode icon: **only** via `packages/gui/src/utils/valorant-assets.ts`.
-  - URL: `resolveMatchAssetUrl(match, kind)` (career → portable CDN table).
+  - URL: `resolveMatchAssetUrl(match, kind)` (canonical identity → bundled `/valorant/...` path).
   - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
-  - Cache batch: `collectMatchAssetEntries(matches)` → Tauri `cache_assets` (first visit remote, later disk).
-- Do not hard-code map/hero CDN URLs in components; extend the tables in `valorant-assets.ts`.
+  - Unknown HTTP(S) image values are ignored; missing imagery degrades to the existing glyph/text fallback instead of going online.
+- Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and `packages/gui/public/valorant/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater.
+- `bun run assets:check` must verify that every registry path has one valid bundled PNG and no stale files exist.
+- Do not hard-code CDN URLs in components, hand-edit generated files, or add branches for one observed match/account.
 - Team rounds: `stats.rounds_won` / `stats.rounds_lost`.
 - Personal combat score: `stats.score`.
 - Match duration: `gameStartTime` / `gameEndTime`.
 
-Skirmish / Range / TDM matches often omit `career.*` entirely — without the local
-asset table the UI would show raw `Skirmish_A` and English `Jett`. Keep
-`valorant-assets.ts` portable (no machine openids); extend it when new map
-path segments appear in ACLOS.
+Skirmish / Range / TDM matches often omit `career.*` entirely. The generated
+registry covers them by stable map URL. If ACLOS introduces an unknown entity,
+the raw field remains visible until the registry is refreshed; do not patch the
+single sample in production code.
 
 Do not use `agent.agent_id`, raw unmapped `map_id`, `stats.mode_name`, or `career.battle_id` as user-facing display labels.
 

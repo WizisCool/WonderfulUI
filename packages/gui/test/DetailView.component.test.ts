@@ -13,7 +13,7 @@ function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
     map: { map_id: '/Game/Maps/Ascent/Ascent' },
     mode: 'competitive',
     agent: { agent_name: 'Cypher', agent_id: 'cypher-id' },
-    career: { hero_name: '黑梦', map_name: '亚海悬城', game_mode: '标准' },
+    career: { hero_name: '零', map_name: '亚海悬城', game_mode: '标准' },
     stats: { kills: 20, deaths: 10, assists: 5, score: 4500, has_won: true, rounds_won: 13, rounds_lost: 8, mode_name: '', game_level: '' },
     minRoundId: 0,
     gameStartTime: '2026-06-08 18:00:00',
@@ -43,7 +43,9 @@ async function mountDetail(match: MatchRecord | null, roundsLoaded = false) {
         router,
         createTestingPinia({
           createSpy: vi.fn,
-          stubActions: false,
+          // Component rendering tests should not execute the browser-debug
+          // rounds IPC action; store/action behavior has dedicated tests.
+          stubActions: true,
           initialState: {
             detail: { selectedMatch: match, momentFilter: null, roundsLoaded },
             account: {
@@ -67,7 +69,7 @@ describe('DetailView', () => {
 
   test('renders agent name when match selected', async () => {
     const wrapper = await mountDetail(mkMatch());
-    expect(wrapper.text()).toContain('黑梦');
+    expect(wrapper.text()).toContain('零');
   });
 
   test('renders K/D/A stats', async () => {

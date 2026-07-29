@@ -47,6 +47,14 @@ WonderfulUI is a product for many Windows installs, not a one-PC script.
 - Optional **local fixture** openids in tests/docs are for *skip-if-missing* integration checks only; they must not drive release behavior or special-case UI.
 - When debugging with real local WonderfulDb, keep findings in analysis/comments for humans; ship only portable code.
 
+### No Sample-Shaped Metadata Fixes
+
+- Never repair a map/agent mismatch by adding one observed name, URL, openid, or match-specific branch.
+- Known Valorant maps, agents, and identifiable game modes come from the generated canonical registry in `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`; refresh it only with `bun run update:valorant-metadata`.
+- The registry uses stable map URLs / agent UUIDs / mode asset paths. Runtime `career.*` labels are unknown-entity fallbacks, not competing truth sources; runtime HTTP(S) image fallbacks are forbidden.
+- The updater downloads verified PNGs into `packages/gui/public/valorant/`. Vite serves that directory in dev and copies it to `dist` during build. `bun run assets:check` must pass before shipping.
+- A metadata change must include source provenance plus invariant/regression tests (unique IDs, non-empty labels, bundled paths, complete PNG files, and consistent fixture identity).
+
 ### Goal-Driven Execution
 
 For multi-step work, state a brief plan with verification:
@@ -151,12 +159,13 @@ More detail: `docs/ARCHITECTURE.md`.
 - Event playback uses a separate `seekMs`; under the state machine it equals the accepted state's exact video timestamp. `normalizeMatchEvents` keeps the best playable duplicate: kills prefer `击杀集锦`, deaths prefer `死亡集锦`.
 - Event row click and progress-bar dot click both apply a 2 s pre-roll (`EVENT_PREROLL_MS` in `event-time.ts`, via `playbackSeekMsForVideo`). The player seeks to `event_time - 2 s` (clamped >= 0) so the user sees the kill/death happen instead of the post-frame. Dot positions on the bar stay at the exact event time for visual reference.
 - Weapon skin paths like `LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C` are normalised in `packages/gui/src/utils/weapons.ts`. Weapon codes are mapped by `WEAPON_CN`; skin Chinese names come from the committed local dump `packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, refreshed with `bun run update:skins`. Runtime GUI code must not fetch Valorant-API.
+- Map/agent/mode labels and images come from `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` plus `packages/gui/public/valorant/`, refreshed together with `bun run update:valorant-metadata`. Do not hand-edit generated metadata/assets or fetch them at runtime.
 
 ## Reference Docs
 
 - `docs/ACLOS_FORMAT.md` - WonderfulDb paths, format notes, snapshot nicknames, parser field semantics, rounds/clips/events.
 - `docs/ARCHITECTURE.md` - runtime shape, Tauri commands, scaling plan, dev/test workflow, repo layout.
-- `docs/FRONTEND_CONVENTIONS.md` - stable DOM rendering, account sentinel, match/detail layout, asset cache, player rules, fonts/icons, event interaction flow.
+- `docs/FRONTEND_CONVENTIONS.md` - stable DOM rendering, account sentinel, match/detail layout, bundled assets, player rules, fonts/icons, event interaction flow.
 - `docs/AGENT_WORKFLOW.md` - standard agent loops for features, bug fixes, refactors, optional PRs, manual checks, and GitHub Actions releases. Includes the hard default: no remote push without an explicit user request.
 - `docs/UPDATER.md` - in-app self-update system (tauri-plugin-updater + GitHub Releases latest.json, signing keys, UpdateModal UI spec).
 - `DESIGN.md` - product visual system and UI constraints.

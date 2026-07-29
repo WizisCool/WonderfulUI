@@ -10,7 +10,7 @@
 
 export interface MatchMap {
   map_id: string;             // e.g. "/Game/Maps/Jam/Jam"
-  map_name?: string;          // human name "亚海悬城" / "Ascent" (from career)
+  map_name?: string;          // human name, e.g. "莲华古城" for Jam (from source data)
   map_image?: string;
 }
 

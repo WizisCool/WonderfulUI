@@ -178,7 +178,7 @@ const fullMatches: MatchRecord[] = [
   {
     matches_id: 'debug-match-20260620-001',
     matches_time: now,
-    map: { map_id: '/Game/Maps/Jam/Jam', map_name: '亚海悬城', map_image: ascentMap },
+    map: { map_id: '/Game/Maps/Ascent/Ascent', map_name: '亚海悬城', map_image: ascentMap },
     agent: { agent_id: 'debug-agent-jett', agent_name: 'Jett' },
     stats: {
       kills: 24,

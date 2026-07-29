@@ -1,4 +1,10 @@
 import { beforeEach } from 'vitest';
+import { registerAppIcons } from '../src/icons/register.ts';
+
+// Component tests do not execute main.ts, so register the same offline icon
+// subset explicitly. Otherwise Iconify attempts CDN fetches for each WIcon and
+// happy-dom reports noisy AbortErrors while tearing the window down.
+registerAppIcons();
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();

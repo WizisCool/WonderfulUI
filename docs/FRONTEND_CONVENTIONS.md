@@ -171,36 +171,56 @@ Moment grouping:
 
 ## Visual Source Fields
 
-Use `career.*` for most UI text and images:
+Known Valorant maps, agents, and game modes use the generated canonical registry:
+
+- Stable identity: `map.map_id` for maps; `agent.agent_id` UUID, then
+  `agent.agent_name`, for agents.
+- Chinese labels and images:
+  `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`.
+- Runtime images: `/valorant/{agents,maps,gamemodes}/<uuid>.png`, stored in
+  `packages/gui/public/valorant/` and bundled by Vite.
+- Refresh command: `bun run update:valorant-metadata` (never hand-edit the
+  generated registry or add sample-specific lookup branches).
+
+For an entity that is not yet in the registry, retain ACLOS text fields as a
+forward-compatible label fallback:
 
 - `career.hero_name`
 - `career.map_name`
+- `map.map_name`
+
+Game modes are matched by `stats.mode_name` asset path, then `mode` /
+`career.game_mode`. Continue to use `career.game_mode` as the visible label;
+the registry supplies the icon when a stable match exists.
+
 - `career.game_mode`
-- `career.hero_image`
-- `career.map_image`
-- `career.game_mode_icon`
+
+Unknown HTTP(S) image fields (`career.hero_image`, `career.map_image`,
+`career.game_mode_icon`, `map.map_image`) are intentionally ignored. A local
+`/…` or `data:` value remains acceptable for deterministic fixtures, but the
+shipped application never contacts an image CDN at runtime.
 
 Fallbacks are documented in `docs/ACLOS_FORMAT.md`.
 
-## Asset Cache
+## Bundled Valorant Assets
 
-Remote career assets (hero heads, map splash art, game-mode icons) are lazily
-cached in a unified system, not bundled.
-
-- Frontend collects unique `career.hero_image`, `career.map_image`, and
-  `career.game_mode_icon` URLs after `scan_all`, then calls `cache_assets`
-  in a single bulk invocation.
-- Rust stores files in `%LOCALAPPDATA%\wonderful-ui\assets\{kind}\`,
-  keyed by SHA256 of each URL. SQLite `assets` table tracks every entry.
-- Frontend maps remote URLs to local paths with a shared `assetPathCache`
-  `Map<string, string>`, serving them through `convertFileSrc`.
-- After the async cache batch completes, visible panes refresh so
-  placeholders turn into images.
-- `cache_hero_image` is retained as a thin wrapper around `cache_asset`
-  for backward compatibility.
-
-Known CDN quirk: Miks `29.png` can be 4 MB because the CDN returns a
-2048×2048 image.
+- `bun run update:valorant-metadata` is the only networked maintenance step.
+  It fetches metadata, downloads agent/map/mode PNGs from the documented source,
+  validates origin, size, and PNG signature, and removes stale generated PNGs.
+- `bun run assets:check` verifies registry/file parity and PNG signatures
+  without network access.
+- `packages/gui` runs the check before `vite` and both before and after
+  `vite build`. This ensures `bun run dev`, browser debug, local Tauri builds,
+  and CI/Release builds use the same files.
+- Vite serves `public/` at `/` in dev and copies it unchanged into `dist/`.
+  Tauri packages that `dist`; do not import these PNGs into JavaScript or
+  reintroduce runtime CDN fallback.
+- The same build check rejects external CSS imports and auto-loaded remote
+  script/link/img/media resources. User-initiated external links in the About
+  view and the updater endpoint are separate, explicit network actions.
+- `collectMatchAssetEntries` and the Rust `cache_asset(s)` commands remain as
+  backward-compatible no-op/legacy boundaries. Canonical resolution returns
+  local paths, so current GUI scans do not start remote asset downloads.
 
 ## Tooltips
 
@@ -340,8 +360,8 @@ Brand lockup:
 The match-row cover is map image + hero head icon:
 
 - 88 x 72 cover.
-- `career.map_image` is the full-bleed background.
-- `career.hero_image` is a 36 px circular badge at bottom-right.
+- `resolveMatchAssetSrc(match, 'map_image', …)` supplies the bundled full-bleed background.
+- `resolveMatchAssetSrc(match, 'hero_image', …)` supplies the bundled 36 px circular badge at bottom-right.
 - Use a radial gradient under the badge so the icon feels anchored.
 - Badge shadows should be warm-tinted, not pure black.
 

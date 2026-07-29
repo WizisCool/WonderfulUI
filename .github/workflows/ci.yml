@@ -50,6 +50,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
+      - run: bun run assets:check
       - run: bun run typecheck
       - run: bun run test:all
       - name: Cargo lib tests (debug)

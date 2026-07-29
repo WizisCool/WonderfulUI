@@ -12,7 +12,7 @@ function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
     map: { map_id: '/Game/Maps/Ascent/Ascent' },
     mode: 'competitive',
     agent: { agent_name: 'Cypher', agent_id: 'cypher-id' },
-    career: { hero_name: '黑梦', map_name: '亚海悬城' },
+    career: { hero_name: '零', map_name: '亚海悬城' },
     stats: { kills: 14, deaths: 12, assists: 5, score: 3200, has_won: true, rounds_won: 13, rounds_lost: 10, mode_name: '', game_level: '' },
     minRoundId: 0,
     gameStartTime: '2026-06-08 18:00:00',
@@ -47,9 +47,9 @@ function mountCard(
 }
 
 describe('MatchCard', () => {
-  test('renders agent name from career', () => {
+  test('renders canonical agent name', () => {
     const wrapper = mountCard(mkMatch());
-    expect(wrapper.text()).toContain('黑梦');
+    expect(wrapper.text()).toContain('零');
   });
 
   test('renders KDA text', () => {

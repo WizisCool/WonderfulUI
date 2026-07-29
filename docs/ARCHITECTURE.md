@@ -150,11 +150,13 @@ Defined in `src-tauri/src/lib.rs`:
 - `get_library_stats() -> LibraryStats`
   - Reads the local SQLite library and app-owned cache/log metadata to feed the settings `资料库概览`.
   - The GUI currently visualizes per-account video counts from this payload; storage byte fields remain backend diagnostics, not primary UI.
-- `cache_hero_image(url)` (legacy thin wrapper around `cache_asset`)
-- `cache_asset(kind, url)` — unified asset cache supporting `hero_image`, `map_image`, `game_mode_icon`
-- `cache_assets(entries)` — batch variant, returns `url → local_path` map for bulk pre-warm
-  - Caches remote assets into `%LOCALAPPDATA%\wonderful-ui\assets\{kind}\`.
-  - First scan may download played-agent icons, map covers, and mode icons; later scans should hit cache.
+- `cache_hero_image(url)` / `cache_asset(kind, url)` / `cache_assets(entries)`
+  are retained legacy IPC boundaries. Current canonical match visuals resolve
+  to Vite-bundled `/valorant/...` paths, so `collectMatchAssetEntries` yields no
+  download work and normal scans do not contact an image CDN.
+- Canonical metadata and PNGs are generated together by
+  `bun run update:valorant-metadata`. `packages/gui` verifies the source tree
+  before dev/build and verifies the copied `dist/valorant` tree after build.
 
 ## IPC Shape
 

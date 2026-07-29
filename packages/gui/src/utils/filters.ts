@@ -31,12 +31,12 @@ export function mapCn(m: MatchRecord): string {
   return resolveMatchMapLabel(m);
 }
 
-/** Remote map cover URL (career → table). Prefer resolveMatchMapImage in new code. */
+/** Bundled map cover path (canonical registry → local unknown fallback). */
 export function mapImageUrl(m: MatchRecord): string | undefined {
   return resolveMatchMapImage(m);
 }
 
-/** Remote hero portrait URL (career → table). Prefer resolveMatchHeroImage in new code. */
+/** Bundled hero portrait path (canonical registry → local unknown fallback). */
 export function heroImageUrl(m: MatchRecord): string | undefined {
   return resolveMatchHeroImage(m);
 }
