@@ -32,6 +32,7 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
 import WIcon from '../common/WIcon.vue';
+import { trapDialogTab } from '../../utils/dialog-focus.ts';
 
 const props = defineProps<{
   modelValue: [number | null, number | null];
@@ -45,6 +46,7 @@ const triggerRef = ref<HTMLDivElement | null>(null);
 const isOpen = ref(false);
 const viewDate = ref(new Date());
 let draftRange: { start: Date | null; end: Date | null } = { start: null, end: null };
+let focusedDay = startOfDay(new Date());
 let popover: HTMLElement | null = null;
 let outsideListenerTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -103,6 +105,13 @@ function monthGrid(year: number, month: number): Date[][] {
   return weeks;
 }
 
+function shiftMonthClamped(date: Date, delta: number): Date {
+  const target = new Date(date.getFullYear(), date.getMonth() + delta, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(date.getDate(), lastDay));
+  return startOfDay(target);
+}
+
 function initDraft() {
   const [lo, hi] = props.modelValue;
   draftRange = {
@@ -121,6 +130,7 @@ function openPopover() {
   initDraft();
   const seed = draftRange.start ?? new Date();
   viewDate.value = new Date(seed);
+  focusedDay = startOfDay(seed);
 
   popover = document.createElement('div');
   popover.className = 'dr-popover';
@@ -144,10 +154,11 @@ function openPopover() {
 
   requestAnimationFrame(() => {
     popover?.classList.add('is-open');
+    focusCalendarDay(focusedDay);
   });
 }
 
-function closePopover() {
+function closePopover(restoreFocus = false) {
   if (outsideListenerTimer !== null) {
     clearTimeout(outsideListenerTimer);
     outsideListenerTimer = null;
@@ -164,6 +175,7 @@ function closePopover() {
     node.addEventListener('transitionend', cleanup, { once: true });
     setTimeout(cleanup, 240);
   }
+  if (restoreFocus) triggerRef.value?.querySelector<HTMLButtonElement>('.dr-trigger')?.focus();
 }
 
 function applyDraft() {
@@ -179,17 +191,72 @@ function applyDraft() {
     ]);
   }
   initDraft();
-  closePopover();
+  closePopover(true);
 }
 
 function clearRange() {
   draftRange = { start: null, end: null };
   emit('update:modelValue', [null, null]);
-  closePopover();
+  closePopover(true);
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') { e.stopPropagation(); closePopover(); }
+  if (!popover) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closePopover(true);
+    return;
+  }
+  if (e.key === 'Tab') {
+    trapDialogTab(e, popover);
+    return;
+  }
+
+  const target = e.target instanceof HTMLElement ? e.target.closest<HTMLButtonElement>('.dr-day') : null;
+  if (!target) return;
+  const current = Number(target.dataset.time);
+  if (!Number.isFinite(current)) return;
+  let next = startOfDay(new Date(current));
+  let handled = true;
+  switch (e.key) {
+    case 'ArrowLeft': next.setDate(next.getDate() - 1); break;
+    case 'ArrowRight': next.setDate(next.getDate() + 1); break;
+    case 'ArrowUp': next.setDate(next.getDate() - 7); break;
+    case 'ArrowDown': next.setDate(next.getDate() + 7); break;
+    case 'Home': next.setDate(next.getDate() - next.getDay()); break;
+    case 'End': next.setDate(next.getDate() + (6 - next.getDay())); break;
+    case 'PageUp': next = shiftMonthClamped(next, e.shiftKey ? -12 : -1); break;
+    case 'PageDown': next = shiftMonthClamped(next, e.shiftKey ? 12 : 1); break;
+    default: handled = false;
+  }
+  if (!handled) return;
+  e.preventDefault();
+  e.stopPropagation();
+  focusedDay = next;
+  viewDate.value = new Date(next);
+  render();
+  focusCalendarDay(next);
+}
+
+function focusCalendarDay(day: Date) {
+  const target = popover?.querySelector<HTMLButtonElement>(`.dr-day[data-time="${day.getTime()}"]`);
+  target?.focus({ preventScroll: true });
+}
+
+function focusAfterRender(selector: string) {
+  requestAnimationFrame(() => {
+    popover?.querySelector<HTMLButtonElement>(selector)?.focus({ preventScroll: true });
+  });
+}
+
+function dayAriaLabel(day: Date): string {
+  const labels = [`${day.getFullYear()}年${day.getMonth() + 1}月${day.getDate()}日`];
+  if (isSameDay(day, new Date())) labels.push('今天');
+  if (draftRange.start && isSameDay(day, draftRange.start)) labels.push('范围开始');
+  if (draftRange.end && isSameDay(day, draftRange.end)) labels.push('范围结束');
+  else if (draftRange.start && draftRange.end && inRange(day, draftRange.start, draftRange.end)) labels.push('范围内');
+  return labels.join('，');
 }
 
 function onDocDown(e: MouseEvent) {
@@ -270,12 +337,14 @@ function render() {
     d.setMonth(d.getMonth() - 1);
     viewDate.value = d;
     render();
+    focusAfterRender('[aria-label="上一月"]');
   });
   nextBtn.addEventListener('click', () => {
     const d = new Date(viewDate.value);
     d.setMonth(d.getMonth() + 1);
     viewDate.value = d;
     render();
+    focusAfterRender('[aria-label="下一月"]');
   });
   prevBtn.appendChild(createNavIcon('left', 14));
   nextBtn.appendChild(createNavIcon('right', 14));
@@ -301,6 +370,8 @@ function render() {
       cell.className = 'dr-day';
       cell.type = 'button';
       cell.dataset.time = String(day.getTime());
+      cell.tabIndex = isSameDay(day, focusedDay) ? 0 : -1;
+      cell.setAttribute('aria-label', dayAriaLabel(day));
 
       const num = document.createElement('span');
       num.className = 'dr-day-num';
@@ -321,6 +392,7 @@ function render() {
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
         const d = startOfDay(day);
+        focusedDay = d;
         if (!draftRange.start || (draftRange.start && draftRange.end)) {
           draftRange = { start: d, end: null };
           render();
@@ -332,6 +404,7 @@ function render() {
           }
           render();
         }
+        focusCalendarDay(d);
       });
 
       grid.appendChild(cell);
@@ -351,6 +424,7 @@ function render() {
     reset.addEventListener('click', () => {
       draftRange = { start: null, end: null };
       render();
+      focusAfterRender('.dr-footer-close');
     });
     footer.appendChild(reset);
   }
@@ -380,7 +454,7 @@ function createNavIcon(direction: 'left' | 'right', size: number): SVGSVGElement
 }
 
 onUnmounted(() => {
-  closePopover();
+  closePopover(false);
 });
 </script>
 

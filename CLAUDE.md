@@ -250,6 +250,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - A library-view decode failure must never disappear silently: omit only the malformed `matches.raw_json` row, count it in `LoadResult.totalErrors`, and log the stable match/account ids without logging the raw payload. A full scan is the recovery path.
 - Incremental scan skips only unchanged accounts with no previous parse error; full scan is available from the refresh-button mode setting and as a direct settings-modal maintenance action.
 - Clean zero-match shells stay hidden, but parse-error accounts remain visible even with `matchCount = 0`. All manual scan entry points must distinguish success, partial `totalErrors`, and rejected IPC; raw backend errors stay in the app log rather than being rendered as tooltips/toasts.
+- Account rows use roving keyboard focus (arrows/Home/End + Enter/Space). Collapsed performance filters are `inert`, filter chips expose `aria-pressed`, and the date dialog must preserve one live focused day across every DOM re-render with clamped month navigation.
 - `snapshot<openid>` is optional and must not block highlight loading.
 - `ALL_ACCOUNTS = '__all__'` is a synthetic sentinel, not a real account.
 - Frontend uses a stable DOM skeleton; do not rebuild all of `#app` for normal state changes.

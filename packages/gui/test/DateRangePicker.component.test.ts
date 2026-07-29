@@ -49,4 +49,72 @@ describe('DateRangePicker trigger', () => {
     wrapper.unmount();
     addListener.mockRestore();
   });
+
+  test('moves focus into the calendar and preserves it after choosing a date', async () => {
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [null, null] },
+    });
+
+    await wrapper.find('.dr-trigger').trigger('click');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+    const focused = document.activeElement as HTMLButtonElement;
+    expect(focused.classList.contains('dr-day')).toBe(true);
+    expect(focused.tabIndex).toBe(0);
+    expect(focused.getAttribute('aria-label')).toMatch(/\d+年\d+月\d+日/);
+
+    focused.click();
+    expect(document.activeElement?.classList.contains('dr-day')).toBe(true);
+    expect((document.activeElement as HTMLElement).dataset.time).toBe(focused.dataset.time);
+    wrapper.unmount();
+  });
+
+  test('supports arrow and month keyboard navigation without date overflow', async () => {
+    const january31 = new Date(2025, 0, 31).getTime();
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [january31, january31] },
+    });
+
+    await wrapper.find('.dr-trigger').trigger('click');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const initial = document.activeElement as HTMLButtonElement;
+    expect(new Date(Number(initial.dataset.time)).getDate()).toBe(31);
+
+    initial.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
+    const february = new Date(Number((document.activeElement as HTMLElement).dataset.time));
+    expect(february.getMonth()).toBe(1);
+    expect(february.getDate()).toBe(28);
+
+    const beforeArrow = new Date(february);
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+    }));
+    const afterArrow = new Date(Number((document.activeElement as HTMLElement).dataset.time));
+    beforeArrow.setDate(beforeArrow.getDate() + 1);
+    expect(afterArrow.getTime()).toBe(beforeArrow.getTime());
+    wrapper.unmount();
+  });
+
+  test('Escape closes the dialog and restores focus to its trigger', async () => {
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [null, null] },
+    });
+    const trigger = wrapper.get('.dr-trigger').element as HTMLButtonElement;
+    await wrapper.get('.dr-trigger').trigger('click');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+    }));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('.dr-trigger').attributes('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(trigger);
+    wrapper.unmount();
+  });
 });

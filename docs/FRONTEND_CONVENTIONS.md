@@ -151,6 +151,10 @@ Use the pattern from `date-picker.ts`:
 - It is fixed at the top of the account pane. Drag sorting and manual rename apply only to real accounts.
 - Manual account display names come from SQLite `account_preferences.custom_name` (`customName` over IPC) and override snapshot nick/tag only in WonderfulUI.
 - Account drag sorting uses SortableJS on `.account-sortable-list` with `.account-grip` as the handle, not custom pointer math. Keep `__all__` outside that sortable container and fixed at the top, persist only real account ids, and use Sortable's forced fallback path in WebView2 so the dragged clone follows the pointer reliably. Style `chosen` / `ghost` / `drag` / `fallback` classes so users see both the grabbed row and its drop position while neighboring rows animate out of the way.
+- The account list uses roving `tabindex`: only the selected row (or the first
+  visible row when nothing is selected) participates in Tab order. Arrow Up /
+  Down and Home / End move focus; Enter / Space select. Key handling must
+  ignore events originating from the nested rename input/button.
 
 ## Match and Detail Semantics
 
@@ -364,9 +368,15 @@ Account list uses a custom tooltip, not native `title=`.
   - Progress bar shimmer: `1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite`, `translateX(-100% → 250%)` — never animates `width`
   - Motion is app-owned (not gated on OS `prefers-reduced-motion`)
 
-## Date Range Picker
+## Filter and Date Range Accessibility
 
-- Date-range picker UI lives in `packages/gui/src/utils/date-picker.ts` (pure logic) with a Vue wrapper in `packages/gui/src/components/match/DateRangePicker.vue`, styled by the `.dr-*` block in `packages/gui/src/assets/style.css`.
+- Filter chips and date presets expose selection with `aria-pressed`. The
+  collapsed performance-filter body is both `aria-hidden` and `inert`; CSS
+  height/opacity alone must never leave invisible numeric inputs in Tab order.
+- Date-range picker UI lives in
+  `packages/gui/src/components/match/DateRangePicker.vue`, styled by the
+  `.dr-*` block in `packages/gui/src/assets/style.css`. Date boundary helpers
+  that are shared with filter logic live in `packages/gui/src/utils/date-picker.ts`.
 - It is a filter-rail control, not a modal or standalone calendar card. Keep it visually aligned with filter chips and numeric inputs: low elevation, token colors, no decorative shadow, no red top border.
 - The main trigger and the conditional clear action are sibling `<button>`
   elements inside `.dr-trigger-wrap`. Never nest the clear button inside the
@@ -374,6 +384,11 @@ Account list uses a custom tooltip, not native `title=`.
   keyboard/screen-reader behavior. Both siblings need visible focus rings.
 - Date clicks update an internal draft only. The applied filter must change only when the user clicks `完成`.
 - The trigger clear button may clear the already-applied date filter immediately. The popover `清除` button clears only the draft until `完成` is clicked.
+- Opening the popover moves focus to the applied start date or today. Exactly
+  one day has `tabindex="0"`; arrows move by day/week, Home/End move within the
+  week, Page Up/Down move by a clamped month, and Shift+Page Up/Down move by a
+  year. Re-rendering after a date/month action must restore a live focus
+  target. Tab loops inside the dialog; Escape and `完成` restore the trigger.
 - Selecting a single date and then clicking `完成` applies that one day as both start and end; the end timestamp remains inclusive through `23:59:59.999` local time.
 - Calendar day numbers must be real child elements above range backgrounds. Do not place raw text directly under `.dr-day` if the day uses pseudo-element range fills.
 

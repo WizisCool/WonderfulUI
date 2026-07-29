@@ -9,6 +9,7 @@
           class="filter-chip"
           :class="{ 'is-active': entry.active }"
           type="button"
+          :aria-pressed="entry.active"
           :data-value="entry.value"
           :style="{ animationDelay: `${Math.min(i, 8) * 12}ms` }"
           @click="onChipClick(section.key, entry.value)"
@@ -26,6 +27,7 @@
         class="filter-chip"
         :class="{ 'is-active': preset.active }"
         type="button"
+        :aria-pressed="preset.active"
         @click="onDatePreset(preset)"
       >{{ preset.label }}</button>
     </div>
@@ -43,6 +45,7 @@
       :class="{ 'is-active': advancedActiveCount > 0 }"
       type="button"
       :aria-expanded="advancedExpanded"
+      aria-controls="advanced-performance-filters"
       @click="advancedExpanded = !advancedExpanded"
     >
       <span class="filter-num-group-chevron" aria-hidden="true">
@@ -51,7 +54,13 @@
       <span class="filter-num-group-title">表现筛选</span>
       <span class="filter-num-group-count">{{ advancedActiveCount > 0 ? advancedActiveCount : '' }}</span>
     </button>
-    <div class="filter-num-group-body" :class="{ 'is-collapsed': !advancedExpanded }">
+    <div
+      id="advanced-performance-filters"
+      class="filter-num-group-body"
+      :class="{ 'is-collapsed': !advancedExpanded }"
+      :aria-hidden="!advancedExpanded"
+      :inert="!advancedExpanded"
+    >
       <div class="filter-num-group-inner">
         <template v-for="row in advancedRows" :key="row.key">
           <div class="filter-num-row" :data-filter-key="row.key" :class="{ 'is-active': row.active }">

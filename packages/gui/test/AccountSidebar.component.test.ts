@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import AccountSidebar from '../src/components/common/AccountSidebar.vue';
+import { useAccountStore } from '../src/stores/account.ts';
 
 vi.mock('sortablejs', () => ({
   default: class SortableMock {
@@ -87,6 +88,48 @@ describe('AccountSidebar rename lifecycle', () => {
     expect(document.activeElement).toBe(input);
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe(input.value.length);
+    wrapper.unmount();
+  });
+
+  test('supports roving keyboard focus and Enter selection', async () => {
+    const wrapper = mount(AccountSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [
+          createTestingPinia({
+            createSpy: vi.fn,
+            stubActions: false,
+            initialState: {
+              account: {
+                accounts: [
+                  { openid: 'account-a', path: '', matchCount: 1 },
+                  { openid: 'account-b', path: '', matchCount: 1 },
+                ],
+                matches: [],
+                selectedAccountId: 'account-a',
+                accountLabels: new Map([
+                  ['account-a', '账户 A'],
+                  ['account-b', '账户 B'],
+                ]),
+              },
+              filter: { filters: {} },
+              update: { badge: false, update: null },
+            },
+          }),
+        ],
+      },
+    });
+    const rows = wrapper.findAll('.account[role="option"]');
+    expect(rows.map(row => row.attributes('tabindex'))).toEqual(['0', '-1']);
+
+    (rows[0]!.element as HTMLElement).focus();
+    await rows[0]!.trigger('keydown', { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(rows[1]!.element);
+    await rows[1]!.trigger('keydown', { key: 'Enter' });
+
+    expect(useAccountStore().selectedAccountId).toBe('account-b');
+    await wrapper.vm.$nextTick();
+    expect(rows[1]!.attributes('tabindex')).toBe('0');
     wrapper.unmount();
   });
 });
