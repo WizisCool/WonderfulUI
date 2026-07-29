@@ -279,6 +279,35 @@ describe('useUpdateStore', () => {
     w.unmount();
   });
 
+  test('manual check retries visibly after an overlapping silent failure', async () => {
+    let rejectSilent: (reason?: unknown) => void = () => {};
+    checkMock
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectSilent = reject; }),
+      )
+      .mockResolvedValueOnce(null);
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+
+    const silent = store.checkForUpdate(true);
+    const manual = store.checkForUpdate(false);
+    expect(checkMock).toHaveBeenCalledTimes(1);
+
+    rejectSilent(new Error('boot network failure'));
+    await Promise.all([silent, manual]);
+    await flushPromises();
+
+    expect(checkMock).toHaveBeenCalledTimes(2);
+    expect(store.status).toBe('uptodate');
+    expect(store.errorKind).toBeNull();
+    w.unmount();
+  });
+
   test('debug playFakeDownload reaches installing without plugin calls', async () => {
     vi.useFakeTimers();
     const w = mountModal({

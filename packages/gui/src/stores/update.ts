@@ -96,6 +96,7 @@ export type UpdateStatus =
 
 /** error 态的来源：决定「重试」走检查还是走下载安装。 */
 export type UpdateErrorKind = 'check' | 'download';
+type CheckOutcome = 'available' | 'uptodate' | 'failed';
 
 export interface UpdateInfo {
   version: string;
@@ -142,7 +143,8 @@ export const useUpdateStore = defineStore('update', () => {
   const debugSimulate = ref(false);
 
   /** 并发 check 去重：手动连点 / 启动+手动重叠时共用一个 promise。 */
-  let checkInflight: Promise<void> | null = null;
+  let checkInflight: Promise<CheckOutcome> | null = null;
+  let checkInflightSilent = false;
 
   /** null → playFakeDownload 用 FAKE_DEFAULT_TOTAL；0 → indeterminate */
   let fakeTotalOverride: number | null = null;
@@ -376,10 +378,23 @@ export const useUpdateStore = defineStore('update', () => {
 
     // 已有进行中的检查：等待同一 promise，避免并发 check()
     if (checkInflight) {
-      await checkInflight;
+      const inflight = checkInflight;
+      const joinedSilentCheck = checkInflightSilent;
+      const outcome = await inflight;
       // 若静默等待期间已有可用更新，手动调用方仍应打开弹窗
-      if (!silent && status.value === 'available') {
-        modalOpen.value = true;
+      if (!silent) {
+        if (outcome === 'available' && status.value === 'available') {
+          modalOpen.value = true;
+        } else if (joinedSilentCheck && outcome === 'failed') {
+          // A manual click must not inherit the silent boot check's error
+          // suppression. Once the shared silent transport fails, retry as a
+          // real manual check so the caller gets visible error/success state.
+          if (checkInflight === inflight) {
+            checkInflight = null;
+            checkInflightSilent = false;
+          }
+          await checkForUpdate(false);
+        }
       }
       return;
     }
@@ -391,7 +406,7 @@ export const useUpdateStore = defineStore('update', () => {
       errorKind.value = null;
     }
 
-    checkInflight = (async () => {
+    const request = (async (): Promise<CheckOutcome> => {
       try {
         const result = await check();
         if (!result) {
@@ -404,7 +419,7 @@ export const useUpdateStore = defineStore('update', () => {
           if (!silent) {
             useUiStore().showToast('已是最新版本', 'ok');
           }
-          return;
+          return 'uptodate';
         }
         const alreadyKnown =
           badge.value && update.value?.version === result.version;
@@ -423,26 +438,33 @@ export const useUpdateStore = defineStore('update', () => {
         } else {
           modalOpen.value = shouldAutoOpenOnSilent(result.version, alreadyKnown);
         }
+        return 'available';
       } catch (e) {
         const raw = e instanceof Error ? e.message : String(e);
         clientLog('error', SCOPE, `checkForUpdate failed: ${raw}`);
         if (silent) {
           // 启动静默：恢复原 status，仅记日志，不打扰用户
           status.value = prevStatus;
-          return;
+          return 'failed';
         }
         status.value = 'error';
         error.value = FRIENDLY_CHECK_ERROR;
         errorKind.value = 'check';
         modalOpen.value = true;
         useUiStore().showToast('检查更新失败', 'error');
+        return 'failed';
       }
     })();
+    checkInflight = request;
+    checkInflightSilent = silent;
 
     try {
-      await checkInflight;
+      await request;
     } finally {
-      checkInflight = null;
+      if (checkInflight === request) {
+        checkInflight = null;
+        checkInflightSilent = false;
+      }
     }
   }
 
