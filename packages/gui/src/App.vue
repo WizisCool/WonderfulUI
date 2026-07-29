@@ -65,6 +65,7 @@ const SettingsView = defineAsyncComponent(() => import('./views/SettingsView.vue
 const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
 const booted = ref(false);
 const bootError = ref<string | null>(null);
+let bootInflight: Promise<void> | null = null;
 
 // First-run / onboarding gate. ACLOS WonderfulDb must exist AND contain at
 // least one account file. If either is false, we render OnboardingView
@@ -97,7 +98,17 @@ const showOnboarding = computed(() => {
   return !s.dirExists || !s.hasAccounts;
 });
 
-async function runBoot() {
+function runBoot(): Promise<void> {
+  if (bootInflight) return bootInflight;
+  const operation = performBoot();
+  const request = operation.finally(() => {
+    if (bootInflight === request) bootInflight = null;
+  });
+  bootInflight = request;
+  return request;
+}
+
+async function performBoot() {
   bootError.value = null;
   try {
     bootRef.value?.start({ mode: 'boot' });
@@ -114,11 +125,23 @@ async function runBoot() {
     // the empty "还没有高光" state while scraping is still running.
     let resolveRefresh!: (result: StartupRefreshResult) => void;
     const refreshComplete = new Promise<StartupRefreshResult>(r => { resolveRefresh = r; });
-    const safetyTimer = window.setTimeout(() => resolveRefresh({ status: 'timeout' }), 30_000);
+    let refreshSettled = false;
+    let safetyTimer: number | null = null;
+    const settleRefresh = (result: StartupRefreshResult) => {
+      if (refreshSettled) return;
+      refreshSettled = true;
+      if (safetyTimer !== null) {
+        clearTimeout(safetyTimer);
+        safetyTimer = null;
+      }
+      resolveRefresh(result);
+    };
     const unlisten = await listen<Record<string, unknown>>('wui://startup_refresh_finished', (event) => {
-      clearTimeout(safetyTimer);
-      resolveRefresh(parseStartupRefreshResult(event.payload));
+      settleRefresh(parseStartupRefreshResult(event.payload));
     });
+    if (!refreshSettled) {
+      safetyTimer = window.setTimeout(() => settleRefresh({ status: 'timeout' }), 30_000);
+    }
 
     account.scraping = true;
     let refreshResult: StartupRefreshResult;
@@ -129,7 +152,7 @@ async function runBoot() {
       // Wait for the background scrape to finish.
       refreshResult = await refreshComplete;
     } finally {
-      clearTimeout(safetyTimer);
+      if (safetyTimer !== null) clearTimeout(safetyTimer);
       unlisten();
       account.scraping = false;
     }
