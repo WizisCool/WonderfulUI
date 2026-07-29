@@ -41,7 +41,7 @@
           </span>
           <input
             v-if="editingOpenid === a.openid"
-            ref="renameInputRef"
+            :ref="setRenameInputRef"
             class="account-rename-input"
             type="text"
             v-model="renameValue"
@@ -98,7 +98,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import {
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  type ComponentPublicInstance,
+} from 'vue';
 import WIcon from './WIcon.vue';
 import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
@@ -155,6 +162,10 @@ const editingOpenid = ref<string | null>(null);
 const renameValue = ref('');
 const renameInputRef = ref<HTMLInputElement | null>(null);
 let sortable: Sortable | null = null;
+
+function setRenameInputRef(element: Element | ComponentPublicInstance | null) {
+  renameInputRef.value = element instanceof HTMLInputElement ? element : null;
+}
 
 const realCount = computed(() =>
   account.realAccounts.length
