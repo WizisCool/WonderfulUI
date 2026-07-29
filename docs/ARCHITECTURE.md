@@ -107,6 +107,9 @@ Defined in `src-tauri/src/lib.rs`:
     by the GUI when the user opens a match detail (lazy load).
 - `save_account_order(openids: string[])`
   - Persists the left account pane's user-defined order in SQLite `account_preferences`.
+  - Writes the complete order in one SQLite transaction; a failed row must
+    roll back earlier positions so a frontend optimistic rollback and the
+    persisted order cannot diverge.
   - The synthetic `__all__` account is not stored; it always renders at the top.
 - `rename_account(openid: string, customName?: string)`
   - Persists a WonderfulUI-local account display name override.

@@ -1,18 +1,23 @@
 # Frontend Conventions
 
-Last organized: 2026-06-22.
+Last organized: 2026-07-30.
 
 This document holds GUI implementation conventions that are too detailed for `AGENTS.md`. Follow `DESIGN.md` and `PRODUCT.md` first for product and visual intent.
 
 ## Rendering Model
 
 - The app uses a stable DOM skeleton.
-- `App.vue` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load. State management is driven by 6 Pinia stores (`account`, `filter`, `detail`, `player`, `settings`, `ui`) and vue-router (`createMemoryHistory`).
+- `App.vue` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load. State management is driven by 8 Pinia stores (`account`, `filter`, `detail`, `player`, `settings`, `share`, `ui`, `update`) and vue-router (`createMemoryHistory`).
 - State changes are driven by reactive Pinia stores, not manual DOM helpers.
 - Do not reintroduce `root.innerHTML = ''` or whole-`#app` rebuilds for ordinary interactions.
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
 - **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
+- The supported minimum window remains 960×600. At widths up to 1160 px,
+  opening the 260 px filter rail temporarily hides the fixed detail pane and
+  lets the match list span its grid column. Closing filters restores the
+  detail pane. Do not reintroduce four simultaneous fixed panes that squeeze
+  the list to 120 px at the configured minimum.
 
 ### Desktop shortcuts (Windows habits)
 
