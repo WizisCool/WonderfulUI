@@ -154,6 +154,11 @@ Defined in `src-tauri/src/lib.rs`:
   are retained legacy IPC boundaries. Current canonical match visuals resolve
   to Vite-bundled `/valorant/...` paths, so `collectMatchAssetEntries` yields no
   download work and normal scans do not contact an image CDN.
+  - Defense in depth: only the three known asset kinds, HTTPS on the two legacy
+    source hosts, raster PNG/JPEG/WebP responses matching the URL extension,
+    and files up to 16 MiB are accepted. Redirects and custom ports are blocked.
+  - Downloads use bounded timeouts plus a temporary file and atomic publish;
+    interrupted zero-byte/oversized cache files are discarded on the next use.
 - Canonical metadata and PNGs are generated together by
   `bun run update:valorant-metadata`. `packages/gui` verifies the source tree
   before dev/build and verifies the copied `dist/valorant` tree after build.

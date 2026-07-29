@@ -405,6 +405,9 @@ fn get_library_stats() -> Result<LibraryStats, String> {
 }
 
 fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
+    if !matches!(kind, "hero_image" | "map_image" | "game_mode_icon") {
+        return Err(format!("unsupported asset kind: {kind}"));
+    }
     let local = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA not set".to_string())?;
     Ok(std::path::PathBuf::from(local)
         .join("wonderful-ui")
@@ -412,43 +415,172 @@ fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
         .join(kind))
 }
 
+const MAX_ASSET_BYTES: u64 = 16 * 1024 * 1024;
+const ALLOWED_ASSET_HOSTS: &[&str] = &["media.valorant-api.com", "game.gtimg.cn"];
+
+fn validated_asset_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    let mut parsed = tauri::Url::parse(trimmed).map_err(|_| "invalid asset URL".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("asset URL must use https".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("asset URL credentials are not allowed".to_string());
+    }
+    if parsed.port().is_some() {
+        return Err("asset URL custom ports are not allowed".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "asset URL host is missing".to_string())?;
+    if !ALLOWED_ASSET_HOSTS.contains(&host) {
+        return Err(format!("unsupported asset host: {host}"));
+    }
+    // Fragments are client-side only. Removing them prevents duplicate cache
+    // keys for the same HTTP resource.
+    parsed.set_fragment(None);
+    Ok(parsed.into())
+}
+
+fn asset_content_type_extension(value: Option<&str>) -> Option<&'static str> {
+    let Some(value) = value else {
+        return None;
+    };
+    let mime = value.split(';').next().unwrap_or_default().trim();
+    if mime.eq_ignore_ascii_case("image/png") {
+        Some("png")
+    } else if mime.eq_ignore_ascii_case("image/jpeg") {
+        Some("jpg")
+    } else if mime.eq_ignore_ascii_case("image/webp") {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
+fn asset_extension(url: &str) -> &'static str {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => "jpg",
+        Some("webp") => "webp",
+        _ => "png",
+    }
+}
+
+fn response_matches_asset_extension(content_type: Option<&str>, extension: &str) -> bool {
+    matches!(
+        asset_content_type_extension(content_type),
+        Some(actual) if actual == extension
+    )
+}
+
 fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), String> {
+    let validated_url = validated_asset_url(url)?;
     let dir = assets_dir(kind)?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
 
-    let hash = sha256_hex(url);
-    let ext = std::path::Path::new(url)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("png");
+    let hash = sha256_hex(&validated_url);
+    let ext = asset_extension(&validated_url);
     let cached = dir.join(format!("{hash}.{ext}"));
 
-    if cached.exists() {
-        if let Ok(conn) = library::db::open_library() {
-            let _ = library::db::upsert_asset(&conn, kind, url, &cached.to_string_lossy(), &hash);
+    if let Ok(metadata) = std::fs::metadata(&cached) {
+        let size = metadata.len();
+        if metadata.is_file() && (1..=MAX_ASSET_BYTES).contains(&size) {
+            if let Ok(conn) = library::db::open_library() {
+                let _ = library::db::upsert_asset(
+                    &conn,
+                    kind,
+                    &validated_url,
+                    &cached.to_string_lossy(),
+                    &hash,
+                );
+            }
+            return Ok((cached.to_string_lossy().into_owned(), size, true));
         }
-        let size = std::fs::metadata(&cached).map(|m| m.len()).unwrap_or(0);
-        return Ok((cached.to_string_lossy().into_owned(), size, true));
+        // Older releases wrote directly to the final path and could leave a
+        // zero-byte/oversized partial file after interruption. It is app-owned
+        // cache data, so discard it before a clean download.
+        std::fs::remove_file(&cached).map_err(|e| format!("remove invalid cache file: {e}"))?;
     }
 
-    let resp = ureq::get(url)
+    let agent = ureq::AgentBuilder::new()
+        .redirects(0)
+        .timeout_connect(std::time::Duration::from_secs(5))
+        .timeout_read(std::time::Duration::from_secs(20))
+        .build();
+    let resp = agent
+        .get(&validated_url)
         .call()
-        .map_err(|e| format!("download {}: {}", url, e))?;
+        .map_err(|e| format!("download {}: {}", validated_url, e))?;
+    let content_type = resp.header("Content-Type");
+    if !response_matches_asset_extension(content_type, ext) {
+        return Err("asset response type does not match its file extension".to_string());
+    }
     let content_length: u64 = resp
         .header("Content-Length")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    let mut out =
-        std::fs::File::create(&cached).map_err(|e| format!("create cache file: {}", e))?;
-    let mut reader = resp.into_reader();
-    std::io::copy(&mut reader, &mut out).map_err(|e| format!("write cache file: {}", e))?;
+    if content_length > MAX_ASSET_BYTES {
+        return Err(format!(
+            "asset exceeds {} MiB limit",
+            MAX_ASSET_BYTES / 1_048_576
+        ));
+    }
+
+    let temp = dir.join(format!(".{hash}.{}.part", uuid::Uuid::new_v4()));
+    let download_result = (|| -> Result<u64, String> {
+        let mut out =
+            std::fs::File::create(&temp).map_err(|e| format!("create cache temp file: {e}"))?;
+        let mut reader = std::io::Read::take(resp.into_reader(), MAX_ASSET_BYTES + 1);
+        let written = std::io::copy(&mut reader, &mut out)
+            .map_err(|e| format!("write cache temp file: {e}"))?;
+        if written > MAX_ASSET_BYTES {
+            return Err(format!(
+                "asset exceeds {} MiB limit",
+                MAX_ASSET_BYTES / 1_048_576
+            ));
+        }
+        out.sync_all()
+            .map_err(|e| format!("sync cache temp file: {e}"))?;
+        Ok(written)
+    })();
+    let written = match download_result {
+        Ok(written) => written,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(e);
+        }
+    };
+
+    match std::fs::rename(&temp, &cached) {
+        Ok(()) => {}
+        Err(_) if cached.is_file() => {
+            // Another concurrent request won the same content-addressed path.
+            let _ = std::fs::remove_file(&temp);
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(format!("publish cache file: {e}"));
+        }
+    }
 
     let size = std::fs::metadata(&cached)
         .map(|m| m.len())
-        .unwrap_or(content_length);
+        .unwrap_or(written.max(content_length));
 
     if let Ok(conn) = library::db::open_library() {
-        let _ = library::db::upsert_asset(&conn, kind, url, &cached.to_string_lossy(), &hash);
+        let _ = library::db::upsert_asset(
+            &conn,
+            kind,
+            &validated_url,
+            &cached.to_string_lossy(),
+            &hash,
+        );
     }
 
     Ok((cached.to_string_lossy().into_owned(), size, false))
@@ -497,7 +629,19 @@ fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<Stri
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    let total = entries.len();
+    // Pre-dedupe by url; later entries with the same url are skipped
+    // (they'd produce the same file and rewrite SQLite needlessly).
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let work: Vec<(usize, CacheEntry)> = entries
+        .into_iter()
+        .filter_map(|mut entry| {
+            entry.url = entry.url.trim().to_string();
+            seen.insert(entry.url.clone()).then_some(entry)
+        })
+        .enumerate()
+        .map(|(i, entry)| (i + 1, entry))
+        .collect();
+    let total = work.len();
     if total == 0 {
         return HashMap::new();
     }
@@ -505,16 +649,6 @@ fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<Stri
     let results: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     let next_idx = AtomicUsize::new(0);
     let bytes_done = AtomicU64::new(0);
-
-    // Pre-dedupe by url; later entries with the same url are skipped
-    // (they'd produce the same file and rewrite SQLite needlessly).
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let work: Vec<(usize, CacheEntry)> = entries
-        .into_iter()
-        .enumerate()
-        .filter(|(_, e)| seen.insert(e.url.clone()))
-        .map(|(i, e)| (i + 1, e))
-        .collect();
 
     std::thread::scope(|s| {
         for _ in 0..CACHE_CONCURRENCY.min(work.len()) {
@@ -731,5 +865,69 @@ mod tests {
         assert!(err.contains("https"), "{err}");
         let err = open_external_url("file:///C:/Windows".into()).expect_err("file blocked");
         assert!(err.contains("https"), "{err}");
+    }
+
+    #[test]
+    fn asset_extension_ignores_query_and_normalizes_supported_types() {
+        assert_eq!(asset_extension("https://example.test/a.JPEG?x=.png"), "jpg");
+        assert_eq!(
+            asset_extension("https://example.test/a.webp#fragment"),
+            "webp"
+        );
+        assert_eq!(asset_extension("https://example.test/a.svg"), "png");
+        assert_eq!(asset_extension("https://example.test/no-extension"), "png");
+        assert_eq!(asset_extension("https://example.test/a.exe"), "png");
+    }
+
+    #[test]
+    fn asset_url_validation_allows_only_known_https_origins() {
+        assert_eq!(
+            validated_asset_url(" https://media.valorant-api.com/maps/a/splash.png#v1 ")
+                .expect("known host accepted"),
+            "https://media.valorant-api.com/maps/a/splash.png"
+        );
+        assert!(validated_asset_url("https://game.gtimg.cn/images/a.png").is_ok());
+
+        for rejected in [
+            "http://media.valorant-api.com/a.png",
+            "https://example.com/a.png",
+            "https://media.valorant-api.com.example.com/a.png",
+            "https://user@media.valorant-api.com/a.png",
+            "https://media.valorant-api.com:444/a.png",
+            "not a URL",
+        ] {
+            assert!(
+                validated_asset_url(rejected).is_err(),
+                "accepted {rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn asset_content_type_validation_is_strict() {
+        for allowed in ["image/png", "Image/JPEG; charset=binary", "image/webp"] {
+            assert!(
+                asset_content_type_extension(Some(allowed)).is_some(),
+                "rejected {allowed}"
+            );
+        }
+        for rejected in [
+            None,
+            Some(""),
+            Some("text/html"),
+            Some("image/gif"),
+            Some("image/svg+xml"),
+        ] {
+            assert!(asset_content_type_extension(rejected).is_none());
+        }
+        assert!(response_matches_asset_extension(Some("image/png"), "png"));
+        assert!(response_matches_asset_extension(Some("image/jpeg"), "jpg"));
+        assert!(!response_matches_asset_extension(Some("image/jpeg"), "png"));
+    }
+
+    #[test]
+    fn asset_kind_is_rejected_before_environment_lookup() {
+        let error = assets_dir("../escape").expect_err("unsupported kind rejected");
+        assert!(error.contains("unsupported asset kind"), "{error}");
     }
 }
