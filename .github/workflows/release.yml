@@ -56,6 +56,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
+      - run: bun run assets:build
       - run: bun run assets:check
       - run: bun run typecheck
       - run: bun run test:all

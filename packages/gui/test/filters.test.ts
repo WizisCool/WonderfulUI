@@ -6,6 +6,7 @@ import {
 } from '../src/utils/filters.ts';
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
 import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
+import { lookupAgentAsset, lookupMapAsset } from '../src/utils/valorant-assets.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 
 function mkVideo(overrides: Partial<VideoItem> = {}): VideoItem {
@@ -359,8 +360,8 @@ describe('career-missing map/agent fallbacks', () => {
     });
     expect(agentCn(m)).toBe('捷风');
     expect(mapCn(m)).toBe('斗牛 1');
-    expect(heroImageUrl(m)).toBe('/valorant/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png');
-    expect(mapImageUrl(m)).toBe('/valorant/maps/a9009649-421f-d5d5-f80c-0cbe02c125bb.png');
+    expect(heroImageUrl(m)).toBe(lookupAgentAsset('Jett')?.image);
+    expect(mapImageUrl(m)).toBe(lookupMapAsset('/Game/Maps/Duel/Duel_1/Skirmish_A')?.image);
   });
 
   test('canonical values win over inconsistent career values for known entities', () => {
@@ -376,7 +377,7 @@ describe('career-missing map/agent fallbacks', () => {
     });
     expect(agentCn(m)).toBe('捷风');
     expect(mapCn(m)).toBe('亚海悬城');
-    expect(mapImageUrl(m)).toBe('/valorant/maps/7eaecc1b-4337-bbf6-6ab9-04b8f06b3319.png');
-    expect(heroImageUrl(m)).toBe('/valorant/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png');
+    expect(mapImageUrl(m)).toBe(lookupMapAsset('/Game/Maps/Ascent/Ascent')?.image);
+    expect(heroImageUrl(m)).toBe(lookupAgentAsset('Jett')?.image);
   });
 });

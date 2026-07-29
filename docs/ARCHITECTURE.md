@@ -159,9 +159,16 @@ Defined in `src-tauri/src/lib.rs`:
     and files up to 16 MiB are accepted. Redirects and custom ports are blocked.
   - Downloads use bounded timeouts plus a temporary file and atomic publish;
     interrupted zero-byte/oversized cache files are discarded on the next use.
-- Canonical metadata and PNGs are generated together by
-  `bun run update:valorant-metadata`. `packages/gui` verifies the source tree
-  before dev/build and verifies the copied `dist/valorant` tree after build.
+- Canonical metadata and content-addressed source PNGs are generated together by
+  the networked maintenance command `bun run update:valorant-metadata`. Map
+  sources are canonical 16:9 `splash` images; exact duplicates share one hash.
+- Every `packages/gui` dev/build first runs the offline `bun run assets:build`
+  pipeline. Sharp produces 256x256 agent, 640x360 map and 128x128 mode WebPs in
+  ignored `packages/gui/public/valorant/`; only these outputs reach Vite `dist`
+  and the Tauri bundle. CI validate runs the same compiler explicitly.
+- `bun run assets:check` verifies source checksums/aspect ratios, output format,
+  dimensions, byte ceilings, exact registry parity and physical deduplication;
+  production build also verifies the copied `dist/valorant` tree.
 
 ## IPC Shape
 

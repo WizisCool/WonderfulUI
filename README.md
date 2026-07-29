@@ -92,7 +92,8 @@ cd WonderfulUI
 # 安装前端依赖
 bun install
 
-# 校验仓库内置的离线 Valorant 资源
+# 从仓库内置原图生成离线资源并校验
+bun run assets:build
 bun run assets:check
 
 # 开发模式（热重载）
@@ -105,7 +106,9 @@ bun run build
 构建产物位于 `target/release/bundle/`。
 
 地图、特工或模式更新时，由维护者运行 `bun run update:valorant-metadata`
-统一刷新元数据与 PNG；普通开发、测试和发布构建不依赖该境外接口。
+统一刷新元数据与经内容哈希去重的原始 PNG。普通开发和发布构建会在本地把
+地图 `splash`、特工头像和模式图标压缩为固定规格 WebP，整个过程不依赖境外接口；
+只有显式的更新命令需要联网。
 
 ---
 

@@ -177,8 +177,9 @@ Known Valorant maps, agents, and game modes use the generated canonical registry
   `agent.agent_name`, for agents.
 - Chinese labels and images:
   `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`.
-- Runtime images: `/valorant/{agents,maps,gamemodes}/<uuid>.png`, stored in
-  `packages/gui/public/valorant/` and bundled by Vite.
+- Runtime images: `/valorant/{agents,maps,gamemodes}/v<schema>-<source-sha>.webp`,
+  generated into `packages/gui/public/valorant/` and bundled by Vite. Multiple
+  entities may deliberately share one path when their official source bytes match.
 - Refresh command: `bun run update:valorant-metadata` (never hand-edit the
   generated registry or add sample-specific lookup branches).
 
@@ -205,15 +206,21 @@ Fallbacks are documented in `docs/ACLOS_FORMAT.md`.
 ## Bundled Valorant Assets
 
 - `bun run update:valorant-metadata` is the only networked maintenance step.
-  It fetches metadata, downloads agent/map/mode PNGs from the documented source,
-  validates origin, size, and PNG signature, and removes stale generated PNGs.
-- `bun run assets:check` verifies registry/file parity and PNG signatures
-  without network access.
-- `packages/gui` runs the check before `vite` and both before and after
+  It fetches metadata and canonical source PNGs from the documented origin,
+  uses the 16:9 map `splash` field rather than `listViewIcon`, stores files by
+  SHA-256, and removes unreferenced sources. Exact duplicates are stored once.
+- `bun run assets:build` is offline and compiles every unique source to one
+  fixed-spec WebP: agents 256x256, maps 640x360, modes 128x128. The committed
+  source tree is outside `public/`, so original multi-megabyte PNGs do not enter
+  `dist` or the installer.
+- `bun run assets:check` verifies source checksums/aspect ratios, registry/file
+  parity, output format/dimensions/byte ceilings, and rejects duplicate output
+  content without network access.
+- `packages/gui` runs build + check before `vite` and verifies again after
   `vite build`. This ensures `bun run dev`, browser debug, local Tauri builds,
-  and CI/Release builds use the same files.
+  and CI/Release builds use the same compiler and files.
 - Vite serves `public/` at `/` in dev and copies it unchanged into `dist/`.
-  Tauri packages that `dist`; do not import these PNGs into JavaScript or
+  Tauri packages that `dist`; do not import source PNGs into JavaScript or
   reintroduce runtime CDN fallback.
 - The same build check rejects external CSS imports and auto-loaded remote
   script/link/img/media resources. User-initiated external links in the About

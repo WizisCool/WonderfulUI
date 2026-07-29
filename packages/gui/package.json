@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun ../../tools/check-valorant-assets.ts && vite",
-    "build": "bun ../../tools/check-valorant-assets.ts && vite build && bun ../../tools/check-valorant-assets.ts --dist",
+    "dev": "bun ../../tools/build-valorant-assets.ts && bun ../../tools/check-valorant-assets.ts && vite",
+    "build": "bun ../../tools/build-valorant-assets.ts && bun ../../tools/check-valorant-assets.ts && vite build && bun ../../tools/check-valorant-assets.ts --dist",
     "preview": "vite preview",
     "icons:extract": "node scripts/extract-ph-icons.mjs",
     "test": "bun test --path-ignore-patterns \"test/*.component.test.ts\"",

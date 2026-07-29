@@ -52,8 +52,9 @@ WonderfulUI is a product for many Windows installs, not a one-PC script.
 - Never repair a map/agent mismatch by adding one observed name, URL, openid, or match-specific branch.
 - Known Valorant maps, agents, and identifiable game modes come from the generated canonical registry in `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`; refresh it only with `bun run update:valorant-metadata`.
 - The registry uses stable map URLs / agent UUIDs / mode asset paths. Runtime `career.*` labels are unknown-entity fallbacks, not competing truth sources; runtime HTTP(S) image fallbacks are forbidden.
-- The updater downloads verified PNGs into `packages/gui/public/valorant/`. Vite serves that directory in dev and copies it to `dist` during build. `bun run assets:check` must pass before shipping.
-- A metadata change must include source provenance plus invariant/regression tests (unique IDs, non-empty labels, bundled paths, complete PNG files, and consistent fixture identity).
+- The updater downloads canonical source PNGs into the content-addressed `packages/gui/assets/valorant-source/` tree. Maps use the API `splash` field, never the banner-shaped `listViewIcon`. Byte-identical records share one source and one runtime path.
+- `bun run assets:build` uses the committed sources to generate fixed-size WebP files under ignored `packages/gui/public/valorant/`; `packages/gui` runs it before both Vite dev and build. Vite copies only those compressed files to `dist`, so source PNGs never enter the installer. `bun run assets:check` must pass before shipping.
+- A metadata change must include source provenance plus invariant/regression tests (unique IDs, non-empty labels, content-addressed paths, source hashes/aspect ratios, fixed output dimensions, physical deduplication, and consistent fixture identity).
 
 ### Goal-Driven Execution
 
@@ -159,7 +160,7 @@ More detail: `docs/ARCHITECTURE.md`.
 - Event playback uses a separate `seekMs`; under the state machine it equals the accepted state's exact video timestamp. `normalizeMatchEvents` keeps the best playable duplicate: kills prefer `击杀集锦`, deaths prefer `死亡集锦`.
 - Event row click and progress-bar dot click both apply a 2 s pre-roll (`EVENT_PREROLL_MS` in `event-time.ts`, via `playbackSeekMsForVideo`). The player seeks to `event_time - 2 s` (clamped >= 0) so the user sees the kill/death happen instead of the post-frame. Dot positions on the bar stay at the exact event time for visual reference.
 - Weapon skin paths like `LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C` are normalised in `packages/gui/src/utils/weapons.ts`. Weapon codes are mapped by `WEAPON_CN`; skin Chinese names come from the committed local dump `packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, refreshed with `bun run update:skins`. Runtime GUI code must not fetch Valorant-API.
-- Map/agent/mode labels and images come from `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` plus `packages/gui/public/valorant/`, refreshed together with `bun run update:valorant-metadata`. Do not hand-edit generated metadata/assets or fetch them at runtime.
+- Map/agent/mode labels and images come from `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` plus the sources in `packages/gui/assets/valorant-source/`. Refresh those only with `bun run update:valorant-metadata`; runtime WebPs are generated with `bun run assets:build`. Do not hand-edit generated metadata/assets or fetch them at runtime.
 
 ## Reference Docs
 

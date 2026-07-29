@@ -52,8 +52,8 @@ describe('generated Valorant metadata', () => {
     expect(VALORANT_GAME_MODES.length).toBeGreaterThan(10);
     for (const record of [...VALORANT_AGENTS, ...VALORANT_MAPS, ...VALORANT_GAME_MODES]) {
       expect(record.cn.trim()).not.toBe('');
-      expect(record.image).toMatch(/^\/valorant\/(agents|maps|gamemodes)\/[a-f0-9-]+\.png$/);
-      expect(record.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(record.image).toMatch(/^\/valorant\/(agents|maps|gamemodes)\/v\d+-[a-f0-9]{64}\.webp$/);
+      expect(record.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
     }
   });
 
@@ -62,6 +62,16 @@ describe('generated Valorant metadata', () => {
     expect(lookupAgentAsset('Veto')?.cn).toBe('禁灭');
     expect(lookupMapAsset('/Game/Maps/Jam/Jam')?.cn).toBe('莲华古城');
     expect(lookupMapAsset('/Game/Maps/PovegliaV2/RangeV2')?.cn).toBe('靶场');
+  });
+
+  test('shares content-addressed files for byte-identical source images', () => {
+    const basicTraining = lookupMapAsset('/Game/Maps/NPEV2/NPEV2');
+    const rangeV2 = lookupMapAsset('/Game/Maps/PovegliaV2/RangeV2');
+    expect(basicTraining?.sourceSha256).toBe(rangeV2?.sourceSha256);
+    expect(basicTraining?.image).toBe(rangeV2?.image);
+
+    const records = [...VALORANT_AGENTS, ...VALORANT_MAPS, ...VALORANT_GAME_MODES];
+    expect(new Set(records.map(record => record.image)).size).toBeLessThan(records.length);
   });
 });
 
@@ -82,8 +92,8 @@ describe('canonical match resolution', () => {
 
     expect(resolveMatchAgentLabel(value)).toBe('捷风');
     expect(resolveMatchMapLabel(value)).toBe('莲华古城');
-    expect(resolveMatchAssetUrl(value, 'hero_image')).toBe('/valorant/agents/add6443a-41bd-e414-f6ad-e58d267f4e95.png');
-    expect(resolveMatchAssetUrl(value, 'map_image')).toBe('/valorant/maps/2fe4ed3a-450a-948b-6d6b-e89a78e680a9.png');
+    expect(resolveMatchAssetUrl(value, 'hero_image')).toBe(lookupAgentAsset('Jett')?.image);
+    expect(resolveMatchAssetUrl(value, 'map_image')).toBe(lookupMapAsset('/Game/Maps/Jam/Jam')?.image);
     expect(collectMatchAssetEntries([value])).toEqual([]);
   });
 
@@ -115,6 +125,6 @@ describe('canonical match resolution', () => {
     });
     expect(lookupGameModeAsset(value)?.cn).toBe('标准');
     expect(resolveMatchAssetUrl(value, 'game_mode_icon'))
-      .toBe('/valorant/gamemodes/96bd3920-4f36-d026-2b28-c683eb0bcac5.png');
+      .toBe(lookupGameModeAsset(value)?.image);
   });
 });

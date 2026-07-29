@@ -116,8 +116,9 @@ records cannot make the same map/agent change label or image URL:
   - URL: `resolveMatchAssetUrl(match, kind)` (canonical identity → bundled `/valorant/...` path).
   - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
   - Unknown HTTP(S) image values are ignored; missing imagery degrades to the existing glyph/text fallback instead of going online.
-- Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and `packages/gui/public/valorant/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater.
-- `bun run assets:check` must verify that every registry path has one valid bundled PNG and no stale files exist.
+- Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and the content-addressed PNGs in `packages/gui/assets/valorant-source/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater. Map covers use the 16:9 `splash` source, not `listViewIcon` banners.
+- `bun run assets:build` offline-compiles those sources to fixed-size WebP files in `packages/gui/public/valorant/`. Records with an identical source hash intentionally share one file.
+- `bun run assets:check` must verify source hashes/aspect ratios, registry parity, fixed runtime dimensions, byte limits, physical deduplication, and the copied `dist` tree.
 - Do not hard-code CDN URLs in components, hand-edit generated files, or add branches for one observed match/account.
 - Team rounds: `stats.rounds_won` / `stats.rounds_lost`.
 - Personal combat score: `stats.score`.

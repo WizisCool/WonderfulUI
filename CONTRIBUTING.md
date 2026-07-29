@@ -63,7 +63,8 @@ test(parser): add fixture for empty snapshot
 提交前请确保以下命令通过：
 
 ```bash
-bun run assets:check  # 离线 Valorant 元数据与 PNG 完整性
+bun run assets:build  # 从已提交的原始 PNG 生成固定规格 WebP
+bun run assets:check  # 校验来源、尺寸、去重与离线产物完整性
 bun run typecheck    # TypeScript 类型检查
 bun test             # 前端 + 解析器测试
 cargo test --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
@@ -71,8 +72,10 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
 
 地图、特工、模式资源禁止手工逐条修改。使用
 `bun run update:valorant-metadata` 同步生成 registry 和
-`packages/gui/public/valorant/`；该维护命令需要网络，但应用运行、开发调试和
-普通构建只使用已提交的本地资源。
+`packages/gui/assets/valorant-source/` 中按 SHA-256 去重的原始 PNG；该维护命令
+需要网络。`bun run assets:build` 在本地将它们编译为忽略版本控制的
+`packages/gui/public/valorant/` WebP。应用运行、开发调试、CI 和普通构建只使用
+已提交的来源文件，不访问图片 CDN。
 
 这些检查主要在本地运行。需要远端 Windows 复验时，可手动触发 `Manual Check`。
 该 workflow 默认运行 typecheck、Bun 测试和 Rust lib 测试；需要打包验证时可勾选
