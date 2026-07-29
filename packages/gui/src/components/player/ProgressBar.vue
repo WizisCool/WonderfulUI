@@ -70,6 +70,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   seek: [pct: number];
+  seekStart: [];
+  seekEnd: [];
   markerClick: [timeMs: number];
 }>();
 
@@ -130,22 +132,35 @@ function clientToPct(clientX: number): number {
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return;
-  if ((e.target as HTMLElement).closest('.player-event-marker, .player-event-markers.is-canvas')) return;
+  if (
+    e.target instanceof Element
+    && e.target.closest('.player-event-marker, .player-event-markers.is-canvas')
+  ) return;
+  finishDrag();
   isDragging.value = true;
+  emit('seekStart');
   emit('seek', clientToPct(e.clientX));
+  document.addEventListener('mousemove', onDragMove);
+  document.addEventListener('mouseup', onDragEnd);
+  window.addEventListener('blur', onDragEnd);
+}
 
-  const onMove = (ev: MouseEvent) => {
-    if (!isDragging.value) return;
-    emit('seek', clientToPct(ev.clientX));
-  };
-  const onUp = () => {
-    if (!isDragging.value) return;
-    isDragging.value = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  };
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+function onDragMove(e: MouseEvent) {
+  if (!isDragging.value) return;
+  emit('seek', clientToPct(e.clientX));
+}
+
+function onDragEnd() {
+  const wasDragging = isDragging.value;
+  isDragging.value = false;
+  document.removeEventListener('mousemove', onDragMove);
+  document.removeEventListener('mouseup', onDragEnd);
+  window.removeEventListener('blur', onDragEnd);
+  if (wasDragging) emit('seekEnd');
+}
+
+function finishDrag() {
+  onDragEnd();
 }
 
 // Slider keyboard semantics (WAI-ARIA slider pattern).
@@ -249,6 +264,8 @@ onMounted(() => {
     drawCanvas();
   });
 });
+
+onUnmounted(finishDrag);
 
 defineExpose({
   markersEl,

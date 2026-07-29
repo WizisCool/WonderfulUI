@@ -22,6 +22,8 @@
         :video="video"
         :match="match"
         @seek="(pct) => $emit('seek', pct)"
+        @seek-start="$emit('seekStart')"
+        @seek-end="$emit('seekEnd')"
         @marker-click="onMarkerClick"
       />
 
@@ -112,15 +114,21 @@ function onVolWheel(e: WheelEvent) {
 
 function onVolMouseDown(e: MouseEvent) {
   if (e.button !== 0) return;
+  cleanupVolumeDrag();
   setVolFromClient(e.clientX);
+  document.addEventListener('mousemove', onVolMouseMove);
+  document.addEventListener('mouseup', cleanupVolumeDrag);
+  window.addEventListener('blur', cleanupVolumeDrag);
+}
 
-  const onMove = (ev: MouseEvent) => setVolFromClient(ev.clientX);
-  const onUp = () => {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  };
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+function onVolMouseMove(e: MouseEvent) {
+  setVolFromClient(e.clientX);
+}
+
+function cleanupVolumeDrag() {
+  document.removeEventListener('mousemove', onVolMouseMove);
+  document.removeEventListener('mouseup', cleanupVolumeDrag);
+  window.removeEventListener('blur', cleanupVolumeDrag);
 }
 
 function setVolFromClient(clientX: number) {
@@ -154,6 +162,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange);
+  cleanupVolumeDrag();
   if (hideTimer) clearTimeout(hideTimer);
 });
 </script>

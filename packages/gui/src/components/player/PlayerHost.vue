@@ -132,10 +132,7 @@
           :volume-muted="isMuted"
           :video="player.video"
           :match="player.matchContext"
-          :progress-fill-style="progressFillStyle"
-          :progress-thumb-style="progressThumbStyle"
           :buffered-style="bufferedStyle"
-          :progress-wrap-ref="progressWrapRef"
           @play-pause="togglePlay"
           @seek="onControlsSeek"
           @seek-start="onSeekStart"
@@ -301,7 +298,6 @@ const freezeCanvasRef = ref<HTMLCanvasElement | null>(null);
 const freezeFrameActive = ref(false);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
-const progressWrapRef = ref<HTMLElement | null>(null);
 
 // Focus management for the player dialog.
 // restoreFocusEl remembers which element opened the player so we can return
@@ -418,19 +414,6 @@ const videoPath = computed(() => player.video?.video_src ?? '');
 
 const currentTimeStr = computed(() => fmtTime(currentTime.value));
 const durationStr = computed(() => fmtTime(duration.value));
-
-const progressFillPct = computed(() =>
-  duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0
-);
-
-const progressFillStyle = computed(() => ({
-  transform: `scaleX(${progressFillPct.value / 100})`,
-}));
-
-const progressThumbStyle = computed(() => ({
-  left: `${progressFillPct.value}%`,
-  transform: 'translate(-50%, -50%)',
-}));
 
 const bufferedStyle = computed(() => ({
   transform: `scaleX(${lastBufferedPct.value / 100})`,
