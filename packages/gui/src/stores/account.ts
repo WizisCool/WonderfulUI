@@ -41,6 +41,7 @@ export const useAccountStore = defineStore('account', () => {
   const assetPathCache = ref(new Map<string, string>());
   const loadedMatchIds = ref(new Set<string>());
   const accountLabels = ref(new Map<string, string>());
+  let scrapeInflight: Promise<LoadResult> | null = null;
   // Result of `aclos_status` (read-only probe of the ACLOS WonderfulDb
   // directory). `null` until the GUI has finished its first-run probe.
   // The GUI uses this to decide between the normal 3-pane shell and the
@@ -118,9 +119,11 @@ export const useAccountStore = defineStore('account', () => {
     assignAccountLabels();
   }
 
-  async function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
+  function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
+    if (scrapeInflight) return scrapeInflight;
+
     scraping.value = true;
-    try {
+    const operation = (async () => {
       const fresh = await invoke<LoadResult>('scrape_library', {
         trigger: mode === 'full' ? 'full_manual' : 'manual',
         mode,
@@ -132,9 +135,15 @@ export const useAccountStore = defineStore('account', () => {
       loadedMatchIds.value.clear();
       assignAccountLabels();
       return fresh;
-    } finally {
-      scraping.value = false;
-    }
+    })();
+    const request = operation.finally(() => {
+      if (scrapeInflight === request) {
+        scrapeInflight = null;
+        scraping.value = false;
+      }
+    });
+    scrapeInflight = request;
+    return request;
   }
 
   async function cacheAssets(): Promise<void> {

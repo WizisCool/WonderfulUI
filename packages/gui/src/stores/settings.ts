@@ -25,13 +25,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const chartMetric = ref<'video' | 'match'>('video');
 
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let logsInflight: Promise<void> | null = null;
 
   function setOpen(open: boolean) {
     if (open) {
       if (closeTimer !== null) { clearTimeout(closeTimer); closeTimer = null; }
       isOpen.value = true;
       isClosing.value = false;
-    } else if (isOpen.value) {
+    } else if (isOpen.value && !isClosing.value) {
       isClosing.value = true;
       closeTimer = setTimeout(() => {
         isOpen.value = false;
@@ -44,16 +45,26 @@ export const useSettingsStore = defineStore('settings', () => {
   function setTab(tab: SettingsTab) { activeTab.value = tab; }
   function setChartMetric(m: 'video' | 'match') { chartMetric.value = m; }
 
-  async function fetchLogs() {
+  function fetchLogs(): Promise<void> {
+    if (logsInflight) return logsInflight;
+
     logLoading.value = true;
     logError.value = null;
-    try {
-      logStatus.value = await invoke<LogStatus>('get_log_status');
-    } catch (e) {
-      logError.value = `日志读取失败: ${(e as Error).message ?? String(e)}`;
-    } finally {
-      logLoading.value = false;
-    }
+    const operation = (async () => {
+      try {
+        logStatus.value = await invoke<LogStatus>('get_log_status');
+      } catch (e) {
+        logError.value = `日志读取失败: ${(e as Error).message ?? String(e)}`;
+      }
+    })();
+    const request = operation.finally(() => {
+      if (logsInflight === request) {
+        logsInflight = null;
+        logLoading.value = false;
+      }
+    });
+    logsInflight = request;
+    return request;
   }
 
   async function fetchLibraryStats() {

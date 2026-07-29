@@ -1,0 +1,89 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+
+const invokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../src/tauri-adapter.ts', () => ({
+  invoke: invokeMock,
+}));
+
+import { useAccountStore, type LoadResult } from '../src/stores/account.ts';
+import { useSettingsStore, type LogStatus } from '../src/stores/settings.ts';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+  invokeMock.mockReset();
+  vi.useRealTimers();
+});
+
+describe('account store request lifecycle', () => {
+  test('coalesces overlapping scrape requests and clears loading once', async () => {
+    const reply = deferred<LoadResult>();
+    invokeMock.mockReturnValue(reply.promise);
+    const account = useAccountStore();
+
+    const first = account.scrapeLibrary('incremental');
+    const second = account.scrapeLibrary('full');
+
+    expect(account.scraping).toBe(true);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    reply.resolve({ dir: 'D:\\WonderfulDb', accounts: [], matches: [], totalErrors: 0 });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ dir: 'D:\\WonderfulDb' }),
+      expect.objectContaining({ dir: 'D:\\WonderfulDb' }),
+    ]);
+    expect(account.scraping).toBe(false);
+  });
+});
+
+describe('settings store request and animation lifecycle', () => {
+  test('does not let repeated close calls leave an orphan timer', () => {
+    vi.useFakeTimers();
+    const settings = useSettingsStore();
+
+    settings.setOpen(true);
+    settings.setOpen(false);
+    settings.setOpen(false);
+    settings.setOpen(true);
+    vi.runAllTimers();
+
+    expect(settings.isOpen).toBe(true);
+    expect(settings.isClosing).toBe(false);
+  });
+
+  test('coalesces overlapping log refreshes', async () => {
+    const reply = deferred<LogStatus>();
+    invokeMock.mockReturnValue(reply.promise);
+    const settings = useSettingsStore();
+
+    const first = settings.fetchLogs();
+    const second = settings.fetchLogs();
+
+    expect(settings.logLoading).toBe(true);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    reply.resolve({
+      logDir: 'D:\\logs',
+      logPath: 'D:\\logs\\wonderful-ui.log',
+      size: 12,
+      modifiedMs: 1,
+      maxBytes: 1024,
+      latestText: 'ready',
+    });
+    await Promise.all([first, second]);
+
+    expect(settings.logLoading).toBe(false);
+    expect(settings.logStatus?.latestText).toBe('ready');
+  });
+});
