@@ -7,7 +7,7 @@ repository = "https://github.com/WizisCool/WonderfulUI"
 homepage = "https://github.com/WizisCool/WonderfulUI"
 description = "Offline parser + GUI for ACLOS WonderfulDb"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.88"
 
 [features]
 default = ["updater", "process"]

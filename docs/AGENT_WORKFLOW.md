@@ -327,7 +327,7 @@ tagging a release or pushing a risky maintainer change.
 | Docs only | `git diff --check`, review links in diff |
 | GUI TypeScript/CSS | `bun run typecheck`, `bun run test` |
 | Parser TypeScript | `bun test packages/parser`, `bun run typecheck` |
-| Rust parser/library/Tauri commands | `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
+| Rust parser/library/Tauri commands | `cargo check --workspace --all-features --locked`, then `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
 | IPC shape shared by Rust and GUI | `bun run typecheck`, `bun run test`, Rust lib tests |
 | Tauri config, packaging, release workflow | full CI command set plus `bun run build` |
 
@@ -339,6 +339,12 @@ target/release/bundle/
 
 Local bundles are useful for validation. Official release assets come from
 GitHub Actions.
+
+`rust-toolchain.toml` pins Rust 1.88.0, which is also the package MSRV. Keep the
+pin, `src-tauri/Cargo.toml` `rust-version`, and README prerequisite aligned.
+The locked dependency graph currently requires 1.88; do not lower the claim or
+raise the pin without running the all-feature locked check on that exact
+toolchain.
 
 > **NSIS template note.** The Windows installer is built from
 > `src-tauri/installer.nsi` (a fork of the upstream

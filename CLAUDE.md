@@ -227,6 +227,9 @@ bun run test
 # Rust parser unit tests
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 
+# Rust MSRV / all-feature compile gate (rust-toolchain.toml pins 1.88.0)
+cargo check --workspace --all-features --locked
+
 # Vue component smoke tests (requires vitest)
 bun run --cwd packages/gui test:components
 

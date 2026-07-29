@@ -4,7 +4,9 @@
 //! Caches one reader per path so repeat screenshots of the open clip stay fast.
 //! COM objects are only used under a mutex (MTA + single accessor).
 
+#[cfg(windows)]
 use base64::Engine;
+#[cfg(windows)]
 use std::sync::Mutex;
 
 /// Capture one frame as PNG (base64) at `time_ms`.

@@ -78,7 +78,7 @@ WonderfulUI 是一个 **离线** 的 Valorant 无畏时刻高光集锦浏览器�
 ### 前置依赖
 
 - [Bun](https://bun.sh) 1.1+
-- [Rust](https://rustup.rs) 1.77+
+- [Rust](https://rustup.rs) 1.88+（工作区固定使用 1.88.0，保证本地与 CI 构建可复现）
 - [Tauri 2.0+](https://v2.tauri.app) 构建工具链
 - Windows SDK（使用 Tauri 构建工具链安装）
 

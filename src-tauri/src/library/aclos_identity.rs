@@ -467,7 +467,10 @@ fn str_window(text: &str, start: usize, max_len: usize) -> &str {
     if start >= text.len() {
         return "";
     }
-    let end = text.floor_char_boundary((start + max_len).min(text.len()));
+    let mut end = start.saturating_add(max_len).min(text.len());
+    while end > start && !text.is_char_boundary(end) {
+        end -= 1;
+    }
     &text[start..end]
 }
 
@@ -705,6 +708,15 @@ mod tests {
     const OID_A: &str = "1000000000000000001";
     const OID_B: &str = "2000000000000000002";
     const OID_UNRELATED: &str = "9999999999999999999";
+
+    #[test]
+    fn str_window_stops_before_a_split_utf8_character() {
+        let text = "ab捷风cd";
+        assert_eq!(str_window(text, 0, 4), "ab");
+        assert_eq!(str_window(text, 2, 3), "捷");
+        assert_eq!(str_window(text, 2, usize::MAX), "捷风cd");
+        assert_eq!(str_window(text, text.len(), 3), "");
+    }
 
     #[test]
     fn decode_chromium_ls_value_utf8_json() {

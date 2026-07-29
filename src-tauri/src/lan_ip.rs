@@ -33,7 +33,6 @@ fn detect_via_connect() -> Option<String> {
 /// 跨平台抽到 `cfg` 块。
 #[cfg(unix)]
 fn detect_via_interface_enum() -> Option<String> {
-    use std::net::Ipv4Addr;
     // 简化：libc getifaddrs 实现比较繁；用 std::process::Command
     // 调 `ipconfig` / `ifconfig` 也不可靠。
     // 实际场景：UdpSocket::connect 几乎总能成功（99% 桌面有默认路由）。
