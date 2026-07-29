@@ -204,7 +204,11 @@ pub fn start_server(
         e
     })?;
     let token = make_token();
-    let lan_ip = lan_ip::detect_lan_ipv4().unwrap_or_else(|| "127.0.0.1".to_string());
+    let lan_ip = lan_ip::detect_lan_ipv4()
+        .ok_or_else(|| "未检测到可供其他设备访问的局域网 IPv4 地址".to_string())?;
+    let lan_ip_v4: Ipv4Addr = lan_ip
+        .parse()
+        .map_err(|_| "检测到的局域网 IPv4 地址无效".to_string())?;
     let url = format!("http://{}:{}/w/{}", lan_ip, port, token);
 
     let qr_svg = make_qr_svg(&url);
@@ -259,6 +263,8 @@ pub fn start_server(
                 downloads_for_thread,
                 last_request_for_thread,
                 idle_timeout,
+                lan_ip_v4,
+                port,
             );
             clear_server_if_token(
                 &app_for_thread.state::<ShareServerState>(),
@@ -327,10 +333,9 @@ fn run_server(
     downloads: Arc<AtomicU64>,
     last_request: Arc<Mutex<Instant>>,
     idle_timeout: Duration,
+    lan_ip_v4: Ipv4Addr,
+    port: u16,
 ) -> Result<(), String> {
-    // 鉴权辅助：检查 Host header 是不是本机
-    let lan_ip_v4: Option<Ipv4Addr> = lan_ip::detect_lan_ipv4().and_then(|s| s.parse().ok());
-
     // 期望的精确 path
     let expected_prefix = format!("/w/{token}");
 
@@ -366,6 +371,7 @@ fn run_server(
                     req,
                     &expected_prefix,
                     lan_ip_v4,
+                    port,
                     video_path,
                     video_name,
                     app,
@@ -384,10 +390,31 @@ fn request_path_matches(url: &str, expected_path: &str) -> bool {
     url.split_once('?').map_or(url, |(path, _)| path) == expected_path
 }
 
+fn host_header_matches(value: &str, lan_ip: Ipv4Addr, port: u16) -> bool {
+    let authority = value.trim();
+    if authority.is_empty() || authority.contains(['/', '@']) || authority.contains("://") {
+        return false;
+    }
+    let mut parts = authority.split(':');
+    let host = parts.next().unwrap_or_default();
+    let header_port = match parts.next() {
+        Some(raw) => match raw.parse::<u16>() {
+            Ok(value) => Some(value),
+            Err(_) => return false,
+        },
+        None => None,
+    };
+    if parts.next().is_some() || header_port.is_some_and(|value| value != port) {
+        return false;
+    }
+    host == "localhost" || host == "127.0.0.1" || host == lan_ip.to_string()
+}
+
 fn handle_request(
     req: tiny_http::Request,
     expected_prefix: &str,
-    lan_ip_v4: Option<Ipv4Addr>,
+    lan_ip_v4: Ipv4Addr,
+    port: u16,
     video_path: &Path,
     video_name: &str,
     app: &AppHandle,
@@ -422,13 +449,7 @@ fn handle_request(
         .headers()
         .iter()
         .find(|h| h.field.equiv("Host"))
-        .map(|h| {
-            let host = h.value.as_str().trim_start_matches("http://");
-            let host = host.split(':').next().unwrap_or("");
-            host == "localhost"
-                || host == "127.0.0.1"
-                || lan_ip_v4.map(|ip| host == ip.to_string()).unwrap_or(false)
-        })
+        .map(|h| host_header_matches(h.value.as_str(), lan_ip_v4, port))
         .unwrap_or(false);
     if !host_ok {
         let host = req
@@ -695,16 +716,20 @@ mod tests {
     }
 
     #[test]
-    fn is_lan_ipv4_classifies_correctly() {
-        use crate::lan_ip::is_lan_ipv4;
-        // 私有网段
-        assert!(is_lan_ipv4(&"10.0.0.1".parse().unwrap()));
-        assert!(is_lan_ipv4(&"172.16.5.5".parse().unwrap()));
-        assert!(is_lan_ipv4(&"172.31.255.254".parse().unwrap()));
-        assert!(is_lan_ipv4(&"192.168.1.1".parse().unwrap()));
-        // 非私有
-        assert!(!is_lan_ipv4(&"127.0.0.1".parse().unwrap()));
-        assert!(!is_lan_ipv4(&"8.8.8.8".parse().unwrap()));
-        assert!(!is_lan_ipv4(&"172.32.0.1".parse().unwrap())); // 172.16/12 之外
+    fn host_header_requires_the_started_address_and_port() {
+        let lan_ip = "192.168.1.42".parse().unwrap();
+        for accepted in ["192.168.1.42:53124", "localhost:53124", "127.0.0.1:53124"] {
+            assert!(host_header_matches(accepted, lan_ip, 53124), "{accepted}");
+        }
+        for rejected in [
+            "192.168.1.99:53124",
+            "192.168.1.42:80",
+            "192.168.1.42:invalid",
+            "192.168.1.42:53124:extra",
+            "http://192.168.1.42:53124",
+            "user@192.168.1.42:53124",
+        ] {
+            assert!(!host_header_matches(rejected, lan_ip, 53124), "{rejected}");
+        }
     }
 }

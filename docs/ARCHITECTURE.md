@@ -149,6 +149,13 @@ Defined in `src-tauri/src/lib.rs`:
   - Token is the only auth — request path MUST start with `/w/<token>` and the
     `Host` header MUST match `localhost` / `127.0.0.1` / the detected LAN IP
     (DNS-rebinding guard).
+  - LAN IPv4 selection first asks the kernel which interface owns the default
+    route without sending a packet. If no default route exists, it enumerates
+    operational interfaces cross-platform and selects the first RFC 1918 IPv4.
+    The chosen address is captured once and reused for both the QR URL and Host
+    validation; a route change cannot make the server reject its own URL. If
+    no reachable LAN address exists, startup fails explicitly instead of
+    generating an unusable `127.0.0.1` QR code.
   - Server lifetime is **driven by the frontend** (modal mounted → up, modal
     unmounted → down). Rust holds the running server state in a
     `tauri::State<ShareServerState>` registered via `.manage()` on the

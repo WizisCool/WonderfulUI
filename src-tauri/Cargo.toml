@@ -50,6 +50,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 # Re-encode MediaComposition thumbnails (often JPEG) to PNG for clipboard/save.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Cross-platform operational interface enumeration for LAN share when the host
+# has no default IPv4 route. The primary route-selection probe still uses std.
+if-addrs = "0.15"
 
 [target.'cfg(windows)'.dependencies]
 # 与 tauri 2.0.1 锁定的 windows 0.61 同主版本，直接用 ShellExecuteW 走原生
