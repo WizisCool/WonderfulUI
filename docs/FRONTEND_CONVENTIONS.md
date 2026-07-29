@@ -84,6 +84,10 @@ Hard rules:
 Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.component.test.ts` “listbox a11y” block.
 - **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. `hasAccounts` uses the scraper's exact rule: at least one regular file with a fully numeric openid basename. Snapshot/index/README/hidden files and numeric directories do not count. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but has no usable matches — they point at ACLOS as the data source rather than dumping raw paths.
 - **Boot terminal event.** Subscribe to `wui://startup_refresh_finished` before invoking `scan_shell`. It settles as `finished`, `degraded`, or `error`; the last two carry the backend failure. Do not wait only on `wui://scrape_summary`, because scraper setup/read failures cannot emit a success summary and would strand the boot overlay until timeout.
+- **Boot progress listeners.** `BootOverlay` registration is single-flight because
+  its mounted hook and the parent `start()` call can overlap while Tauri
+  `listen()` is pending. In-flight registrations carry a generation token;
+  listeners that resolve after component disposal must unsubscribe immediately.
 - **Recoverable library errors.** Clean zero-match shells stay hidden, but an
   account with `accounts[].error` remains visible as a generic error row even
   when `matchCount` is zero. Raw parser/database messages can contain local
