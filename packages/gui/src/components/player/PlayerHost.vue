@@ -8,7 +8,7 @@
       aria-modal="true"
       aria-labelledby="player-modal-title"
       @mousemove="onModalMouseMove"
-      @keydown.tab.prevent="onTabKey"
+      @keydown.tab="onTabKey"
     >
       <h1 id="player-modal-title" class="sr-only">视频播放器</h1>
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
@@ -288,6 +288,7 @@ import ShareModal from '../share/ShareModal.vue';
 import { SHARE_ICON } from '../../share/icons.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
 import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { trapDialogTab } from '../../utils/dialog-focus.ts';
 
 const player = usePlayerStore();
 const ui = useUiStore();
@@ -316,18 +317,7 @@ function getModalFocusables(): HTMLElement[] {
 }
 
 function onTabKey(e: KeyboardEvent) {
-  const focusables = getModalFocusables();
-  if (focusables.length === 0) return;
-  const first = focusables[0]!;
-  const last = focusables[focusables.length - 1]!;
-  const active = document.activeElement as HTMLElement | null;
-  if (e.shiftKey && active === first) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && active === last) {
-    e.preventDefault();
-    first.focus();
-  }
+  trapDialogTab(e, modalRef.value);
 }
 
 const state = ref<PlayerState>('loading');

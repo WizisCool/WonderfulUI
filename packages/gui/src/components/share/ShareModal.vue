@@ -22,6 +22,7 @@ import { SHARE_ICON } from '../../share/icons.ts';
 import { listen } from '../../tauri-adapter.ts';
 import { clientLog } from '../../utils/client-log.ts';
 import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { useDialogFocus } from '../../utils/dialog-focus.ts';
 import type {
   ShareDownloadedEvent,
   ShareStoppedEvent,
@@ -38,8 +39,10 @@ const emit = defineEmits<{
 
 const share = useShareStore();
 const ui = useUiStore();
+const shareDialogRef = ref<HTMLElement | null>(null);
 
 const isOpen = computed(() => share.status !== 'idle' || share.info !== null);
+const { onDialogTab } = useDialogFocus(shareDialogRef, () => isOpen.value, 'share');
 
 const formattedSize = computed(() => {
   const bytes = share.info?.videoSize ?? 0;
@@ -180,7 +183,15 @@ function close() {
   <Teleport to="body">
     <Transition name="share-modal">
       <div v-if="isOpen" class="share-modal-backdrop" @click.self="close">
-        <section class="share-modal-card" role="dialog" aria-modal="true">
+        <section
+          ref="shareDialogRef"
+          class="share-modal-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-modal-title"
+          tabindex="-1"
+          @keydown.tab="onDialogTab"
+        >
           <button class="share-modal-close" aria-label="关闭" @click="close">×</button>
 
           <div v-if="share.status === 'starting'" class="share-modal-state">
@@ -199,7 +210,7 @@ function close() {
                 <span class="share-modal-brand-icon" aria-hidden="true">
                   <WIcon :icon="SHARE_ICON" :size="18" />
                 </span>
-                <h2 class="share-modal-title">快传</h2>
+                <h2 id="share-modal-title" class="share-modal-title">快传</h2>
               </div>
               <p class="share-modal-sub">扫码即可在同 WiFi 设备上下载</p>
             </header>
@@ -280,6 +291,7 @@ function close() {
   gap: 16px;
   box-sizing: border-box;
   overflow-y: auto;
+  outline: none;
   animation: share-modal-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: 50% 48%;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);

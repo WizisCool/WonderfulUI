@@ -11,18 +11,21 @@
 // - 不在打开时 programmatically focus 主按钮：WebView2 会把 .focus() 画成
 //   *:focus-visible 红框（「键盘选择器」假象）。Tab 进入仍走 :focus-visible。
 
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { useUpdateStore } from '../../stores/update.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 import { clientLog } from '../../utils/client-log.ts';
 import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { useDialogFocus } from '../../utils/dialog-focus.ts';
 
 const SCOPE = 'update-modal';
 
 const update = useUpdateStore();
+const updateDialogRef = ref<HTMLElement | null>(null);
 
 const isOpen = computed(() => update.modalOpen);
+const { onDialogTab } = useDialogFocus(updateDialogRef, () => isOpen.value, 'update');
 
 const isCloseable = computed(
   () => update.status === 'available' || update.status === 'error',
@@ -84,10 +87,13 @@ onUnmounted(() => {
     <Transition name="update-modal">
       <div v-if="isOpen" class="update-modal-backdrop" @click.self="onBackdrop">
         <section
+          ref="updateDialogRef"
           class="update-modal-card"
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-modal-title"
+          tabindex="-1"
+          @keydown.tab="onDialogTab"
         >
           <button
             v-if="isCloseable"
@@ -284,6 +290,7 @@ onUnmounted(() => {
   gap: 14px;
   box-sizing: border-box;
   overflow: hidden;
+  outline: none;
   animation: update-modal-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: 50% 48%;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);

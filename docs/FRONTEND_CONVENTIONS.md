@@ -44,6 +44,13 @@ While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss inst
 - Keep `MODAL_LAYER_ORDER`, component z-index values, and
   `nextCloseableLayer` aligned. `Ctrl+W` includes the event-list modal and
   closes only the visually topmost closeable layer.
+- Modal roots use `tabindex="-1"` and `useDialogFocus()` from
+  `utils/dialog-focus.ts`: opening moves focus into the dialog, Tab/Shift+Tab
+  wrap only at the first/last focusable control, and close restores the
+  opener when it still exists. Do not put `.prevent` on every Tab event; that
+  freezes focus on interior controls because native Tab movement never runs.
+- PlayerHost retains its existing open/close focus restoration, but its Tab
+  boundary logic must go through the same `trapDialogTab()` helper.
 
 ### Match list selection + context menu
 

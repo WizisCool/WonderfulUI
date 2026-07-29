@@ -1,11 +1,20 @@
 <template>
   <div v-if="visible" class="event-list-modal-backdrop" @click="close">
-    <div class="event-list-modal" role="dialog" aria-label="本局事件" @click.stop>
+    <div
+      ref="eventDialogRef"
+      class="event-list-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="event-list-title"
+      tabindex="-1"
+      @click.stop
+      @keydown.tab="onDialogTab"
+    >
       <button class="ctrl-btn event-list-modal-close" aria-label="关闭" @click.stop="close">
         <WIcon icon="ph:x" :size="16" />
       </button>
       <div class="event-list-modal-header">
-        <div class="event-list-modal-title">本局事件</div>
+        <h2 id="event-list-title" class="event-list-modal-title">本局事件</h2>
         <div class="event-list-modal-sub">
           <span>{{ matchLabel }}</span>
           <template v-if="kills !== undefined && deaths !== undefined">
@@ -46,6 +55,7 @@ import EventRow from './EventRow.vue';
 import type { NormalizedMatchEvent } from '../../utils/match-events.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
 import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { useDialogFocus } from '../../utils/dialog-focus.ts';
 
 const props = defineProps<{
   events: NormalizedMatchEvent[];
@@ -60,6 +70,8 @@ const emit = defineEmits<{
 }>();
 
 const visible = ref(true);
+const eventDialogRef = ref<HTMLElement | null>(null);
+const { onDialogTab } = useDialogFocus(eventDialogRef, () => visible.value, 'event');
 
 function close() {
   visible.value = false;
@@ -104,6 +116,7 @@ onUnmounted(() => {
   border-radius: var(--radius-lg);
   display: flex; flex-direction: column;
   overflow: hidden;
+  outline: none;
 }
 .event-list-modal-close {
   position: absolute; top: 10px; right: 10px;
@@ -116,6 +129,7 @@ onUnmounted(() => {
   background: var(--surface-2);
 }
 .event-list-modal-title {
+  margin: 0;
   font-size: 14px;
   font-weight: var(--w-semibold);
   color: var(--ink);
