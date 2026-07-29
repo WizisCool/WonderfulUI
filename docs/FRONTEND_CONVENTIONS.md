@@ -68,6 +68,18 @@ Whole-app rebuilds break input focus, date-picker anchors, scroll position, and 
 - Frontend code must import `invoke`, `convertFileSrc`, and `listen` from
   `packages/gui/src/tauri-adapter.ts`, not directly from `@tauri-apps/api/*`.
 - In the Tauri shell, the adapter delegates to real Tauri APIs.
+- Treat every path-taking Tauri command as a privileged boundary. The backend
+  authorizes video paths against SQLite independently; do not add a new
+  open/reveal/share/decode command that trusts an arbitrary WebView path or
+  assumes `convertFileSrc` scope is authorization.
+- `convertFileSrc` works only for current library video/poster files that the
+  backend dynamically added to the asset scope, plus the narrow app-owned
+  legacy cache scope. Missing/replaced files should fall back in the UI; never
+  restore asset protocol `"**"` or a global filesystem capability to hide an
+  image/player error.
+- Screenshot Save As may write only the path returned by the native save
+  dialog. Keep the dialog + `fs:allow-write-file` pair; global read permission
+  and broad `fs:scope` are intentionally absent.
 - In a normal browser, or when the URL includes `?debug=1`, the adapter serves
   a fixed browser-debug fixture for accounts, matches, library stats, logs,
   asset cache calls, and safe fake video paths.

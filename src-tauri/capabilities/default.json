@@ -8,19 +8,6 @@
     "updater:default",
     "process:default",
     "dialog:allow-save",
-    "fs:allow-write-file",
-    "fs:allow-read-file",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DOWNLOAD/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$PICTURE/**" },
-        { "path": "$VIDEO/**" },
-        { "path": "*/**" }
-      ]
-    }
+    "fs:allow-write-file"
   ]
 }

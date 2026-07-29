@@ -213,10 +213,9 @@ export function collectMatchAssetEntries(matches: MatchRecord[]): RemoteAssetEnt
 }
 
 /**
- * Turn a remote (or already-local) asset URL into an `<img src>` value.
- * - Prefer disk cache → convertFileSrc(localPath)
- * - Else use remote URL so first paint works while cache_assets runs
- * - `failed` hides broken images after onerror
+ * Turn a bundled or legacy cached asset into an `<img src>` value.
+ * HTTP(S) input is never returned to the WebView; `failed` hides broken
+ * images after onerror.
  */
 export function resolveAssetDisplaySrc(
   url: string | undefined,

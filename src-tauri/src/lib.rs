@@ -6,13 +6,13 @@ mod os_shell;
 mod parser;
 mod share_server;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use library::sha256_hex;
 use library::stats::LibraryStats;
 use parser::model::{LoadResult, MatchRecord};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -74,6 +74,58 @@ fn default_wonderful_dir() -> PathBuf {
         .join("Roaming")
         .join("ACLOS")
         .join("WonderfulDb")
+}
+
+const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv", "avi"];
+const SUPPORTED_POSTER_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+
+fn path_has_extension(path: &std::path::Path, allowed: &[&str]) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|value| allowed.contains(&value.as_str()))
+}
+
+fn is_regular_file(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
+}
+
+fn allow_match_asset_paths(app: &tauri::AppHandle, matches: &[MatchRecord]) {
+    let scope = app.asset_protocol_scope();
+    let mut seen = HashSet::new();
+    for match_record in matches {
+        for video in &match_record.videos {
+            for (value, extensions) in [
+                (video.video_src.as_str(), SUPPORTED_VIDEO_EXTENSIONS),
+                (video.video_poster.as_str(), SUPPORTED_POSTER_EXTENSIONS),
+            ] {
+                if value.is_empty() {
+                    continue;
+                }
+                let path = std::path::Path::new(value);
+                if !path.is_absolute()
+                    || !path_has_extension(path, extensions)
+                    || !is_regular_file(path)
+                    || !seen.insert(value)
+                {
+                    continue;
+                }
+                if let Err(error) = scope.allow_file(path) {
+                    app_log::write(
+                        app_log::LogLevel::Warn,
+                        "asset_scope",
+                        format!("failed to allow library media path: {error}"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn allow_load_result_assets(app: &tauri::AppHandle, result: &LoadResult) {
+    allow_match_asset_paths(app, &result.matches);
 }
 
 #[derive(Debug)]
@@ -286,7 +338,9 @@ fn scan_all(app: tauri::AppHandle, dir: Option<String>) -> Result<LoadResult, St
         None => default_wonderful_dir(),
     };
     let conn = library::db::open_library()?;
-    load_after_startup_scrape(&conn, &base, Some(&app)).map(|outcome| outcome.view)
+    let view = load_after_startup_scrape(&conn, &base, Some(&app))?.view;
+    allow_load_result_assets(&app, &view);
+    Ok(view)
 }
 
 #[tauri::command]
@@ -319,23 +373,27 @@ fn scrape_library(
         "scrape_library",
         format!("manual scrape finished mode={mode_label}"),
     );
-    library::db::load_library_view(&conn, base.to_string_lossy().into_owned())
-        .map_err(|e| format!("load library: {}", e))
+    let view = library::db::load_library_view(&conn, base.to_string_lossy().into_owned())
+        .map_err(|e| format!("load library: {}", e))?;
+    allow_load_result_assets(&app, &view);
+    Ok(view)
 }
 
 #[tauri::command]
-fn load_library() -> Result<LoadResult, String> {
+fn load_library(app: tauri::AppHandle) -> Result<LoadResult, String> {
     app_log::write(
         app_log::LogLevel::Info,
         "load_library",
         "loading sqlite library view",
     );
     let conn = library::db::open_library()?;
-    library::db::load_library_view(
+    let view = library::db::load_library_view(
         &conn,
         default_wonderful_dir().to_string_lossy().into_owned(),
     )
-    .map_err(|e| format!("load library: {}", e))
+    .map_err(|e| format!("load library: {}", e))?;
+    allow_load_result_assets(&app, &view);
+    Ok(view)
 }
 
 /// Return the single match with full round / clip / event data from the
@@ -343,14 +401,20 @@ fn load_library() -> Result<LoadResult, String> {
 /// the library from WonderfulDb; this command does not directly read
 /// WonderfulDb.
 #[tauri::command]
-fn get_match_rounds(openid: String, match_id: String) -> Result<MatchRecord, String> {
+fn get_match_rounds(
+    app: tauri::AppHandle,
+    openid: String,
+    match_id: String,
+) -> Result<MatchRecord, String> {
     app_log::write(
         app_log::LogLevel::Info,
         "get_match_rounds",
         format!("loading rounds match_id={match_id} openid={openid}"),
     );
     let conn = library::db::open_library()?;
-    library::db::load_match_rounds(&conn, &openid, &match_id)
+    let full = library::db::load_match_rounds(&conn, &openid, &match_id)?;
+    allow_match_asset_paths(&app, std::slice::from_ref(&full));
+    Ok(full)
 }
 
 #[tauri::command]
@@ -367,6 +431,36 @@ fn rename_account(openid: String, custom_name: Option<String>) -> Result<(), Str
         .map_err(|e| format!("rename account: {}", e))
 }
 
+fn validated_library_video_path_with_conn(
+    conn: &rusqlite::Connection,
+    path: &str,
+) -> Result<PathBuf, String> {
+    if path.is_empty() {
+        return Err("视频路径为空".to_string());
+    }
+    let registered = library::db::is_library_video_path(conn, path)
+        .map_err(|e| format!("验证资料库视频失败: {e}"))?;
+    if !registered {
+        return Err("仅允许操作资料库中的高光视频".to_string());
+    }
+
+    let video_path = PathBuf::from(path);
+    if !path_has_extension(&video_path, SUPPORTED_VIDEO_EXTENSIONS) {
+        return Err("资料库路径不是受支持的视频文件".to_string());
+    }
+    let metadata = std::fs::symlink_metadata(&video_path)
+        .map_err(|_| format!("源文件丢失: {}", video_path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!("源文件不是普通文件: {}", video_path.display()));
+    }
+    Ok(video_path)
+}
+
+fn validated_library_video_path(path: &str) -> Result<PathBuf, String> {
+    let conn = library::db::open_library().map_err(|e| format!("打开资料库失败: {e}"))?;
+    validated_library_video_path_with_conn(&conn, path)
+}
+
 /// Open a local file with the OS-associated default app. **Fire-and-forget,
 /// native Win32 path** — `ShellExecuteW` runs in-process (no `cmd.exe`,
 /// no `start` builtin parsing, no `cmd /c` `""` placeholder). It is the
@@ -374,11 +468,26 @@ fn rename_account(openid: String, custom_name: Option<String>) -> Result<(), Str
 /// returns in milliseconds after handing the file off to the shell.
 #[tauri::command]
 fn play_video(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err(format!("源文件丢失: {}", path));
+    let video_path = validated_library_video_path(&path)?;
+    os_shell::shell_open(video_path.to_string_lossy().as_ref())
+}
+
+const ALLOWED_EXTERNAL_HOSTS: &[&str] = &["github.com", "choosealicense.com"];
+
+fn validated_external_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    let parsed = tauri::Url::parse(trimmed).map_err(|_| "无效链接".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("仅允许 https 链接".to_string());
     }
-    os_shell::shell_open(&path)
+    if !parsed.username().is_empty() || parsed.password().is_some() || parsed.port().is_some() {
+        return Err("无效链接".to_string());
+    }
+    let host = parsed.host_str().ok_or_else(|| "无效链接".to_string())?;
+    if !ALLOWED_EXTERNAL_HOSTS.contains(&host) {
+        return Err("不允许打开该外部站点".to_string());
+    }
+    Ok(parsed.into())
 }
 
 /// Open an https URL in the system default browser via ShellExecuteW.
@@ -386,14 +495,8 @@ fn play_video(path: String) -> Result<(), String> {
 /// must go through this command.
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    let trimmed = url.trim();
-    if !trimmed.starts_with("https://") {
-        return Err("仅允许 https 链接".to_string());
-    }
-    if trimmed.chars().any(|c| c.is_control() || c == ' ') {
-        return Err("无效链接".to_string());
-    }
-    os_shell::shell_open(trimmed)
+    let validated = validated_external_url(&url)?;
+    os_shell::shell_open(&validated)
 }
 
 /// Open Explorer with the given file selected. Fire-and-forget: see
@@ -401,10 +504,7 @@ fn open_external_url(url: String) -> Result<(), String> {
 /// real binary so we skip the `cmd /c` wrapper entirely.
 #[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err(format!("文件不存在: {}", path));
-    }
+    let p = validated_library_video_path(&path)?;
     std::process::Command::new("explorer")
         .arg(format!("/select,{}", p.display()))
         .stdin(std::process::Stdio::null())
@@ -778,8 +878,8 @@ fn start_share_server(
     app: tauri::AppHandle,
     path: String,
 ) -> Result<share_server::ShareServerInfo, String> {
+    let path = validated_library_video_path(&path)?;
     let state = share_state(&app);
-    let path = std::path::PathBuf::from(&path);
     share_server::start_server(&app, state.inner(), path)
 }
 
@@ -798,9 +898,9 @@ fn share_server_status(app: tauri::AppHandle) -> share_server::ShareServerStatus
 /// thread via `spawn_blocking` so the player shell stays responsive.
 #[tauri::command]
 async fn capture_video_frame(path: String, time_ms: u64) -> Result<String, String> {
-    let path = path;
+    let path = validated_library_video_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        frame_capture::capture_frame_png_base64(&path, time_ms)
+        frame_capture::capture_frame_png_base64(path.to_string_lossy().as_ref(), time_ms)
     })
     .await
     .map_err(|e| format!("截图任务失败: {}", e))?
@@ -912,17 +1012,59 @@ mod tests {
     }
 
     #[test]
-    fn reveal_in_explorer_missing_file_returns_error() {
-        let path = missing_dir().to_string_lossy().to_string();
-        let err = reveal_in_explorer(path).expect_err("expected error for missing file");
-        assert!(err.contains("文件不存在"), "{err}");
-    }
+    fn local_video_commands_require_a_registered_supported_file() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        let dir = std::env::temp_dir().join(format!("wui-video-scope-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir created");
+        let registered = dir.join("registered.mp4");
+        let unregistered = dir.join("unregistered.mp4");
+        let executable = dir.join("registered.exe");
+        let directory = dir.join("directory.mp4");
+        std::fs::write(&registered, b"video").expect("registered fixture written");
+        std::fs::write(&unregistered, b"video").expect("unregistered fixture written");
+        std::fs::write(&executable, b"binary").expect("executable fixture written");
+        std::fs::create_dir(&directory).expect("directory fixture created");
 
-    #[test]
-    fn play_video_missing_file_returns_error() {
-        let path = missing_dir().to_string_lossy().to_string();
-        let err = play_video(path).expect_err("expected error for missing file");
+        for (id, path) in [
+            ("video-1", &registered),
+            ("video-2", &executable),
+            ("video-3", &directory),
+        ] {
+            conn.execute(
+                "INSERT INTO videos(
+                    id, match_id, source_id, source_video_id, path,
+                    duration_ms, fps, size_bytes, exists_on_disk, last_seen_at
+                 ) VALUES(?1, 'match-1', 'aclos_wonderfuldb', ?1, ?2, 1, 60, 5, 1, 1)",
+                params![id, path.to_string_lossy().as_ref()],
+            )
+            .expect("video fixture inserted");
+        }
+
+        assert_eq!(
+            validated_library_video_path_with_conn(&conn, registered.to_string_lossy().as_ref(),)
+                .unwrap(),
+            registered,
+        );
+        let err =
+            validated_library_video_path_with_conn(&conn, unregistered.to_string_lossy().as_ref())
+                .expect_err("unregistered path rejected");
+        assert!(err.contains("资料库"), "{err}");
+        let err =
+            validated_library_video_path_with_conn(&conn, executable.to_string_lossy().as_ref())
+                .expect_err("registered executable rejected");
+        assert!(err.contains("视频文件"), "{err}");
+        let err =
+            validated_library_video_path_with_conn(&conn, directory.to_string_lossy().as_ref())
+                .expect_err("registered directory rejected");
+        assert!(err.contains("普通文件"), "{err}");
+
+        std::fs::remove_file(&registered).expect("registered fixture removed");
+        let err =
+            validated_library_video_path_with_conn(&conn, registered.to_string_lossy().as_ref())
+                .expect_err("missing registered path rejected");
         assert!(err.contains("源文件丢失"), "{err}");
+        std::fs::remove_dir_all(&dir).expect("temp dir removed");
     }
 
     #[test]
@@ -931,6 +1073,29 @@ mod tests {
         assert!(err.contains("https"), "{err}");
         let err = open_external_url("file:///C:/Windows".into()).expect_err("file blocked");
         assert!(err.contains("https"), "{err}");
+    }
+
+    #[test]
+    fn external_url_validation_allows_only_product_links() {
+        assert_eq!(
+            validated_external_url(" https://github.com/WizisCool/WonderfulUI ")
+                .expect("project URL accepted"),
+            "https://github.com/WizisCool/WonderfulUI",
+        );
+        assert!(validated_external_url("https://choosealicense.com/licenses/gpl-3.0/").is_ok());
+
+        for rejected in [
+            "https://example.com/",
+            "https://github.com.example.com/",
+            "https://user@github.com/",
+            "https://github.com:444/",
+            "https://github.com evil.example/",
+        ] {
+            assert!(
+                validated_external_url(rejected).is_err(),
+                "accepted {rejected}",
+            );
+        }
     }
 
     #[test]

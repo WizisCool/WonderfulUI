@@ -391,6 +391,18 @@ pub fn load_match_rounds(
         .map_err(|e| format!("decode match {} from library: {}", match_id, e))
 }
 
+/// IPC commands that open, decode, or share a local file must only accept
+/// paths that came from the persisted ACLOS video index. This keeps an
+/// injected WebView script from turning a path-taking command into arbitrary
+/// file execution or exfiltration.
+pub fn is_library_video_path(conn: &Connection, path: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM videos WHERE path = ?1)",
+        [path],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,6 +441,25 @@ mod tests {
                 .expect("table lookup works");
             assert_eq!(count, 1, "missing table {table}");
         }
+    }
+
+    #[test]
+    fn video_path_authorization_requires_an_exact_persisted_path() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO videos(
+                id, match_id, source_id, source_video_id, path,
+                duration_ms, fps, size_bytes, exists_on_disk, last_seen_at
+             ) VALUES('video-1', 'match-1', 'aclos_wonderfuldb', 'source-video-1',
+                      'D:\\Highlights\\clip.mp4', 1000, 60, 1234, 1, 1)",
+            [],
+        )
+        .expect("video inserted");
+
+        assert!(is_library_video_path(&conn, "D:\\Highlights\\clip.mp4").unwrap());
+        assert!(!is_library_video_path(&conn, "D:\\Highlights\\other.mp4").unwrap());
+        assert!(!is_library_video_path(&conn, "D:\\Highlights\\clip.mp4.exe").unwrap());
     }
 
     #[test]

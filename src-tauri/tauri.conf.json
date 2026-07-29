@@ -24,11 +24,23 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "asset:", "http://asset.localhost", "data:", "blob:"],
+        "font-src": ["'self'", "data:"],
+        "media-src": ["'self'", "asset:", "http://asset.localhost", "blob:"],
+        "connect-src": ["'self'", "ipc:", "http://ipc.localhost"],
+        "object-src": ["'none'"],
+        "base-uri": ["'none'"],
+        "form-action": ["'none'"],
+        "frame-ancestors": ["'none'"]
+      },
+      "devCsp": null,
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**",
           "$LOCALDATA/wonderful-ui/assets/**"
         ]
       }

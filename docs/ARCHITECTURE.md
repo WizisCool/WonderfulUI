@@ -112,8 +112,12 @@ Defined in `src-tauri/src/lib.rs`:
     the taskbar "Open" button use internally, so the call returns in
     milliseconds after handing the file off to the shell.
   - Wrapped in `src-tauri/src/os_shell.rs` behind `#[cfg(windows)]`; the
-    non-Windows stub returns an error. Pre-call `Path::exists()` guards
-    both the user-friendly Chinese error and the unit test.
+    non-Windows stub returns an error.
+  - The path must exactly match a row in SQLite `videos.path`, use a supported
+    video extension, and still be a non-symlink regular file. The same gate is
+    shared by `reveal_in_explorer`, `start_share_server`, and
+    `capture_video_frame`; WebView callers cannot substitute an arbitrary
+    local path.
   - The previous `cmd /c start "" <path>` path added a process layer
     (cmd parsing + conhost + `start` builtin lookup) that took ~300–800 ms
     per click, which surfaced as right-click menu close lag. `ShellExecuteW`
@@ -127,12 +131,16 @@ Defined in `src-tauri/src/lib.rs`:
   - Kept separate from playback for player context-menu actions.
   - `explorer.exe` exit code after `/select` is unreliable (it forks a new
     process and returns immediately with code 0 or 1). Success is judged by
-    spawn success + file existence, not exit code. See `lib.rs` for details.
+    spawn success after the shared SQLite/video-file authorization gate, not
+    exit code. See `lib.rs` for details.
 - `get_log_status() -> LogStatus`
   - Returns the WonderfulUI log directory, current log file metadata, and a bounded tail preview from `wonderful-ui.log` for the settings `日志` tab.
 - `reveal_logs_dir()`
   - Opens `%LOCALAPPDATA%\wonderful-ui\logs` in Explorer so users can attach logs to future bug reports.
 - `start_share_server(path) -> ShareServerInfo`
+  - Accepts only a current SQLite-registered video path through the same gate
+    as playback and frame capture; an injected WebView cannot turn the LAN
+    server into an arbitrary-file endpoint.
   - Starts a 1-shot HTTP server on a free local port (49152-65535), generates a
     256-bit URL-safe token, returns `{ port, token, url, lanIp, qrSvg, videoName, videoSize, startedAtUnix }`.
   - The QR SVG is generated Rust-side using **circle modules** (not rectangles)
@@ -176,6 +184,29 @@ Defined in `src-tauri/src/lib.rs`:
   dimensions, byte ceilings, exact registry parity and physical deduplication;
   production build also verifies the copied `dist/valorant` tree.
 
+## Tauri Security Boundary
+
+- Production uses an explicit Content Security Policy. Scripts, styles, fonts,
+  images, media, and IPC are restricted to the packaged app plus the Tauri
+  asset/IPC protocols; object embedding, base URLs, forms, and framing are
+  disabled. `devCsp: null` is explicit so the existing Vite browser/Tauri dev
+  loop remains usable and is not mistaken for the production policy.
+- The asset protocol has no `"**"` filesystem scope. App-owned legacy cache
+  files under `$LOCALDATA/wonderful-ui/assets/**` are statically allowed.
+  Library video/poster paths are added dynamically only after they came from a
+  SQLite library result, have a supported media extension, and are current
+  non-symlink regular files.
+- IPC commands that open, reveal, decode, or share a video independently
+  re-authorize the exact path against SQLite `videos.path`. Asset-protocol
+  visibility is not treated as command authorization.
+- Screenshot Save As keeps `dialog:allow-save` and `fs:allow-write-file`, but
+  has no global filesystem scope or read permission. The dialog plugin grants
+  the single user-selected output path dynamically.
+- `open_external_url` accepts only HTTPS URLs on the product's explicit
+  `github.com` and `choosealicense.com` allowlist, with no userinfo or custom
+  port. Adding a new About-page destination requires updating the backend
+  allowlist and its tests; never weaken this to prefix matching.
+
 ## IPC Shape
 
 ```text
@@ -196,12 +227,6 @@ WebView (packages/gui)
     invoke scrape_library
         -> Tauri (src-tauri/src/lib.rs)
             -> library::scraper refreshes SQLite from WonderfulDb
-            -> library::db loads the library view
-    <- library matches JSON (rounds stripped)
-
-WebView (packages/gui)
-    invoke load_library
-        -> Tauri (src-tauri/src/lib.rs)
             -> library::db loads the library view
     <- library matches JSON (rounds stripped)
 
