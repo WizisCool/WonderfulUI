@@ -293,18 +293,37 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
         })?
         .collect::<Result<Vec<_>>>()?;
 
-    let mut match_stmt = conn.prepare("SELECT raw_json FROM matches ORDER BY matches_time DESC")?;
+    let mut match_stmt =
+        conn.prepare("SELECT id, openid, raw_json FROM matches ORDER BY matches_time DESC")?;
     let mut matches = Vec::new();
-    let rows = match_stmt.query_map([], |row| row.get::<_, String>(0))?;
-    for raw in rows {
-        let raw = raw?;
-        if let Ok(m) = serde_json::from_str::<MatchRecord>(&raw) {
-            matches.push(m);
+    let mut corrupt_matches = 0i64;
+    let rows = match_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (match_id, openid, raw) = row?;
+        match serde_json::from_str::<MatchRecord>(&raw) {
+            Ok(m) => matches.push(m),
+            Err(error) => {
+                corrupt_matches += 1;
+                crate::app_log::write(
+                    crate::app_log::LogLevel::Error,
+                    "library",
+                    format!(
+                        "skipping corrupt match row id={match_id} openid={} error={error}",
+                        openid.as_deref().unwrap_or("unknown"),
+                    ),
+                );
+            }
         }
     }
     // Strip rounds once after deserialize (bulk list must stay rounds-free for IPC size).
     strip_match_rounds(&mut matches);
-    let total_errors: i64 = conn.query_row(
+    let account_errors: i64 = conn.query_row(
         "SELECT COUNT(*) FROM accounts WHERE parse_error IS NOT NULL AND parse_error <> ''",
         [],
         |row| row.get(0),
@@ -314,7 +333,7 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
         dir: dir.into(),
         accounts,
         matches,
-        total_errors: total_errors as usize,
+        total_errors: (account_errors + corrupt_matches) as usize,
     })
 }
 
@@ -461,6 +480,34 @@ mod tests {
         assert!(is_library_video_path(&conn, "D:\\Highlights\\clip.mp4").unwrap());
         assert!(!is_library_video_path(&conn, "D:\\Highlights\\other.mp4").unwrap());
         assert!(!is_library_video_path(&conn, "D:\\Highlights\\clip.mp4.exe").unwrap());
+    }
+
+    #[test]
+    fn load_library_view_counts_corrupt_match_rows_instead_of_silently_hiding_them() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO accounts(openid, source_id, source_path, last_seen_at)
+             VALUES('account-a', 'aclos_wonderfuldb', 'fixture', 1)",
+            [],
+        )
+        .expect("account inserted");
+        conn.execute(
+            "INSERT INTO matches(
+                id, source_id, source_match_id, openid, matches_time,
+                stats_json, raw_json, last_seen_at
+             ) VALUES(
+                'broken-match', 'aclos_wonderfuldb', 'broken-match',
+                'account-a', 1, '{}', 'not-json', 1
+             )",
+            [],
+        )
+        .expect("corrupt match inserted");
+
+        let view = load_library_view(&conn, "fixture").expect("view still loads");
+
+        assert!(view.matches.is_empty());
+        assert_eq!(view.total_errors, 1);
     }
 
     #[test]

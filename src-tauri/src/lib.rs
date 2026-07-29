@@ -147,10 +147,11 @@ fn load_after_startup_scrape(
         library::scraper::ScrapeMode::Incremental,
         app,
     ) {
-        Ok(_) => library::db::load_library_view(conn, dir)
+        Ok(summary) => library::db::load_library_view(conn, dir)
             .map(|view| StartupLoadOutcome {
                 view,
-                warning: None,
+                warning: (summary.errors_seen > 0)
+                    .then(|| format!("{} 个账户读取失败，请执行全量扫描重试", summary.errors_seen)),
             })
             .map_err(|e| format!("load library: {}", e)),
         Err(scrape_error) => {
@@ -987,6 +988,27 @@ mod tests {
             .expect_err("empty library errors");
 
         assert!(err.contains("read_dir"), "{err}");
+    }
+
+    #[test]
+    fn startup_scan_reports_partial_account_parse_failures_as_degraded() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        let dir =
+            std::env::temp_dir().join(format!("wui-startup-partial-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir created");
+        std::fs::write(dir.join("123456789012345"), b"not hex")
+            .expect("invalid account fixture written");
+
+        let outcome = load_after_startup_scrape(&conn, &dir, None)
+            .expect("partial scrape keeps a recoverable library view");
+
+        assert_eq!(outcome.view.accounts.len(), 1);
+        assert_eq!(outcome.view.total_errors, 1);
+        assert!(outcome.warning.as_deref().is_some_and(|warning| {
+            warning.contains("1 个账户读取失败") && warning.contains("全量扫描")
+        }));
+        std::fs::remove_dir_all(&dir).expect("temp dir removed");
     }
 
     #[test]

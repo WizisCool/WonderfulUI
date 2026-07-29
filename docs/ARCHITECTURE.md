@@ -84,6 +84,8 @@ Defined in `src-tauri/src/lib.rs`:
     or `error`, including when opening SQLite or reading WonderfulDb fails.
     Degraded means the existing SQLite view remains usable; the failure is
     logged and surfaced without trapping the UI behind the boot overlay.
+    A completed scrape with one or more per-account parse failures is also
+    `degraded`; do not report it as an unconditional success.
   - The frontend follows with `load_library()` after startup progress to read
     the current rounds-stripped library view from SQLite.
 - `scan_all(dir?: string) -> LoadResult`
@@ -101,6 +103,10 @@ Defined in `src-tauri/src/lib.rs`:
   - Manual source failures return an error so the user gets explicit feedback.
 - `load_library() -> LoadResult`
   - Returns the current SQLite library view without reading WonderfulDb.
+  - Malformed `matches.raw_json` rows are omitted from the visible match list,
+    counted in `totalErrors`, and logged by match id/openid without logging the
+    raw payload. This keeps the rest of the library usable while making a full
+    scan an explicit recovery path instead of silently losing rows.
 - `get_match_rounds(openid: String, match_id: String) -> MatchRecord`
   - Reads `matches.raw_json` from SQLite and returns the single match
     identified by `match_id`, with the full `rounds` tree attached. Called
@@ -286,6 +292,11 @@ metadata are unchanged and the previous parse completed without an account
 error. Accounts with `parse_error` are retried even if the file metadata is
 unchanged, because ACLOS can produce torn reads while writing. Full mode
 ignores freshness metadata and reparses every account file.
+
+Every `wui://account_finished` event reports `sizeBytesDone` after including
+the account that just finished (parsed, empty, failed, or skipped). The final
+account therefore reaches `sizeBytesTotal`; consumers must not compensate for
+the former one-account lag.
 
 ## Diagnostics Logs
 

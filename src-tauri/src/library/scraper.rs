@@ -123,6 +123,10 @@ fn source_file_meta(path: &Path) -> Option<SourceFileMeta> {
     })
 }
 
+fn progress_after_file(current: i64, source_meta: Option<SourceFileMeta>) -> i64 {
+    current.saturating_add(source_meta.map_or(0, |meta| meta.size_bytes))
+}
+
 fn snapshot_file_meta(dir: &Path, openid: &str) -> Option<SourceFileMeta> {
     source_file_meta(&dir.join(format!("snapshot{}", openid)))
 }
@@ -667,15 +671,14 @@ pub fn scrape_wonderful_dir_with_mode(
     let mut pi = 0;
     for (idx, (openid, _path, source_meta)) in account_files.iter().enumerate() {
         let current = idx + 1;
+        let processed_size_done = progress_after_file(size_done, *source_meta);
 
         if pi >= parsed.len() || parsed[pi].idx != idx {
             // Account was skipped (incremental freshness) — still refresh
             // nick/tag from LevelDB identity (no WonderfulDb re-parse).
             summary.skipped_accounts += 1;
             // Count skipped files toward progress so size_done reaches total.
-            if let Some(m) = source_meta {
-                size_done += m.size_bytes;
-            }
+            size_done = processed_size_done;
             let hint = identity.lookup(openid);
             if hint.nick.is_some() || hint.tag.is_some() {
                 let _ = refresh_account_identity(
@@ -793,7 +796,7 @@ pub fn scrape_wonderful_dir_with_mode(
                                 status: "empty".into(),
                                 current,
                                 total: total_accounts,
-                                size_bytes_done: size_done,
+                                size_bytes_done: processed_size_done,
                                 size_bytes_total: total_size,
                                 error: None,
                             },
@@ -826,7 +829,7 @@ pub fn scrape_wonderful_dir_with_mode(
                                 status: "ok".into(),
                                 current,
                                 total: total_accounts,
-                                size_bytes_done: size_done,
+                                size_bytes_done: processed_size_done,
                                 size_bytes_total: total_size,
                                 error: None,
                             },
@@ -880,7 +883,7 @@ pub fn scrape_wonderful_dir_with_mode(
                             status: "error".into(),
                             current,
                             total: total_accounts,
-                            size_bytes_done: size_done,
+                            size_bytes_done: processed_size_done,
                             size_bytes_total: total_size,
                             error: Some(e.clone()),
                         },
@@ -902,9 +905,7 @@ pub fn scrape_wonderful_dir_with_mode(
                 }
             }
         }
-        if let Some(m) = pa.source_meta {
-            size_done += m.size_bytes;
-        }
+        size_done = processed_size_done;
     }
 
     let duration_ms = now_ms() - start_ms;
@@ -978,6 +979,17 @@ mod tests {
                 .unwrap_or_default();
             PathBuf::from(base).join(r"AppData\Roaming\ACLOS\WonderfulDb")
         }
+    }
+
+    #[test]
+    fn completed_file_progress_includes_the_current_account_bytes() {
+        let meta = SourceFileMeta {
+            size_bytes: 3_753_199,
+            mtime_ms: Some(1),
+        };
+        assert_eq!(progress_after_file(1024, Some(meta)), 3_754_223);
+        assert_eq!(progress_after_file(1024, None), 1024);
+        assert_eq!(progress_after_file(i64::MAX - 2, Some(meta)), i64::MAX);
     }
 
     #[test]
