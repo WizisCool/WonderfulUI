@@ -2,7 +2,7 @@
 //!
 //! 启动时随机监听一个空闲端口、生成 256-bit token、起一个 tiny_http
 //! 实例在独立线程跑。每收到一个匹配 token 的 GET 请求：
-//! 1. 检查路径前缀是 `/w/<token>`；
+//! 1. 检查路径精确匹配 `/w/<token>`；
 //! 2. 检查 Host header 命中本机 IP（防 DNS rebinding）；
 //! 3. 阻塞 8KB 块流式读取视频文件 → HTTP 200 + Content-Disposition: attachment；
 //! 4. 通过 Tauri 事件 `wui://share_downloaded` 通知前端。
@@ -14,7 +14,7 @@
 
 use std::fs::File;
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use rand::RngCore;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::lan_ip;
 
@@ -89,16 +89,17 @@ impl Default for ShareServerState {
     }
 }
 
-/// 找一个空闲端口。
-fn pick_free_port() -> Result<u16, String> {
-    use std::net::TcpListener;
-    let listener = TcpListener::bind("0.0.0.0:0").map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("local_addr: {e}"))?
+/// Bind once to an OS-assigned port. Returning the live server avoids the
+/// check-then-bind race of probing a port and reopening it in another thread.
+fn bind_server() -> Result<(tiny_http::Server, u16), String> {
+    let server =
+        tiny_http::Server::http(("0.0.0.0", 0)).map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
+    let port = server
+        .server_addr()
+        .to_ip()
+        .ok_or_else(|| "share server did not bind an IP socket".to_string())?
         .port();
-    drop(listener);
-    Ok(port)
+    Ok((server, port))
 }
 
 /// 生成 256-bit base64url token（URL 安全，43 字符）。
@@ -177,19 +178,6 @@ pub fn start_server(
         "share",
         format!("start requested: path={}", video_path.display()),
     );
-    // 如果已经有 server 在跑，先停掉旧的（防止双 server 冲突）
-    {
-        let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
-        if let Some(old) = guard.take() {
-            crate::app_log::write(
-                crate::app_log::LogLevel::Info,
-                "share",
-                "replacing existing server",
-            );
-            let _ = old.stop_tx.send(());
-        }
-    }
-
     if !video_path.exists() {
         crate::app_log::write(
             crate::app_log::LogLevel::Error,
@@ -207,11 +195,11 @@ pub fn start_server(
         .unwrap_or("video.mp4")
         .to_string();
 
-    let port = pick_free_port().map_err(|e| {
+    let (server, port) = bind_server().map_err(|e| {
         crate::app_log::write(
             crate::app_log::LogLevel::Error,
             "share",
-            format!("port pick: {e}"),
+            format!("server bind: {e}"),
         );
         e
     })?;
@@ -239,6 +227,20 @@ pub fn start_server(
     let downloads_for_thread = downloads.clone();
     let last_request_for_thread = last_request.clone();
 
+    // Only replace an existing server after the new source has been validated
+    // and its listening socket has been secured successfully.
+    {
+        let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
+        if let Some(old) = guard.take() {
+            crate::app_log::write(
+                crate::app_log::LogLevel::Info,
+                "share",
+                "replacing existing server",
+            );
+            let _ = old.stop_tx.send(());
+        }
+    }
+
     // 闭包里用 clone 拿一份 Sender —— 原始 stop_tx 还要存到 Inner
     // 里给 stop_server() 用（用户在 GUI 上点"停止"时用）。
     // 闭包里 clone 一份 Receiver（Sender 由 start_server 末尾存到 Inner，
@@ -247,8 +249,8 @@ pub fn start_server(
     thread::Builder::new()
         .name("wui-share-server".into())
         .spawn(move || {
-            if let Err(e) = run_server(
-                port,
+            let result = run_server(
+                server,
                 &path_for_thread,
                 &token_for_thread,
                 &name_for_thread,
@@ -257,7 +259,12 @@ pub fn start_server(
                 downloads_for_thread,
                 last_request_for_thread,
                 idle_timeout,
-            ) {
+            );
+            clear_server_if_token(
+                &app_for_thread.state::<ShareServerState>(),
+                &token_for_thread,
+            );
+            if let Err(e) = result {
                 crate::app_log::write(
                     crate::app_log::LogLevel::Error,
                     "share",
@@ -311,8 +318,8 @@ pub fn start_server(
 }
 
 fn run_server(
-    port: u16,
-    video_path: &PathBuf,
+    server: tiny_http::Server,
+    video_path: &Path,
     token: &str,
     video_name: &str,
     app: &AppHandle,
@@ -321,41 +328,11 @@ fn run_server(
     last_request: Arc<Mutex<Instant>>,
     idle_timeout: Duration,
 ) -> Result<(), String> {
-    let server = tiny_http::Server::http(("0.0.0.0", port))
-        .map_err(|e| format!("bind 0.0.0.0:{port}: {e}"))?;
-
     // 鉴权辅助：检查 Host header 是不是本机
     let lan_ip_v4: Option<Ipv4Addr> = lan_ip::detect_lan_ipv4().and_then(|s| s.parse().ok());
 
-    // 期望的 path 前缀
+    // 期望的精确 path
     let expected_prefix = format!("/w/{token}");
-
-    // tiny_http 0.12 的 Server 阻塞在 recv() 上，且没有 try_recv(timeout)。
-    // 把 recv 放到一个独立线程，主循环靠 stop_rx 的 try_recv
-    // 1ms 轮询 + 空闲超时检查。请求通过 crossbeam-style 通道传过来。
-    let (req_tx, req_rx) = channel::<tiny_http::Request>();
-    let server_path = expected_prefix.clone();
-    let server_lan_ip = lan_ip_v4;
-    let server_app = app.clone();
-    let server_downloads = downloads.clone();
-    let server_last_request = last_request.clone();
-    let server_video_path = video_path.clone();
-    let server_video_name = video_name.to_string();
-
-    let accept_thread = thread::Builder::new()
-        .name("wui-share-accept".into())
-        .spawn(move || loop {
-            let req = match server.recv() {
-                Ok(r) => r,
-                Err(_) => return,
-            };
-            if req_tx.send(req).is_err() {
-                return;
-            }
-        })
-        .map_err(|e| format!("spawn accept thread: {e}"))?;
-
-    let server_stop_rx = stop_rx;
 
     loop {
         // 空闲超时检查
@@ -375,56 +352,48 @@ fn run_server(
         }
 
         // 短轮询：看用户是否手动关
-        match server_stop_rx.try_recv() {
+        match stop_rx.try_recv() {
             Ok(()) => break,
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
         }
 
-        // 看 accept 线程是否送来新请求
-        match req_rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(req) => {
+        // tiny_http 0.12 supports a bounded receive directly. This keeps stop
+        // latency below 200 ms without a second thread blocked forever in recv().
+        match server.recv_timeout(Duration::from_millis(200)) {
+            Ok(Some(req)) => {
                 handle_request(
                     req,
-                    &server_path,
-                    server_lan_ip,
-                    &server_video_path,
-                    &server_video_name,
-                    &server_app,
-                    &server_downloads,
-                    &server_last_request,
+                    &expected_prefix,
+                    lan_ip_v4,
+                    video_path,
+                    video_name,
+                    app,
+                    &downloads,
+                    &last_request,
                 );
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                continue;
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(None) => continue,
+            Err(e) => return Err(format!("receive request: {e}")),
         }
     }
-
-    // 让 accept 线程自然退出（recv 失败时它就 return）
-    drop(req_rx);
-    let _ = accept_thread.join();
     Ok(())
+}
+
+fn request_path_matches(url: &str, expected_path: &str) -> bool {
+    url.split_once('?').map_or(url, |(path, _)| path) == expected_path
 }
 
 fn handle_request(
     req: tiny_http::Request,
     expected_prefix: &str,
     lan_ip_v4: Option<Ipv4Addr>,
-    video_path: &PathBuf,
+    video_path: &Path,
     video_name: &str,
     app: &AppHandle,
     downloads: &Arc<AtomicU64>,
     last_request: &Arc<Mutex<Instant>>,
 ) {
-    // 更新 last_request
-    {
-        if let Ok(mut last) = last_request.lock() {
-            *last = Instant::now();
-        }
-    }
-
     // 非 GET 方法 → 405
     if *req.method() != tiny_http::Method::Get {
         crate::app_log::write(
@@ -438,7 +407,7 @@ fn handle_request(
     }
 
     // 路径检查
-    if !req.url().starts_with(expected_prefix) {
+    if !request_path_matches(req.url(), expected_prefix) {
         crate::app_log::write(
             crate::app_log::LogLevel::Warn,
             "share",
@@ -478,6 +447,12 @@ fn handle_request(
         );
         let _ = req.respond(tiny_http::Response::from_string("forbidden").with_status_code(403));
         return;
+    }
+
+    // Only authenticated requests keep the server alive. LAN port scans and
+    // bad-token probes must not extend the three-minute idle window.
+    if let Ok(mut last) = last_request.lock() {
+        *last = Instant::now();
     }
 
     // 用 Response::from_file 直接 serve 文件（tiny_http 0.12 提供的
@@ -599,6 +574,18 @@ pub fn stop_server(state: &ShareServerState) -> Result<(), String> {
     Ok(())
 }
 
+fn clear_server_if_token(state: &ShareServerState, token: &str) {
+    let Ok(mut guard) = state.inner.lock() else {
+        return;
+    };
+    if guard
+        .as_ref()
+        .is_some_and(|inner| inner.info.token == token)
+    {
+        guard.take();
+    }
+}
+
 pub fn status(state: &ShareServerState) -> ShareServerStatus {
     let guard = match state.inner.lock() {
         Ok(g) => g,
@@ -659,14 +646,22 @@ mod tests {
     }
 
     #[test]
-    fn pick_free_port_returns_unused_port() {
-        // 先占一个端口
-        let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
-        let taken = listener.local_addr().unwrap().port();
-        // pick_free_port 应该拿一个不同的（系统会自动跳过已占的）
-        let free = pick_free_port().unwrap();
-        assert_ne!(free, taken, "expected different port");
-        drop(listener);
+    fn bind_server_reports_its_live_ephemeral_port() {
+        let (server, port) = bind_server().expect("ephemeral bind succeeds");
+        assert_ne!(port, 0);
+        assert_eq!(
+            server.server_addr().to_ip().map(|addr| addr.port()),
+            Some(port)
+        );
+    }
+
+    #[test]
+    fn token_path_match_is_exact_but_allows_query_strings() {
+        let expected = "/w/abc123";
+        assert!(request_path_matches("/w/abc123", expected));
+        assert!(request_path_matches("/w/abc123?download=1", expected));
+        assert!(!request_path_matches("/w/abc123-extra", expected));
+        assert!(!request_path_matches("/w/abc123/child", expected));
     }
 
     #[test]
