@@ -877,15 +877,16 @@ fn share_state(app: &tauri::AppHandle) -> tauri::State<'_, share_server::ShareSe
 fn start_share_server(
     app: tauri::AppHandle,
     path: String,
+    session_id: String,
 ) -> Result<share_server::ShareServerInfo, String> {
     let path = validated_library_video_path(&path)?;
     let state = share_state(&app);
-    share_server::start_server(&app, state.inner(), path)
+    share_server::start_server(&app, state.inner(), path, session_id)
 }
 
 #[tauri::command]
-fn stop_share_server(app: tauri::AppHandle) -> Result<(), String> {
-    share_server::stop_server(share_state(&app).inner())
+fn stop_share_server(app: tauri::AppHandle, session_id: Option<String>) -> Result<(), String> {
+    share_server::stop_server(share_state(&app).inner(), session_id)
 }
 
 #[tauri::command]

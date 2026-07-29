@@ -12,6 +12,7 @@
 //! 启动/停止通过 Tauri state 持有（`ShareServerHandle`），命令通过
 //! `app.state::<ShareServerState>()` 拿。
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -32,6 +33,10 @@ use crate::lan_ip;
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareServerInfo {
+    /// Frontend-generated UUID identity. Events and stop requests carry it so
+    /// an old server cannot mutate a replacement server's UI, including after
+    /// a WebView reload inside the same Tauri process.
+    pub session_id: String,
     pub port: u16,
     pub token: String,
     pub url: String,
@@ -70,6 +75,10 @@ struct Inner {
 
 pub struct ShareServerState {
     inner: Mutex<Option<Inner>>,
+    /// A stop can arrive before its start command publishes `inner`. Remember
+    /// that session so the late start closes only itself instead of replacing
+    /// a newer server.
+    cancelled_sessions: Mutex<HashSet<String>>,
     /// 空闲超时
     idle_timeout: Duration,
 }
@@ -78,6 +87,7 @@ impl ShareServerState {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(None),
+            cancelled_sessions: Mutex::new(HashSet::new()),
             idle_timeout: Duration::from_secs(3 * 60), // 3 分钟
         }
     }
@@ -172,6 +182,7 @@ pub fn start_server(
     app: &AppHandle,
     state: &ShareServerState,
     video_path: PathBuf,
+    session_id: String,
 ) -> Result<ShareServerInfo, String> {
     crate::app_log::write(
         crate::app_log::LogLevel::Info,
@@ -227,23 +238,10 @@ pub fn start_server(
     let app_for_thread = app.clone();
     let path_for_thread = video_path.clone();
     let token_for_thread = token.clone();
+    let session_for_thread = session_id.clone();
     let name_for_thread = video_name.clone();
     let downloads_for_thread = downloads.clone();
     let last_request_for_thread = last_request.clone();
-
-    // Only replace an existing server after the new source has been validated
-    // and its listening socket has been secured successfully.
-    {
-        let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
-        if let Some(old) = guard.take() {
-            crate::app_log::write(
-                crate::app_log::LogLevel::Info,
-                "share",
-                "replacing existing server",
-            );
-            let _ = old.stop_tx.send(());
-        }
-    }
 
     // 闭包里用 clone 拿一份 Sender —— 原始 stop_tx 还要存到 Inner
     // 里给 stop_server() 用（用户在 GUI 上点"停止"时用）。
@@ -265,31 +263,42 @@ pub fn start_server(
                 idle_timeout,
                 lan_ip_v4,
                 port,
+                &session_for_thread,
             );
-            clear_server_if_token(
+            clear_server_if_session(
                 &app_for_thread.state::<ShareServerState>(),
-                &token_for_thread,
+                &session_for_thread,
             );
-            if let Err(e) = result {
-                crate::app_log::write(
-                    crate::app_log::LogLevel::Error,
-                    "share",
-                    format!("server thread exited with error: {e}"),
-                );
-                let _ = app_for_thread.emit(
-                    "wui://share_server_stopped",
-                    serde_json::json!({ "reason": "error", "message": e }),
-                );
-            } else {
-                crate::app_log::write(
-                    crate::app_log::LogLevel::Info,
-                    "share",
-                    "server thread exited normally",
-                );
-                let _ = app_for_thread.emit(
-                    "wui://share_server_stopped",
-                    serde_json::json!({ "reason": "stopped" }),
-                );
+            match result {
+                Err(e) => {
+                    crate::app_log::write(
+                        crate::app_log::LogLevel::Error,
+                        "share",
+                        format!("server thread exited with error: {e}"),
+                    );
+                    let _ = app_for_thread.emit(
+                        "wui://share_server_stopped",
+                        serde_json::json!({
+                            "sessionId": session_for_thread,
+                            "reason": "error",
+                            "message": e,
+                        }),
+                    );
+                }
+                Ok(reason) => {
+                    crate::app_log::write(
+                        crate::app_log::LogLevel::Info,
+                        "share",
+                        format!("server thread exited: {}", reason.as_str()),
+                    );
+                    let _ = app_for_thread.emit(
+                        "wui://share_server_stopped",
+                        serde_json::json!({
+                            "sessionId": session_for_thread,
+                            "reason": reason.as_str(),
+                        }),
+                    );
+                }
             }
         })
         .map_err(|e| {
@@ -301,6 +310,7 @@ pub fn start_server(
             format!("spawn server thread: {e}")
         })?;
     let info = ShareServerInfo {
+        session_id: session_id.clone(),
         port,
         token,
         url,
@@ -313,7 +323,26 @@ pub fn start_server(
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
+    // Publication and cancellation share a lock order. stop(session_id) can
+    // arrive while bind/thread startup is in flight; if so, this new thread is
+    // stopped without ever replacing the current server.
+    let mut cancelled = state
+        .cancelled_sessions
+        .lock()
+        .map_err(|e| format!("lock cancelled sessions: {e}"))?;
+    if cancelled.remove(&session_id) {
+        let _ = stop_tx.send(());
+        return Err("快传启动已取消".to_string());
+    }
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
+    if let Some(old) = guard.take() {
+        crate::app_log::write(
+            crate::app_log::LogLevel::Info,
+            "share",
+            "replacing existing server",
+        );
+        let _ = old.stop_tx.send(());
+    }
     *guard = Some(Inner {
         info: info.clone(),
         stop_tx,
@@ -321,6 +350,21 @@ pub fn start_server(
         last_request,
     });
     Ok(info)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ServerStopReason {
+    Stopped,
+    IdleTimeout,
+}
+
+impl ServerStopReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Stopped => "stopped",
+            Self::IdleTimeout => "idle_timeout",
+        }
+    }
 }
 
 fn run_server(
@@ -335,7 +379,8 @@ fn run_server(
     idle_timeout: Duration,
     lan_ip_v4: Ipv4Addr,
     port: u16,
-) -> Result<(), String> {
+    session_id: &str,
+) -> Result<ServerStopReason, String> {
     // 期望的精确 path
     let expected_prefix = format!("/w/{token}");
 
@@ -352,15 +397,17 @@ fn run_server(
                         last.elapsed().as_secs()
                     ),
                 );
-                break; // 优雅退出
+                return Ok(ServerStopReason::IdleTimeout);
             }
         }
 
         // 短轮询：看用户是否手动关
         match stop_rx.try_recv() {
-            Ok(()) => break,
+            Ok(()) => return Ok(ServerStopReason::Stopped),
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Ok(ServerStopReason::Stopped);
+            }
         }
 
         // tiny_http 0.12 supports a bounded receive directly. This keeps stop
@@ -377,13 +424,13 @@ fn run_server(
                     app,
                     &downloads,
                     &last_request,
+                    session_id,
                 );
             }
             Ok(None) => continue,
             Err(e) => return Err(format!("receive request: {e}")),
         }
     }
-    Ok(())
 }
 
 fn request_path_matches(url: &str, expected_path: &str) -> bool {
@@ -420,6 +467,7 @@ fn handle_request(
     app: &AppHandle,
     downloads: &Arc<AtomicU64>,
     last_request: &Arc<Mutex<Instant>>,
+    session_id: &str,
 ) {
     // 非 GET 方法 → 405
     if *req.method() != tiny_http::Method::Get {
@@ -532,6 +580,7 @@ fn handle_request(
     let _ = app.emit(
         "wui://share_downloaded",
         serde_json::json!({
+            "sessionId": session_id,
             "count": count,
             "filename": video_name,
             "sizeBytes": size,
@@ -587,21 +636,36 @@ fn percent_encode_rfc5987(s: &str) -> String {
     out
 }
 
-pub fn stop_server(state: &ShareServerState) -> Result<(), String> {
+pub fn stop_server(state: &ShareServerState, session_id: Option<String>) -> Result<(), String> {
+    let mut cancelled = state
+        .cancelled_sessions
+        .lock()
+        .map_err(|e| format!("lock cancelled sessions: {e}"))?;
+    if let Some(expected) = session_id.as_ref() {
+        cancelled.insert(expected.clone());
+    }
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
+    if session_id.as_ref().is_some_and(|expected| {
+        guard
+            .as_ref()
+            .is_none_or(|inner| inner.info.session_id != *expected)
+    }) {
+        return Ok(());
+    }
     if let Some(inner) = guard.take() {
+        cancelled.remove(&inner.info.session_id);
         let _ = inner.stop_tx.send(());
     }
     Ok(())
 }
 
-fn clear_server_if_token(state: &ShareServerState, token: &str) {
+fn clear_server_if_session(state: &ShareServerState, session_id: &str) {
     let Ok(mut guard) = state.inner.lock() else {
         return;
     };
     if guard
         .as_ref()
-        .is_some_and(|inner| inner.info.token == token)
+        .is_some_and(|inner| inner.info.session_id == session_id)
     {
         guard.take();
     }
@@ -639,6 +703,20 @@ pub fn status(state: &ShareServerState) -> ShareServerStatus {
 mod tests {
     use super::*;
 
+    fn test_info(session_id: &str) -> ShareServerInfo {
+        ShareServerInfo {
+            session_id: session_id.into(),
+            port: 53124,
+            token: format!("token-{session_id}"),
+            url: format!("http://192.168.1.42:53124/w/token-{session_id}"),
+            lan_ip: "192.168.1.42".into(),
+            qr_svg: "<svg/>".into(),
+            video_name: "clip.mp4".into(),
+            video_size: 1,
+            started_at_unix: 1,
+        }
+    }
+
     #[test]
     fn make_token_is_unique_and_url_safe() {
         let t1 = make_token();
@@ -674,6 +752,47 @@ mod tests {
             server.server_addr().to_ip().map(|addr| addr.port()),
             Some(port)
         );
+    }
+
+    #[test]
+    fn session_scoped_stop_cannot_stop_a_replacement_server() {
+        let state = ShareServerState::new();
+        let (stop_tx, stop_rx) = channel();
+        *state.inner.lock().unwrap() = Some(Inner {
+            info: test_info("session-22"),
+            stop_tx,
+            downloads: Arc::new(AtomicU64::new(0)),
+            last_request: Arc::new(Mutex::new(Instant::now())),
+        });
+
+        stop_server(&state, Some("session-21".into())).expect("stale stop is harmless");
+        assert!(status(&state).running);
+        assert!(matches!(
+            stop_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+
+        stop_server(&state, Some("session-22".into())).expect("current session stops");
+        assert!(!status(&state).running);
+        assert_eq!(stop_rx.recv_timeout(Duration::from_millis(50)), Ok(()));
+    }
+
+    #[test]
+    fn stop_before_publish_records_the_pending_session_cancellation() {
+        let state = ShareServerState::new();
+        stop_server(&state, Some("session-31".into())).expect("pending stop is recorded");
+        assert!(state
+            .cancelled_sessions
+            .lock()
+            .unwrap()
+            .contains("session-31"));
+        assert!(!status(&state).running);
+    }
+
+    #[test]
+    fn stop_reasons_preserve_idle_timeout_semantics() {
+        assert_eq!(ServerStopReason::Stopped.as_str(), "stopped");
+        assert_eq!(ServerStopReason::IdleTimeout.as_str(), "idle_timeout");
     }
 
     #[test]

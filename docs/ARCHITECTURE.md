@@ -142,7 +142,8 @@ Defined in `src-tauri/src/lib.rs`:
     as playback and frame capture; an injected WebView cannot turn the LAN
     server into an arbitrary-file endpoint.
   - Starts a 1-shot HTTP server on a free local port (49152-65535), generates a
-    256-bit URL-safe token, returns `{ port, token, url, lanIp, qrSvg, videoName, videoSize, startedAtUnix }`.
+    256-bit URL-safe token, returns `{ sessionId, port, token, url, lanIp,
+    qrSvg, videoName, videoSize, startedAtUnix }`.
   - The QR SVG is generated Rust-side using **circle modules** (not rectangles)
     with `EcLevel::H` (30% recovery) and a 4-module quiet zone for iPhone
     / Android native scanner compatibility.
@@ -161,9 +162,14 @@ Defined in `src-tauri/src/lib.rs`:
     `tauri::State<ShareServerState>` registered via `.manage()` on the
     builder. A **3-minute idle timeout** is the only auto-shutdown path —
     covers "user opened modal then forgot about it" without a port leak.
-- `stop_share_server()` — explicit shutdown; sends stop signal to the server
-  thread which exits cleanly. Frontend calls this on modal close.
+- `stop_share_server(sessionId?)` — explicit shutdown. Normal frontend calls
+  always include the current UUID share session ID, so a late stop
+  from an old modal cannot terminate its replacement server.
 - `share_server_status() -> ShareServerStatus` — `{ running, info, downloadCount, lastError }`
+- `wui://share_downloaded` and `wui://share_server_stopped` include the same
+  `sessionId`. The frontend ignores events from replaced sessions. Normal
+  manual shutdown emits `stopped`; the three-minute server timeout emits the
+  distinct `idle_timeout` reason; thread errors emit `error` plus a message.
 - `log_event(level, scope, message)` — generic log forwarder so the frontend
   can write structured logs that end up in `wonderful-ui.log` next to Rust
   logs. Browser / test environments fall back to `console.*` without

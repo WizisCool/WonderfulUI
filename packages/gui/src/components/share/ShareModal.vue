@@ -21,6 +21,10 @@ import { useUiStore } from '../../stores/ui.ts';
 import { SHARE_ICON } from '../../share/icons.ts';
 import { listen } from '../../tauri-adapter.ts';
 import { clientLog } from '../../utils/client-log.ts';
+import type {
+  ShareDownloadedEvent,
+  ShareStoppedEvent,
+} from '../../stores/share.ts';
 
 const props = defineProps<{
   videoPath: string;
@@ -51,7 +55,9 @@ const statusText = computed(() => {
 
 let unlistenStopped: (() => void) | null = null;
 let unlistenDownloaded: (() => void) | null = null;
-let copyCooldown = ref(0); // QR 复制防抖
+const copyCooldown = ref(0); // QR 复制防抖
+let copyCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+let disposed = false;
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -61,70 +67,89 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(async () => {
+async function initializeShare(): Promise<void> {
   clientLog('info', 'share-modal', `mount: path=${props.videoPath}`);
-  // Esc 键关闭模态（同时关 server —— 由 onUnmounted 触发）。
-  // capture 阶段拦截，避免其他组件先消费 Esc。PlayerHost 自己的
-  // Esc 处理在 onKeydown（无 capture）里，两边不会冲突 —— 我们
-  // stopPropagation 之后 PlayerHost 看不到 Esc。
-  document.addEventListener('keydown', onKeydown, true);
-
-  unlistenDownloaded = await listen<{ count: number; filename: string; sizeBytes: number }>(
-    'wui://share_downloaded',
-    (e) => {
-      clientLog(
-        'info',
-        'share-modal',
-        `download event: count=${e.payload.count} size=${e.payload.sizeBytes}`,
-      );
-      share.onDownloaded(e.payload);
-    },
-  );
-  unlistenStopped = await listen<{ reason: 'stopped' | 'error' | 'idle_timeout'; message?: string }>(
-    'wui://share_server_stopped',
-    (e) => {
-      clientLog(
-        'info',
-        'share-modal',
-        `server stopped: reason=${e.payload.reason}${e.payload.message ? ' msg=' + e.payload.message : ''}`,
-      );
-      // 3 分钟空闲兜底触发的停止：仅记日志 + toast，**不**自动关模态。
-      // 如果是 error 路径：toast 错误信息，模态保留（用户能看错误）。
-      // "stopped" 路径不应该到这里 —— 我们自己通过 emit('close') 关
-      // 模态，那条路径会调 share.stop() 显式停 server。
-      share.onStopped(e.payload.reason, e.payload.message);
-      if (e.payload.reason === 'error' && e.payload.message) {
-        ui.showToast(`快传已停止: ${e.payload.message}`, 'error');
-      } else if (e.payload.reason === 'idle_timeout') {
-        // 兜底关闭：用户没手动关就超时了
-        ui.showToast('快传端口已闲置超时', 'ok');
-        emit('close');
-      }
-    },
-  );
-
-  // 启动 server（模态生命周期 = server 生命周期）
-  await share.start(props.videoPath);
-  if (share.status === 'error') {
-    clientLog('error', 'share-modal', `start failed: ${share.lastError}`);
-    ui.showToast(`启动快传失败: ${share.lastError}`, 'error');
-    emit('close');
-  } else if (share.info) {
-    clientLog(
-      'info',
-      'share-modal',
-      `server up: port=${share.info.port} ip=${share.info.lanIp}`,
+  try {
+    const stopDownloaded = await listen<ShareDownloadedEvent>(
+      'wui://share_downloaded',
+      (e) => {
+        if (!share.onDownloaded(e.payload)) return;
+        clientLog(
+          'info',
+          'share-modal',
+          `download event: count=${e.payload.count} size=${e.payload.sizeBytes}`,
+        );
+      },
     );
+    if (disposed) {
+      stopDownloaded();
+      return;
+    }
+    unlistenDownloaded = stopDownloaded;
+
+    const stopStopped = await listen<ShareStoppedEvent>(
+      'wui://share_server_stopped',
+      (e) => {
+        if (!share.onStopped(e.payload)) return;
+        clientLog(
+          'info',
+          'share-modal',
+          `server stopped: reason=${e.payload.reason}${e.payload.message ? ' msg=' + e.payload.message : ''}`,
+        );
+        if (e.payload.reason === 'error' && e.payload.message) {
+          ui.showToast(`快传已停止: ${e.payload.message}`, 'error');
+        } else if (e.payload.reason === 'idle_timeout') {
+          ui.showToast('快传端口已闲置超时', 'ok');
+          emit('close');
+        }
+      },
+    );
+    if (disposed) {
+      stopStopped();
+      return;
+    }
+    unlistenStopped = stopStopped;
+
+    // 启动 server（模态生命周期 = server 生命周期）。Every await above
+    // checks disposed so closing during listener registration cannot start an
+    // invisible server after onUnmounted already ran.
+    await share.start(props.videoPath);
+    if (disposed) return;
+    if (share.status === 'error') {
+      clientLog('error', 'share-modal', `start failed: ${share.lastError}`);
+      ui.showToast(`启动快传失败: ${share.lastError}`, 'error');
+      emit('close');
+    } else if (share.info) {
+      clientLog(
+        'info',
+        'share-modal',
+        `server up: port=${share.info.port} ip=${share.info.lanIp}`,
+      );
+    }
+  } catch (e) {
+    if (disposed) return;
+    const message = e instanceof Error ? e.message : String(e);
+    clientLog('error', 'share-modal', `initialization failed: ${message}`);
+    ui.showToast(`启动快传失败: ${message}`, 'error');
+    emit('close');
   }
+}
+
+onMounted(() => {
+  // Esc 键关闭模态（同时关 server —— 由 onUnmounted 触发）。
+  document.addEventListener('keydown', onKeydown, true);
+  void initializeShare();
 });
 
 onUnmounted(() => {
+  disposed = true;
   clientLog('info', 'share-modal', 'unmount → stopping server');
   unlistenDownloaded?.();
   unlistenStopped?.();
+  if (copyCooldownTimer !== null) clearTimeout(copyCooldownTimer);
   document.removeEventListener('keydown', onKeydown, true);
   // **关模态 → 关 server**：避免端口长占
-  share.stop();
+  void share.stop();
 });
 
 async function copyLink() {
@@ -134,7 +159,10 @@ async function copyLink() {
     await navigator.clipboard.writeText(share.info.url);
     clientLog('info', 'share-modal', 'copy link to clipboard');
     copyCooldown.value = 1500;
-    setTimeout(() => (copyCooldown.value = 0), 1500);
+    copyCooldownTimer = setTimeout(() => {
+      copyCooldown.value = 0;
+      copyCooldownTimer = null;
+    }, 1500);
   } catch (e) {
     clientLog('warn', 'share-modal', `copy failed: ${e}`);
     ui.showToast('复制失败，请手动选择', 'error');

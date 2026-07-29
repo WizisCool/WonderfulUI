@@ -298,8 +298,15 @@ Account list uses a custom tooltip, not native `title=`.
   - `downloadCount >= 1` → red dot (with same pulse animation but wider halo), "下载完成", progress bar `scaleX(1)`
   - The dot is red **only after** `req.respond()` returns `Ok(())` — i.e. after the file actually streamed to the client. WeChat scanning a URL that only previews without downloading does NOT trigger the "下载完成" state (BrokenPipe mid-stream → `respond()` errors → count stays 0). This is by design.
 - **Server lifecycle**:
-  - Modal `onMounted` → `share.start(videoPath)` → Rust starts HTTP server
-  - Modal `onUnmounted` → `share.stop()` → Rust stops server
+  - Modal `onMounted` registers both Tauri event listeners, checking its
+    `disposed` flag after each async registration, then calls
+    `share.start(videoPath)`. A listener that resolves after unmount is
+    unsubscribed immediately; a closed modal must never start a hidden server.
+  - Modal `onUnmounted` invalidates the current share session synchronously,
+    then `share.stop()` asks Rust to stop that exact `sessionId`.
+  - Start results, downloads, and stop events all carry `sessionId`. Late
+    results clean up only their own backend server, and stale events from a
+    replaced server are ignored.
   - 3-minute idle timeout is the **only** auto-shutdown path (safety net for "user opened modal then forgot"). NOT "close after first download" — the user controls when to close.
 - **Close paths** (all route to `share.stop()` via `onUnmounted`):
   - Click the `×` in the top-right corner
