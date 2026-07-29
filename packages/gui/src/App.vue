@@ -44,6 +44,10 @@ import { useTooltip, isTipEligible } from './composables/useTooltip.ts';
 import { clientLog } from './utils/client-log.ts';
 import { installUpdateDebug } from './utils/update-debug.ts';
 import { useAppShortcuts } from './composables/useAppShortcuts.ts';
+import {
+  parseStartupRefreshResult,
+  type StartupRefreshResult,
+} from './utils/startup-refresh.ts';
 
 const filter = useFilterStore();
 const account = useAccountStore();
@@ -91,29 +95,32 @@ async function runBoot() {
     // 1) Probe the ACLOS WonderfulDb directory (read-only, cheap).
     await account.probeAclos();
 
-    // 2) Subscribe to scrape_summary *before* scanShell so we don't
-    // miss the event when the background scrape finishes. scanShell
-    // spawns a background thread in Rust that writes to SQLite and
-    // emits wui://scrape_summary when done. On the first launch the
+    // 2) Subscribe to the scanShell-specific terminal event before invoking
+    // it so success, degraded fallback, and fatal failure all settle boot.
+    // The generic scrape_summary event exists only on successful scrapes and
+    // previously left source/read failures waiting for the 30 s safety timer.
+    // On the first launch the
     // local library is empty, so we must keep the BootOverlay visible
     // until the scrape settles — otherwise the user sees a flash of
     // the empty "还没有高光" state while scraping is still running.
-    let resolveScrape: () => void;
-    const scrapeComplete = new Promise<void>(r => { resolveScrape = r; });
-    const safetyTimer = setTimeout(() => resolveScrape(), 30_000);
-    const unlisten = await listen<Record<string, unknown>>('wui://scrape_summary', () => {
+    let resolveRefresh!: (result: StartupRefreshResult) => void;
+    const refreshComplete = new Promise<StartupRefreshResult>(r => { resolveRefresh = r; });
+    const safetyTimer = window.setTimeout(() => resolveRefresh({ status: 'timeout' }), 30_000);
+    const unlisten = await listen<Record<string, unknown>>('wui://startup_refresh_finished', (event) => {
       clearTimeout(safetyTimer);
-      resolveScrape();
+      resolveRefresh(parseStartupRefreshResult(event.payload));
     });
 
     account.scraping = true;
+    let refreshResult: StartupRefreshResult;
     try {
       await account.scanShell();
       await account.loadLibrary();
 
       // Wait for the background scrape to finish.
-      await scrapeComplete;
+      refreshResult = await refreshComplete;
     } finally {
+      clearTimeout(safetyTimer);
       unlisten();
       account.scraping = false;
     }
@@ -121,6 +128,16 @@ async function runBoot() {
     // 3) Reload library now that scrape has settled so the view has
     // fresh accounts + matches.
     await account.loadLibrary();
+    if (refreshResult.status === 'error') {
+      throw new Error(refreshResult.error ?? '后台资料库刷新失败');
+    }
+    if (refreshResult.status === 'degraded') {
+      const message = refreshResult.error ?? '源数据暂时不可用';
+      clientLog('warn', 'boot', `background refresh degraded: ${message}`);
+      ui.showToast(`源数据刷新失败，当前显示上次资料库: ${message}`, 'error');
+    } else if (refreshResult.status === 'timeout') {
+      clientLog('warn', 'boot', 'background refresh exceeded the 30 second boot wait');
+    }
     await account.cacheAssets();
     if (account.realAccounts.length > 0) {
       account.selectAccount('__all__');

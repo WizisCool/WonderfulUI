@@ -568,11 +568,11 @@ pub fn scrape_wonderful_dir_with_mode(
                 return Err(message);
             }
         };
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.is_empty() || !name_str.chars().all(|c| c.is_ascii_digit()) {
+        if !is_account_file(&entry) {
             continue;
         }
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
         let path = entry.path();
         let meta = source_file_meta(&path);
         account_files.push((name_str.into_owned(), path, meta));
@@ -948,6 +948,19 @@ pub fn scrape_wonderful_dir_with_mode(
     )
     .map_err(|e| e.to_string())?;
     Ok(summary)
+}
+
+/// ACLOS account payloads are regular files whose entire basename is a
+/// decimal openid. Keep this predicate shared with the lightweight boot probe
+/// so onboarding and the real scraper cannot disagree about whether data is
+/// present. Symlinks and numeric directory names are intentionally rejected.
+pub(crate) fn is_account_file(entry: &std::fs::DirEntry) -> bool {
+    entry.file_type().is_ok_and(|kind| kind.is_file()) && is_account_filename(&entry.file_name())
+}
+
+fn is_account_filename(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 #[cfg(test)]

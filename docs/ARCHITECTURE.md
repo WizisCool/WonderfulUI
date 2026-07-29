@@ -62,9 +62,11 @@ Defined in `src-tauri/src/lib.rs`:
     `{ dir, dirExists, hasAccounts }` so the GUI can route the user to the
     first-run / onboarding screen without paying the cost of `scan_shell`.
   - `dirExists` is true when the directory is on disk.
-  - `hasAccounts` is true when the directory contains at least one
-    non-hidden, non-snapshot, non-index file (mirrors the rule ACLOS
-    uses to enumerate account files).
+  - `hasAccounts` is true only when the directory contains at least one
+    regular file whose full basename is an ASCII-decimal openid. The probe
+    calls the same predicate as the scraper, so snapshots, index/README files,
+    hidden files, symlinks, and numeric directory names cannot create a false
+    positive onboarding state.
   - Does not create, modify, or touch the directory.
   - The frontend calls this at boot, before `scan_shell`, in
     `App.vue -> runBoot()`.
@@ -73,6 +75,10 @@ Defined in `src-tauri/src/lib.rs`:
     immediately so startup can render without waiting for a full source scan.
   - Spawns the WonderfulDb source refresh in the background and streams
     `wui://phase` / per-account progress events to the boot progress UI.
+  - Always emits `wui://startup_refresh_finished` with `finished`, `degraded`,
+    or `error`, including when opening SQLite or reading WonderfulDb fails.
+    Degraded means the existing SQLite view remains usable; the failure is
+    logged and surfaced without trapping the UI behind the boot overlay.
   - The frontend follows with `load_library()` after startup progress to read
     the current rounds-stripped library view from SQLite.
 - `scan_all(dir?: string) -> LoadResult`

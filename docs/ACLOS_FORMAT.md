@@ -15,6 +15,9 @@ This document holds ACLOS/WonderfulDb facts that are useful for parser and GUI w
 - Parser target: `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb\`.
 - Highlight file: `WonderfulDb\<account_id>`.
 - Snapshot file: `WonderfulDb\snapshot<account_id>`.
+- Account enumeration accepts only regular files whose entire basename is a
+  non-empty ASCII-decimal openid. The first-run probe and scraper share this
+  predicate; directories and unrelated sibling files are ignored.
 - Locked ACLOS version: `2.15.3.449`.
 - Schema file: `packages/parser/src/schema/_acl-source/eventDefine.js` (also `packages/parser/src/model.ts` for the parsed subset).
 - Out of scope for this iteration: `WeGameWonderfulDb`, IndexedDB, `blob_storage`, and video export.

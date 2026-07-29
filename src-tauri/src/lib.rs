@@ -76,11 +76,17 @@ fn default_wonderful_dir() -> PathBuf {
         .join("WonderfulDb")
 }
 
+#[derive(Debug)]
+struct StartupLoadOutcome {
+    view: LoadResult,
+    warning: Option<String>,
+}
+
 fn load_after_startup_scrape(
     conn: &rusqlite::Connection,
     base: &std::path::Path,
     app: Option<&tauri::AppHandle>,
-) -> Result<LoadResult, String> {
+) -> Result<StartupLoadOutcome, String> {
     let dir = base.to_string_lossy().into_owned();
     match library::scraper::scrape_wonderful_dir_with_mode(
         conn,
@@ -89,16 +95,22 @@ fn load_after_startup_scrape(
         library::scraper::ScrapeMode::Incremental,
         app,
     ) {
-        Ok(_) => {
-            library::db::load_library_view(conn, dir).map_err(|e| format!("load library: {}", e))
-        }
+        Ok(_) => library::db::load_library_view(conn, dir)
+            .map(|view| StartupLoadOutcome {
+                view,
+                warning: None,
+            })
+            .map_err(|e| format!("load library: {}", e)),
         Err(scrape_error) => {
             let view = library::db::load_library_view(conn, dir)
                 .map_err(|e| format!("load library after scrape failure: {}", e))?;
             if view.accounts.is_empty() && view.matches.is_empty() {
                 Err(scrape_error)
             } else {
-                Ok(view)
+                Ok(StartupLoadOutcome {
+                    view,
+                    warning: Some(scrape_error),
+                })
             }
         }
     }
@@ -144,16 +156,8 @@ fn aclos_status(dir: Option<String>) -> Result<AclosStatusPayload, String> {
     let has_accounts = if dir_exists {
         std::fs::read_dir(&base)
             .map(|rd| {
-                rd.filter_map(Result::ok).any(|entry| {
-                    let name = entry.file_name();
-                    let name = name.to_string_lossy();
-                    // ACLOS writes a single file per account named after the
-                    // openid; any sibling file that is not a hidden / index /
-                    // snapshot file is treated as an account shell.
-                    !name.starts_with('.')
-                        && !name.starts_with("snapshot")
-                        && !name.eq_ignore_ascii_case("index")
-                })
+                rd.filter_map(Result::ok)
+                    .any(|entry| library::scraper::is_account_file(&entry))
             })
             .unwrap_or(false)
     } else {
@@ -201,26 +205,63 @@ fn scan_shell(app: tauri::AppHandle, dir: Option<String>) -> Result<ScanShellPay
     let app2 = app.clone();
     let base2 = base.clone();
     std::thread::spawn(move || {
-        let conn = match library::db::open_library() {
-            Ok(c) => c,
-            Err(e) => {
+        let refresh = library::db::open_library()
+            .map_err(|e| format!("open library: {e}"))
+            .and_then(|conn| load_after_startup_scrape(&conn, &base2, Some(&app2)));
+
+        match refresh {
+            Ok(outcome) => {
+                if let Some(warning) = outcome.warning {
+                    app_log::write(
+                        app_log::LogLevel::Warn,
+                        "scan_shell",
+                        format!("background refresh degraded: {warning}"),
+                    );
+                    let _ = app2.emit(
+                        "wui://phase",
+                        serde_json::json!({
+                            "phase": "error",
+                            "label": "源数据刷新失败，已加载现有资料库",
+                            "sub": warning,
+                        }),
+                    );
+                    let _ = app2.emit(
+                        "wui://startup_refresh_finished",
+                        serde_json::json!({
+                            "status": "degraded",
+                            "error": warning,
+                        }),
+                    );
+                } else {
+                    let _ = app2.emit(
+                        "wui://startup_refresh_finished",
+                        serde_json::json!({ "status": "finished" }),
+                    );
+                }
+            }
+            Err(error) => {
                 app_log::write(
                     app_log::LogLevel::Error,
                     "scan_shell",
-                    format!("background open library failed: {}", e),
+                    format!("background refresh failed: {error}"),
                 );
                 let _ = app2.emit(
                     "wui://phase",
                     serde_json::json!({
                         "phase": "error",
-                        "label": "资料库打开失败",
-                        "sub": e.to_string(),
+                        "label": "资料库刷新失败",
+                        "sub": error,
                     }),
                 );
-                return;
+                let _ = app2.emit(
+                    "wui://startup_refresh_finished",
+                    serde_json::json!({
+                        "status": "error",
+                        "error": error,
+                    }),
+                );
             }
-        };
-        let _ = load_after_startup_scrape(&conn, &base2, Some(&app2));
+        }
     });
 
     Ok(ScanShellPayload {
@@ -245,7 +286,7 @@ fn scan_all(app: tauri::AppHandle, dir: Option<String>) -> Result<LoadResult, St
         None => default_wonderful_dir(),
     };
     let conn = library::db::open_library()?;
-    load_after_startup_scrape(&conn, &base, Some(&app))
+    load_after_startup_scrape(&conn, &base, Some(&app)).map(|outcome| outcome.view)
 }
 
 #[tauri::command]
@@ -826,12 +867,14 @@ mod tests {
         migrate(&conn).expect("migration succeeds");
         seed_library_match(&conn);
 
-        let view =
+        let outcome =
             load_after_startup_scrape(&conn, &missing_dir(), None).expect("library view loads");
+        let view = outcome.view;
 
         assert_eq!(view.accounts.len(), 1);
         assert_eq!(view.matches.len(), 1);
         assert_eq!(view.matches[0].matches_id, "match-1");
+        assert!(outcome.warning.is_some());
     }
 
     #[test]
@@ -843,6 +886,29 @@ mod tests {
             .expect_err("empty library errors");
 
         assert!(err.contains("read_dir"), "{err}");
+    }
+
+    #[test]
+    fn aclos_status_requires_a_regular_numeric_account_file() {
+        let dir = std::env::temp_dir().join(format!("wui-aclos-status-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir created");
+        std::fs::write(dir.join("snapshot123456"), b"snapshot").expect("snapshot fixture");
+        std::fs::write(dir.join("index"), b"index").expect("index fixture");
+        std::fs::write(dir.join(".hidden"), b"hidden").expect("hidden fixture");
+        std::fs::write(dir.join("README"), b"notes").expect("readme fixture");
+        std::fs::create_dir(dir.join("123456")).expect("numeric directory fixture");
+
+        let without_account =
+            aclos_status(Some(dir.to_string_lossy().into_owned())).expect("status probe succeeds");
+        assert!(without_account.dir_exists);
+        assert!(!without_account.has_accounts);
+
+        std::fs::write(dir.join("9876543210"), b"account").expect("account fixture");
+        let with_account =
+            aclos_status(Some(dir.to_string_lossy().into_owned())).expect("status probe succeeds");
+        assert!(with_account.has_accounts);
+
+        std::fs::remove_dir_all(&dir).expect("temp dir removed");
     }
 
     #[test]

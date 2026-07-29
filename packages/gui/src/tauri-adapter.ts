@@ -342,6 +342,7 @@ function startMockBootEvents(): void {
   window.setTimeout(() => emitMockEvent('wui://account_loaded', { current: 1, total: 2 }), 80);
   window.setTimeout(() => emitMockEvent('wui://account_loaded', { current: 2, total: 2 }), 120);
   window.setTimeout(() => emitMockEvent('wui://scrape_summary', { matches: fullMatches.length }), 150);
+  window.setTimeout(() => emitMockEvent('wui://startup_refresh_finished', { status: 'finished' }), 155);
   window.setTimeout(() => emitMockEvent('wui://phase', { phase: 'loading_view' }), 180);
 }
 
