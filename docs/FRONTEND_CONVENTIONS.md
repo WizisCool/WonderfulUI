@@ -353,7 +353,7 @@ Icons come from @iconify/vue (Phosphor set), via the shared `WIcon` wrapper at `
 - Import `WIcon` from `../common/WIcon.vue` (or appropriate relative path).
 - Usage: `<WIcon icon="ph:play" :size="16" />` where `icon` is the full @iconify icon name and `size` maps to `width`/`height`.
 - Do NOT import raw lucide icons or use `createElement()` for SVG icons.
-- **Offline bundle (required for Tauri):** `main.ts` calls `registerAppIcons()` which loads a Phosphor subset from `packages/gui/src/icons/ph-local.ts` via `addCollection`. Without this, late-mounted UI (player controls, 快传 modal) fetches `api.iconify.design` and shows empty boxes when offline. When adding a new `ph:*` icon, append its name to `scripts/extract-ph-icons.mjs` and run `bun run --cwd packages/gui icons:extract`.
+- **Offline bundle (required for Tauri):** `main.ts` calls `registerAppIcons()` which loads a Phosphor subset from `packages/gui/src/icons/ph-local.ts` via `addCollection`. Without this, late-mounted UI (player controls, 快传 modal) fetches `api.iconify.design` and shows empty boxes when offline. When adding a new `ph:*` icon, append its name to `scripts/extract-ph-icons.mjs` and run `bun run --cwd packages/gui icons:extract`. `test/offline-icons.test.ts` scans every Vue/TS `ph:*` string literal and must fail if the generated subset is incomplete; do not silence the test with runtime CDN fallback.
 - 快传 brand icon is always `SHARE_ICON` (`ph:share-network`) from `packages/gui/src/share/icons.ts`.
 - Do NOT use Unicode symbol glyphs for controls.
 
