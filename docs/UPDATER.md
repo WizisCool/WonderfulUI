@@ -96,6 +96,9 @@ dismiss()               // 仅 available/error 可关；下载中 no-op
 - z-index 1400；关闭契约同 v0.1.5（下载/安装中不可关）。
 - 主按钮使用全局 `btn btn-primary`。
 - `total === 0` 时下载态用 shimmer +「已下载 X.X MB」。
+- 下载、安装与检查轨道使用 `role="progressbar"`。已知总量时暴露
+  `aria-valuenow` 0–100；未知总量时省略该属性并用 `aria-valuetext`
+  描述当前字节数，不能把 indeterminate 误报为 0%。
 - error 重试走 `store.retry()`，不一律 `startUpdate()`。
 
 ### 启动静默检查

@@ -101,6 +101,10 @@ describe('UpdateModal', () => {
     });
     expect(document.body.querySelector('.update-modal-progress-shimmer')).not.toBeNull();
     expect(document.body.querySelector('.update-modal-progress-fill')).toBeNull();
+    const progress = document.body.querySelector('.update-modal-progress');
+    expect(progress?.getAttribute('role')).toBe('progressbar');
+    expect(progress?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(progress?.getAttribute('aria-valuetext')).toContain('已下载');
     expect(document.body.textContent).toContain('已下载');
     w.unmount();
   });
@@ -111,6 +115,7 @@ describe('UpdateModal', () => {
       progress: { downloaded: 50, total: 100, pct: 50 },
     });
     expect(document.body.querySelector('.update-modal-progress-fill')).not.toBeNull();
+    expect(document.body.querySelector('.update-modal-progress')?.getAttribute('aria-valuenow')).toBe('50');
     expect(document.body.textContent).toContain('50%');
     w.unmount();
   });

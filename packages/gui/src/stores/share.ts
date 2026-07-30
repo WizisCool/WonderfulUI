@@ -18,6 +18,10 @@ import {
   shouldCommitShareStart,
   shouldHandleShareEvent,
 } from '../utils/share-start.ts';
+import { clientLog } from '../utils/client-log.ts';
+
+export const FRIENDLY_SHARE_START_ERROR = '快传服务启动失败，请重试';
+export const FRIENDLY_SHARE_STOP_ERROR = '快传服务异常停止，请重试';
 
 export interface ShareServerInfo {
   sessionId: string;
@@ -117,7 +121,9 @@ export const useShareStore = defineStore('share', () => {
         activeSessionId.value,
         requestSessionId,
       )) return;
-      lastError.value = e instanceof Error ? e.message : String(e);
+      const message = e instanceof Error ? e.message : String(e);
+      clientLog('error', 'share-store', `start failed: ${message}`);
+      lastError.value = FRIENDLY_SHARE_START_ERROR;
       info.value = null;
       status.value = 'error';
     }
@@ -145,7 +151,10 @@ export const useShareStore = defineStore('share', () => {
     if (!shouldHandleShareEvent(activeSessionId.value, payload.sessionId)) return false;
     activeSessionId.value = null;
     if (payload.reason === 'error') {
-      lastError.value = payload.message ?? '快传服务异常停止';
+      if (payload.message) {
+        clientLog('error', 'share-store', `server stopped: ${payload.message}`);
+      }
+      lastError.value = FRIENDLY_SHARE_STOP_ERROR;
       status.value = 'error';
     } else {
       status.value = 'idle';

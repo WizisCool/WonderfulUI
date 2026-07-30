@@ -351,6 +351,11 @@ Account list uses a custom tooltip, not native `title=`.
 - **Abstract platform layer** at `packages/gui/src/utils/share/`: `SharePlatform` interface, registry map, `openShareMenu` / `listAvailablePlatforms`. Each platform is one self-contained module under `platforms/`. Currently only `win32-share-sheet` (placeholder; production platform is the in-app `lan-qr` flow which doesn't go through the share abstract — see below).
 - **Production share path = LAN QR ("快传")**: instead of the `SharePlatform` interface, the player toolbar's `share` event opens `ShareModal` directly. Rust side runs an embedded `tiny_http` server (see ARCHITECTURE.md). The modal owns the server lifecycle — server starts on `onMounted`, stops on `onUnmounted` (so closing × / Esc / backdrop all guarantee the port is released).
 - **Modal layout (极简)**: title `快传` + 240×240 QR (Rust-rendered circles, `EcLevel::H`, click-to-copy) + a single status row `<size> · <dot><status text>` + 6 px progress bar matching `.boot-progress` (indeterminate shimmer while waiting, `scaleX(0→1)` on completion). No "复制链接" button — the QR is the button.
+- **Accessible state:** the QR button has an explicit copy action label and its
+  injected SVG is decorative. The status row is one polite atomic live region;
+  the bar is an indeterminate `progressbar` while waiting and exposes 100 only
+  after a completed download. Native paths, bind addresses, and server details
+  stay in local logs; visible errors use generic recovery text.
 - **Status states** (Rust-side event `wui://share_downloaded` is the only source of truth):
   - `downloadCount === 0` → gray dot, "等待扫码", progress bar indeterminate shimmer
   - `downloadCount >= 1` → red dot (with same pulse animation but wider halo), "下载完成", progress bar `scaleX(1)`

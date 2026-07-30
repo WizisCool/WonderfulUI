@@ -7,7 +7,12 @@ vi.mock('../src/tauri-adapter.ts', () => ({
   invoke: invokeMock,
 }));
 
-import { useShareStore, type ShareServerInfo } from '../src/stores/share.ts';
+import {
+  FRIENDLY_SHARE_START_ERROR,
+  FRIENDLY_SHARE_STOP_ERROR,
+  useShareStore,
+  type ShareServerInfo,
+} from '../src/stores/share.ts';
 
 function info(sessionId: string): ShareServerInfo {
   return {
@@ -91,5 +96,26 @@ describe('share store session races', () => {
       sizeBytes: 1024,
     })).toBe(true);
     expect(share.downloadCount).toBe(1);
+  });
+
+  test('keeps native paths and server details out of visible errors', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    invokeMock.mockRejectedValueOnce(new Error('open D:\\Private\\clip.mp4: access denied'));
+    const share = useShareStore();
+
+    await share.start('D:\\Private\\clip.mp4');
+    expect(share.status).toBe('error');
+    expect(share.lastError).toBe(FRIENDLY_SHARE_START_ERROR);
+    expect(share.lastError).not.toContain('Private');
+
+    const sessionId = share.activeSessionId!;
+    expect(share.onStopped({
+      sessionId,
+      reason: 'error',
+      message: 'listener 0.0.0.0:53124 failed',
+    })).toBe(true);
+    expect(share.lastError).toBe(FRIENDLY_SHARE_STOP_ERROR);
+    expect(share.lastError).not.toContain('53124');
+    consoleError.mockRestore();
   });
 });

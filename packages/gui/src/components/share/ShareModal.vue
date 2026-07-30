@@ -101,7 +101,7 @@ async function initializeShare(): Promise<void> {
           `server stopped: reason=${e.payload.reason}${e.payload.message ? ' msg=' + e.payload.message : ''}`,
         );
         if (e.payload.reason === 'error' && e.payload.message) {
-          ui.showToast(`快传已停止: ${e.payload.message}`, 'error');
+          ui.showToast('快传服务异常停止，请重试', 'error');
         } else if (e.payload.reason === 'idle_timeout') {
           ui.showToast('快传端口已闲置超时', 'ok');
           emit('close');
@@ -121,7 +121,7 @@ async function initializeShare(): Promise<void> {
     if (disposed) return;
     if (share.status === 'error') {
       clientLog('error', 'share-modal', `start failed: ${share.lastError}`);
-      ui.showToast(`启动快传失败: ${share.lastError}`, 'error');
+      ui.showToast('启动快传失败，请重试', 'error');
       emit('close');
     } else if (share.info) {
       clientLog(
@@ -134,7 +134,7 @@ async function initializeShare(): Promise<void> {
     if (disposed) return;
     const message = e instanceof Error ? e.message : String(e);
     clientLog('error', 'share-modal', `initialization failed: ${message}`);
-    ui.showToast(`启动快传失败: ${message}`, 'error');
+    ui.showToast('启动快传失败，请重试', 'error');
     emit('close');
   }
 }
@@ -194,7 +194,7 @@ function close() {
         >
           <button class="share-modal-close" aria-label="关闭" @click="close">×</button>
 
-          <div v-if="share.status === 'starting'" class="share-modal-state">
+          <div v-if="share.status === 'starting'" class="share-modal-state" role="status" aria-live="polite">
             <div class="share-spinner" />
             <p>正在启动快传…</p>
           </div>
@@ -220,17 +220,18 @@ function close() {
               type="button"
               class="share-modal-qr-frame"
               :class="{ 'is-copied': copyCooldown > 0 }"
+              :aria-label="copyCooldown > 0 ? '快传链接已复制' : '复制快传链接'"
               :title="share.info.url + '（点击复制）'"
               @click="copyLink"
             >
-              <div class="share-modal-qr" v-html="share.info.qrSvg" />
+              <div class="share-modal-qr" aria-hidden="true" v-html="share.info.qrSvg" />
               <span class="share-modal-qr-hint" aria-hidden="true">
                 {{ copyCooldown > 0 ? '已复制 ✓' : '点击复制链接' }}
               </span>
             </button>
 
             <!-- 状态行：文件大小 · 状态（红点呼吸 + 文字） -->
-            <div class="share-modal-status-row">
+            <div class="share-modal-status-row" role="status" aria-live="polite" aria-atomic="true">
               <span class="share-modal-size">{{ formattedSize }}</span>
               <span class="share-modal-sep">·</span>
               <span class="share-modal-status">
@@ -240,7 +241,15 @@ function close() {
             </div>
 
             <!-- 进度条：等待时 indeterminate 呼吸光带，下载完成后填充 -->
-            <div class="share-modal-progress">
+            <div
+              class="share-modal-progress"
+              role="progressbar"
+              aria-label="快传下载状态"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="share.downloadCount > 0 ? 100 : undefined"
+              :aria-valuetext="statusText"
+            >
               <div
                 v-if="share.downloadCount === 0"
                 class="share-modal-progress-shimmer"

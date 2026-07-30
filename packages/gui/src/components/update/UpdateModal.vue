@@ -42,6 +42,9 @@ function fmtMB(bytes: number): string {
 
 const downloadedMB = computed(() => fmtMB(update.progress.downloaded));
 const totalMB = computed(() => fmtMB(update.progress.total));
+const downloadProgressText = computed(() => hasKnownTotal.value
+  ? `${pctInt.value}%，已下载 ${downloadedMB.value} / ${totalMB.value} MB`
+  : `已下载 ${downloadedMB.value} MB`);
 
 const showNetworkHint = computed(
   () =>
@@ -156,7 +159,15 @@ onUnmounted(() => {
               <h2 id="update-modal-title" class="update-modal-title">正在下载</h2>
               <span v-if="hasKnownTotal" class="update-modal-pct">{{ pctInt }}%</span>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="下载更新"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="hasKnownTotal ? pctInt : undefined"
+              :aria-valuetext="downloadProgressText"
+            >
               <div
                 v-if="hasKnownTotal"
                 class="update-modal-progress-fill"
@@ -195,7 +206,12 @@ onUnmounted(() => {
             <header class="update-modal-head">
               <h2 id="update-modal-title" class="update-modal-title">正在安装</h2>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="正在安装更新"
+              aria-valuetext="正在安装"
+            >
               <div class="update-modal-progress-shimmer" aria-hidden="true" />
             </div>
             <div class="update-modal-hint">安装完成后将自动重启</div>
@@ -244,7 +260,12 @@ onUnmounted(() => {
             <header class="update-modal-head">
               <h2 id="update-modal-title" class="update-modal-title">正在检查更新</h2>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="正在检查更新"
+              aria-valuetext="正在检查"
+            >
               <div class="update-modal-progress-shimmer" aria-hidden="true" />
             </div>
             <footer class="update-modal-foot update-modal-foot--center">
