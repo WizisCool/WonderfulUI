@@ -144,6 +144,7 @@
             class="moment-chip"
             :class="{ 'is-active': detail.momentFilter === type }"
             type="button"
+            :aria-pressed="detail.momentFilter === type"
             :data-type="type"
             @click="detail.setMomentFilter(type)"
           >{{ type }} × {{ momentsByType.get(type)!.length }}</button>
@@ -565,6 +566,12 @@ watch([() => route.params.id, () => account.matches], ([id]) => {
 }, { immediate: true });
 
 watch(() => detail.selectedMatch, (m) => {
+  // Failure flags belong to one selected match. Reusing them across records
+  // hides valid bundled/local images after any earlier image failed to load.
+  heroFailed.value = false;
+  modeIconFailed.value = false;
+  videoPosterErrors.value = new Set();
+  eventListVisible.value = false;
   if (m && m.videos.length > 0 && !detail.roundsLoaded) {
     void detail.fetchRounds();
   }

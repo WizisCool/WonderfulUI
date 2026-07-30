@@ -164,4 +164,87 @@ describe('DetailView', () => {
 
     expect(detail.selectMatch).toHaveBeenCalledWith(null);
   });
+
+  test('resets image failures when the selected match changes', async () => {
+    const first = mkMatch({
+      agent: { agent_name: 'UnknownOne', agent_id: 'unknown-one' },
+      career: {
+        hero_name: '未知一',
+        hero_image: 'data:image/png;base64,first',
+        map_name: '测试地图',
+        game_mode: '未知模式',
+        game_mode_icon: 'data:image/png;base64,mode-first',
+      },
+      videos: [{
+        video_id: 'shared-video-id',
+        video_name: '第一场集锦',
+        video_type: '击杀集锦',
+        video_duration: 1_000,
+        video_src: '/first.mp4',
+        video_poster: '/first.png',
+        video_isProcessing: false,
+        video_resolution: '1920x1080',
+        rounds: [],
+      }] as unknown as VideoItem[],
+    });
+    const wrapper = await mountDetail(first, { roundsLoaded: true });
+    await wrapper.get('.hero-img').trigger('error');
+    await wrapper.get('.mode-icon').trigger('error');
+    await wrapper.get('.cover-img').trigger('error');
+    expect(wrapper.find('.hero-img').exists()).toBe(false);
+    expect(wrapper.find('.mode-icon').exists()).toBe(false);
+    expect(wrapper.find('.cover-img').exists()).toBe(false);
+
+    const second = mkMatch({
+      matches_id: 'match-002',
+      agent: { agent_name: 'UnknownTwo', agent_id: 'unknown-two' },
+      career: {
+        hero_name: '未知二',
+        hero_image: 'data:image/png;base64,second',
+        map_name: '测试地图',
+        game_mode: '另一未知模式',
+        game_mode_icon: 'data:image/png;base64,mode-second',
+      },
+      videos: [{
+        video_id: 'shared-video-id',
+        video_name: '第二场集锦',
+        video_type: '击杀集锦',
+        video_duration: 1_000,
+        video_src: '/second.mp4',
+        video_poster: '/second.png',
+        video_isProcessing: false,
+        video_resolution: '1920x1080',
+        rounds: [],
+      }] as unknown as VideoItem[],
+    });
+    useDetailStore().selectedMatch = second;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('.hero-img').attributes('src')).toContain('second');
+    expect(wrapper.get('.mode-icon').attributes('src')).toContain('mode-second');
+    expect(wrapper.find('.cover-img').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  test('exposes the active moment filter as a pressed button', async () => {
+    const match = mkMatch({
+      videos: [{
+        video_id: 'moment-1',
+        video_name: '三杀时刻',
+        video_type: '三杀时刻',
+        video_duration: 1_000,
+        video_src: '/moment.mp4',
+        video_isProcessing: false,
+        video_resolution: '1920x1080',
+        rounds: [],
+      }] as unknown as VideoItem[],
+    });
+    const wrapper = await mountDetail(match, { roundsLoaded: true });
+    const detail = useDetailStore();
+    detail.momentFilter = '三杀时刻';
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('.moment-chip').attributes('aria-pressed')).toBe('true');
+    wrapper.unmount();
+  });
 });

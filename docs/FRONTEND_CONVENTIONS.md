@@ -162,6 +162,11 @@ Use the pattern from `date-picker.ts`:
 
 ## Match and Detail Semantics
 
+- Detail image-error fallbacks are scoped to the selected match. Reset hero,
+  game-mode, and per-video poster failures whenever the selected match object
+  changes; video ids are not a cross-match failure cache. Moment filter chips
+  expose their toggle state with `aria-pressed`.
+
 - Middle column title is `对局列表`, not `高光时刻`.
 - `高光时刻` is still correct inside the detail pane for moment-card groups.
 - Date-range end dates are inclusive through the selected day using `23:59:59.999` local time.
