@@ -940,6 +940,7 @@ fn start_share_server(
     path: String,
     session_id: String,
 ) -> Result<share_server::ShareServerInfo, String> {
+    validate_share_session_id(&session_id)?;
     let path = validated_library_video_path(&path)?;
     let state = share_state(&app);
     share_server::start_server(&app, state.inner(), path, session_id)
@@ -947,7 +948,18 @@ fn start_share_server(
 
 #[tauri::command]
 fn stop_share_server(app: tauri::AppHandle, session_id: Option<String>) -> Result<(), String> {
+    if let Some(value) = session_id.as_deref() {
+        validate_share_session_id(value)?;
+    }
     share_server::stop_server(share_state(&app).inner(), session_id)
+}
+
+fn validate_share_session_id(session_id: &str) -> Result<(), String> {
+    let parsed = uuid::Uuid::parse_str(session_id).map_err(|_| "无效的快传会话标识".to_string())?;
+    if parsed.get_version() != Some(uuid::Version::Random) || parsed.to_string() != session_id {
+        return Err("无效的快传会话标识".to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1141,6 +1153,15 @@ mod tests {
         ))
         .is_err());
         assert!(validate_account_custom_name(Some("line\nbreak")).is_err());
+    }
+
+    #[test]
+    fn share_session_ids_require_canonical_uuid_v4_values() {
+        validate_share_session_id("550e8400-e29b-41d4-a716-446655440000")
+            .expect("canonical v4 accepted");
+        assert!(validate_share_session_id("session-1").is_err());
+        assert!(validate_share_session_id("550E8400-E29B-41D4-A716-446655440000").is_err());
+        assert!(validate_share_session_id("550e8400-e29b-11d4-a716-446655440000").is_err());
     }
 
     #[test]

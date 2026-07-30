@@ -12,7 +12,7 @@
 //! 启动/停止通过 Tauri state 持有（`ShareServerHandle`），命令通过
 //! `app.state::<ShareServerState>()` 拿。
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs::File;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -28,6 +28,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::lan_ip;
+
+const CANCELLED_SESSION_TTL: Duration = Duration::from_secs(60);
+const MAX_CANCELLED_SESSIONS: usize = 128;
 
 /// 启动 server 后返回给前端的"拨号盘"信息。
 #[derive(Clone, Debug, Serialize)]
@@ -78,7 +81,7 @@ pub struct ShareServerState {
     /// A stop can arrive before its start command publishes `inner`. Remember
     /// that session so the late start closes only itself instead of replacing
     /// a newer server.
-    cancelled_sessions: Mutex<HashSet<String>>,
+    cancelled_sessions: Mutex<HashMap<String, Instant>>,
     /// 空闲超时
     idle_timeout: Duration,
 }
@@ -87,7 +90,7 @@ impl ShareServerState {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(None),
-            cancelled_sessions: Mutex::new(HashSet::new()),
+            cancelled_sessions: Mutex::new(HashMap::new()),
             idle_timeout: Duration::from_secs(3 * 60), // 3 分钟
         }
     }
@@ -330,7 +333,8 @@ pub fn start_server(
         .cancelled_sessions
         .lock()
         .map_err(|e| format!("lock cancelled sessions: {e}"))?;
-    if cancelled.remove(&session_id) {
+    prune_cancelled_sessions(&mut cancelled);
+    if cancelled.remove(&session_id).is_some() {
         let _ = stop_tx.send(());
         return Err("快传启动已取消".to_string());
     }
@@ -641,15 +645,24 @@ pub fn stop_server(state: &ShareServerState, session_id: Option<String>) -> Resu
         .cancelled_sessions
         .lock()
         .map_err(|e| format!("lock cancelled sessions: {e}"))?;
-    if let Some(expected) = session_id.as_ref() {
-        cancelled.insert(expected.clone());
-    }
+    prune_cancelled_sessions(&mut cancelled);
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
-    if session_id.as_ref().is_some_and(|expected| {
-        guard
+    if let Some(expected) = session_id.as_ref() {
+        if guard
             .as_ref()
-            .is_none_or(|inner| inner.info.session_id != *expected)
-    }) {
+            .is_some_and(|inner| inner.info.session_id == *expected)
+        {
+            cancelled.remove(expected);
+            if let Some(inner) = guard.take() {
+                let _ = inner.stop_tx.send(());
+            }
+            return Ok(());
+        }
+
+        if !cancelled.contains_key(expected) && cancelled.len() >= MAX_CANCELLED_SESSIONS {
+            return Err("待处理的快传取消请求过多".to_string());
+        }
+        cancelled.insert(expected.clone(), Instant::now());
         return Ok(());
     }
     if let Some(inner) = guard.take() {
@@ -657,6 +670,10 @@ pub fn stop_server(state: &ShareServerState, session_id: Option<String>) -> Resu
         let _ = inner.stop_tx.send(());
     }
     Ok(())
+}
+
+fn prune_cancelled_sessions(cancelled: &mut HashMap<String, Instant>) {
+    cancelled.retain(|_, recorded_at| recorded_at.elapsed() <= CANCELLED_SESSION_TTL);
 }
 
 fn clear_server_if_session(state: &ShareServerState, session_id: &str) {
@@ -785,8 +802,34 @@ mod tests {
             .cancelled_sessions
             .lock()
             .unwrap()
-            .contains("session-31"));
+            .contains_key("session-31"));
         assert!(!status(&state).running);
+    }
+
+    #[test]
+    fn pending_session_cancellations_are_memory_bounded() {
+        let state = ShareServerState::new();
+        for index in 0..MAX_CANCELLED_SESSIONS {
+            stop_server(&state, Some(format!("pending-{index}")))
+                .expect("bounded cancellation accepted");
+        }
+
+        assert!(stop_server(&state, Some("one-too-many".into())).is_err());
+        assert_eq!(
+            state.cancelled_sessions.lock().unwrap().len(),
+            MAX_CANCELLED_SESSIONS
+        );
+
+        let (stop_tx, stop_rx) = channel();
+        *state.inner.lock().unwrap() = Some(Inner {
+            info: test_info("current-session"),
+            stop_tx,
+            downloads: Arc::new(AtomicU64::new(0)),
+            last_request: Arc::new(Mutex::new(Instant::now())),
+        });
+        stop_server(&state, Some("current-session".into()))
+            .expect("the current server always remains stoppable");
+        assert_eq!(stop_rx.recv_timeout(Duration::from_millis(50)), Ok(()));
     }
 
     #[test]

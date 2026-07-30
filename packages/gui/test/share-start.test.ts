@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   canBeginShareStart,
   createShareSessionId,
+  formatShareSessionUuidV4,
   shouldCommitShareStart,
   shouldHandleShareEvent,
 } from '../src/utils/share-start.ts';
@@ -33,6 +34,12 @@ describe('share start guards', () => {
     const first = createShareSessionId();
     const second = createShareSessionId();
     expect(first).not.toBe(second);
-    expect(first.length).toBeGreaterThan(8);
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test('fallback bytes are normalized into the backend UUID v4 contract', () => {
+    expect(formatShareSessionUuidV4(new Uint8Array(16)))
+      .toBe('00000000-0000-4000-8000-000000000000');
+    expect(() => formatShareSessionUuidV4(new Uint8Array(15))).toThrow();
   });
 });

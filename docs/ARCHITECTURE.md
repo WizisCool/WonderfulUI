@@ -187,6 +187,10 @@ Defined in `src-tauri/src/lib.rs`:
 - `stop_share_server(sessionId?)` — explicit shutdown. Normal frontend calls
   always include the current UUID share session ID, so a late stop
   from an old modal cannot terminate its replacement server.
+  - Start/stop IPC accepts only canonical UUID v4 session IDs. Stop-before-
+    publish cancellations expire after 60 seconds, are pruned on the next
+    access, and the table is capped at 128 entries. Stale stops therefore
+    cannot grow process memory without weakening the normal async race.
 - `share_server_status() -> ShareServerStatus` — `{ running, info, downloadCount, lastError }`
 - `wui://share_downloaded` and `wui://share_server_stopped` include the same
   `sessionId`. The frontend ignores events from replaced sessions. Normal
