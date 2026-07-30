@@ -237,6 +237,10 @@ Defined in `src-tauri/src/lib.rs`:
   pitched/negative-stride row copy; older 2D buffers use bounded contiguous
   copy, and plain media buffers use `cur_len`. Width/height arithmetic is
   checked and decoded RGBA output is capped at 512 MiB before allocation.
+- ACLOS Chromium Local Storage LevelDB is never opened in place. Because
+  `rusty-leveldb` has no read-only mode and can create `LOCK`/log files, the
+  identity index copies regular database files (excluding live `LOCK`) into a
+  WonderfulUI temporary directory, opens only that copy, and then removes it.
 - IPC commands that open, reveal, decode, or share a video independently
   re-authorize the exact path against SQLite `videos.path`. Asset-protocol
   visibility is not treated as command authorization.
