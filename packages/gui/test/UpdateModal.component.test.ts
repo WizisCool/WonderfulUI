@@ -10,6 +10,7 @@ import {
   FAKE_DOWNLOAD_MS,
   DEV_FAKE_DONE_TOAST,
   SKIPPED_VERSION_KEY,
+  normalizeUpdateProgress,
 } from '../src/stores/update.ts';
 import { useUiStore } from '../src/stores/ui.ts';
 
@@ -380,6 +381,36 @@ describe('useUpdateStore', () => {
     expect(store.status).toBe('available');
     expect(store.update?.version).toBe('9.9.9');
     expect(checkMock).not.toHaveBeenCalled();
+    store.debugReset();
+    w.unmount();
+  });
+
+  test('normalizes malformed and overflowing progress inputs', () => {
+    expect(normalizeUpdateProgress(-1, -10)).toEqual({
+      downloaded: 0,
+      total: 0,
+      pct: 0,
+    });
+    expect(normalizeUpdateProgress(Number.NaN, Number.POSITIVE_INFINITY)).toEqual({
+      downloaded: 0,
+      total: 0,
+      pct: 0,
+    });
+    expect(normalizeUpdateProgress(250, 100)).toEqual({
+      downloaded: 100,
+      total: 100,
+      pct: 100,
+    });
+
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    store.debugDownloading({ total: -1, downloaded: Number.POSITIVE_INFINITY });
+    expect(store.progress).toEqual({ downloaded: 0, total: 0, pct: 0 });
     store.debugReset();
     w.unmount();
   });

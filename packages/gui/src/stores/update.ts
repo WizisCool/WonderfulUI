@@ -110,6 +110,27 @@ export interface UpdateProgress {
   pct: number;
 }
 
+function nonNegativeFiniteBytes(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, value)
+    : 0;
+}
+
+/** Keep plugin events and browser-debug inputs inside one render-safe shape. */
+export function normalizeUpdateProgress(
+  downloadedInput: number | undefined,
+  totalInput: number | undefined,
+): UpdateProgress {
+  const total = nonNegativeFiniteBytes(totalInput);
+  const rawDownloaded = nonNegativeFiniteBytes(downloadedInput);
+  const downloaded = total > 0 ? Math.min(rawDownloaded, total) : rawDownloaded;
+  return {
+    downloaded,
+    total,
+    pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
+  };
+}
+
 export interface DebugAvailableOpts {
   version?: string;
   body?: string;
@@ -258,19 +279,17 @@ export const useUpdateStore = defineStore('update', () => {
     stopFakeDownload();
     debugSimulate.value = true;
     ensureDebugPackage();
-    const total = opts.total ?? FAKE_DEFAULT_TOTAL;
-    fakeTotalOverride = total;
-    const downloaded = opts.downloaded ?? 0;
+    const nextProgress = normalizeUpdateProgress(
+      opts.downloaded ?? 0,
+      opts.total ?? FAKE_DEFAULT_TOTAL,
+    );
+    fakeTotalOverride = nextProgress.total;
     status.value = 'downloading';
     badge.value = true;
     error.value = null;
     errorKind.value = null;
     modalOpen.value = true;
-    progress.value = {
-      downloaded,
-      total,
-      pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-    };
+    progress.value = nextProgress;
   }
 
   function debugInstalling() {
@@ -286,12 +305,9 @@ export const useUpdateStore = defineStore('update', () => {
 
   function debugProgress(downloaded: number, total: number) {
     debugSimulate.value = true;
-    fakeTotalOverride = total;
-    progress.value = {
-      downloaded,
-      total,
-      pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-    };
+    const nextProgress = normalizeUpdateProgress(downloaded, total);
+    fakeTotalOverride = nextProgress.total;
+    progress.value = nextProgress;
     if (status.value !== 'downloading') {
       status.value = 'downloading';
       ensureDebugPackage();
@@ -517,23 +533,14 @@ export const useUpdateStore = defineStore('update', () => {
       await fresh.downloadAndInstall((event) => {
         switch (event.event) {
           case 'Started': {
-            const total = event.data?.contentLength ?? 0;
-            progress.value = {
-              downloaded: 0,
-              total,
-              pct: 0,
-            };
+            progress.value = normalizeUpdateProgress(0, event.data?.contentLength);
             break;
           }
           case 'Progress': {
-            const chunk = event.data?.chunkLength ?? 0;
+            const chunk = nonNegativeFiniteBytes(event.data?.chunkLength);
             const downloaded = progress.value.downloaded + chunk;
             const total = progress.value.total;
-            progress.value = {
-              downloaded,
-              total,
-              pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-            };
+            progress.value = normalizeUpdateProgress(downloaded, total);
             break;
           }
           case 'Finished': {

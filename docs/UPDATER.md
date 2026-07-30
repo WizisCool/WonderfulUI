@@ -124,6 +124,10 @@ __WUI_DEBUG_UPDATE__.downloading({ total: 0 })
 __WUI_DEBUG_UPDATE__.reset()
 ```
 
+调试进度和真实 updater 事件共用同一套边界规范化：非有限值与负数按
+`0` 处理；总量已知时已下载字节不会超过总量，百分比始终保持在
+`0..100`。这可避免异常调试输入或上游事件污染进度条及其 ARIA 状态。
+
 实现：`App.vue` boot 分支 + `utils/update-debug.ts` + `stores/update.ts`。
 
 ## 本地调试 updater 真链路（勿提交）
