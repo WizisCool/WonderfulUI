@@ -178,6 +178,10 @@ Before changing parser behavior, read `docs/ACLOS_FORMAT.md`.
 Before changing app structure or build workflow, read `docs/ARCHITECTURE.md`.
 Before changing GUI layout, DOM refresh, CSS, icons, player, or tooltips, read `docs/FRONTEND_CONVENTIONS.md` plus `DESIGN.md`.
 Before preparing an external PR, manual GitHub check, or release, read `docs/AGENT_WORKFLOW.md` plus `VERSIONING.md`. Version consistency is verified in CI via `scripts/check-versions.ts` — add new version-bearing files to both `check-versions.ts` and `version-bump.ts`. Never push `main`/tags unless the user explicitly asks.
+
+Release tags are version-bearing input too: a tag-triggered workflow must fail
+unless `GITHUB_REF_NAME` is exactly `v<tauri.conf.json version>`. Keep the
+second fail-closed check in `release.yml` before it constructs updater URLs.
 Before touching the updater (tauri.conf updater block, signing keys, release.yml latest.json, UpdateModal), read `docs/UPDATER.md`. The signing pubkey in `tauri.conf.json` must stay paired with the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret; the private key lives only at `~/.tauri/wonderfului.key` (never in repo).
 
 ## Development Workflow

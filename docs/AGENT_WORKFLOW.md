@@ -271,6 +271,12 @@ print the commands above for the user.
 | `build` | signed `bun run build` (release profile + NSIS); uploads `target/release/bundle/` |
 | `publish` | needs both; writes `latest.json` and creates the GitHub Release |
 
+`check-versions` binds a tag-triggered run to the canonical Tauri version
+(`GITHUB_REF_NAME` must equal `v<version>`). Both parallel jobs run the gate,
+and the publish job repeats it before composing download URLs, so an
+accidentally misnamed tag cannot build a signed installer or publish a
+`latest.json` that points at a different release.
+
 `validate` and `build` run **in parallel** so wall clock is dominated by the
 Tauri release build (~8 min warm), not build + cargo test in series
 (~2.5 min extra). Observed v0.1.8 sequential total was ~13 min; expected wall

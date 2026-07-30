@@ -99,6 +99,7 @@ jobs:
           cache-on-failure: true
 
       - run: bun install --frozen-lockfile
+      - run: bun run scripts/check-versions.ts
 
       # tauri build reads TAURI_SIGNING_PRIVATE_KEY / _PASSWORD from env
       # and, when bundle.createUpdaterArtifacts=true, writes a minisign
@@ -153,7 +154,12 @@ jobs:
 
           $tauriConf = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
           $version = $tauriConf.version
-          $tag = "v$version"
+          $expectedTag = "v$version"
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -ne $expectedTag) {
+            Write-Error "Release tag '$tag' does not match configured version '$expectedTag'"
+            exit 1
+          }
           $expectedPrefix = "$($tauriConf.productName)_${version}_x64-setup"
           if ($setupExe.Name -notlike "${expectedPrefix}*") {
             Write-Warning "Setup filename '$($setupExe.Name)' doesn't match expected '$expectedPrefix*'. NOTES 产物文件名需实测核对 -- verify latest.json's url field."
