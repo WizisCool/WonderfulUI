@@ -199,7 +199,9 @@ Defined in `src-tauri/src/lib.rs`:
     source hosts, raster PNG/JPEG/WebP responses matching the URL extension,
     and files up to 16 MiB are accepted. Redirects and custom ports are blocked.
   - Downloads use bounded timeouts plus a temporary file and atomic publish;
-    interrupted zero-byte/oversized cache files are discarded on the next use.
+    declared or streamed empty responses are rejected before publish, and the
+    final regular-file size is revalidated. Interrupted zero-byte/oversized
+    cache files from older versions are discarded on the next use.
 - Canonical metadata and content-addressed source PNGs are generated together by
   the networked maintenance command `bun run update:valorant-metadata`. Map
   sources are canonical 16:9 `splash` images; exact duplicates share one hash.

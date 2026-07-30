@@ -621,6 +621,19 @@ fn response_matches_asset_extension(content_type: Option<&str>, extension: &str)
     )
 }
 
+fn validate_asset_byte_count(size: u64) -> Result<u64, String> {
+    if size == 0 {
+        return Err("asset response is empty".to_string());
+    }
+    if size > MAX_ASSET_BYTES {
+        return Err(format!(
+            "asset exceeds {} MiB limit",
+            MAX_ASSET_BYTES / 1_048_576
+        ));
+    }
+    Ok(size)
+}
+
 fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), String> {
     let validated_url = validated_asset_url(url)?;
     let dir = assets_dir(kind)?;
@@ -630,7 +643,7 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), Strin
     let ext = asset_extension(&validated_url);
     let cached = dir.join(format!("{hash}.{ext}"));
 
-    if let Ok(metadata) = std::fs::metadata(&cached) {
+    if let Ok(metadata) = std::fs::symlink_metadata(&cached) {
         let size = metadata.len();
         if metadata.is_file() && (1..=MAX_ASSET_BYTES).contains(&size) {
             if let Ok(conn) = library::db::open_library() {
@@ -663,15 +676,11 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), Strin
     if !response_matches_asset_extension(content_type, ext) {
         return Err("asset response type does not match its file extension".to_string());
     }
-    let content_length: u64 = resp
+    let content_length = resp
         .header("Content-Length")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    if content_length > MAX_ASSET_BYTES {
-        return Err(format!(
-            "asset exceeds {} MiB limit",
-            MAX_ASSET_BYTES / 1_048_576
-        ));
+        .and_then(|s| s.parse::<u64>().ok());
+    if let Some(size) = content_length {
+        validate_asset_byte_count(size)?;
     }
 
     let temp = dir.join(format!(".{hash}.{}.part", uuid::Uuid::new_v4()));
@@ -681,23 +690,18 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), Strin
         let mut reader = std::io::Read::take(resp.into_reader(), MAX_ASSET_BYTES + 1);
         let written = std::io::copy(&mut reader, &mut out)
             .map_err(|e| format!("write cache temp file: {e}"))?;
-        if written > MAX_ASSET_BYTES {
-            return Err(format!(
-                "asset exceeds {} MiB limit",
-                MAX_ASSET_BYTES / 1_048_576
-            ));
-        }
+        validate_asset_byte_count(written)?;
         out.sync_all()
             .map_err(|e| format!("sync cache temp file: {e}"))?;
         Ok(written)
     })();
-    let written = match download_result {
-        Ok(written) => written,
+    match download_result {
+        Ok(_) => {}
         Err(e) => {
             let _ = std::fs::remove_file(&temp);
             return Err(e);
         }
-    };
+    }
 
     match std::fs::rename(&temp, &cached) {
         Ok(()) => {}
@@ -711,9 +715,18 @@ fn cache_asset_inner(kind: &str, url: &str) -> Result<(String, u64, bool), Strin
         }
     }
 
-    let size = std::fs::metadata(&cached)
-        .map(|m| m.len())
-        .unwrap_or(written.max(content_length));
+    let metadata = std::fs::symlink_metadata(&cached)
+        .map_err(|e| format!("inspect published cache file: {e}"))?;
+    if !metadata.is_file() {
+        return Err("published asset cache path is not a regular file".to_string());
+    }
+    let size = match validate_asset_byte_count(metadata.len()) {
+        Ok(size) => size,
+        Err(error) => {
+            let _ = std::fs::remove_file(&cached);
+            return Err(error);
+        }
+    };
 
     if let Ok(conn) = library::db::open_library() {
         let _ = library::db::upsert_asset(
@@ -1177,6 +1190,17 @@ mod tests {
         assert!(response_matches_asset_extension(Some("image/png"), "png"));
         assert!(response_matches_asset_extension(Some("image/jpeg"), "jpg"));
         assert!(!response_matches_asset_extension(Some("image/jpeg"), "png"));
+    }
+
+    #[test]
+    fn asset_byte_count_requires_a_nonempty_bounded_payload() {
+        assert!(validate_asset_byte_count(0).is_err());
+        assert_eq!(validate_asset_byte_count(1), Ok(1));
+        assert_eq!(
+            validate_asset_byte_count(MAX_ASSET_BYTES),
+            Ok(MAX_ASSET_BYTES)
+        );
+        assert!(validate_asset_byte_count(MAX_ASSET_BYTES + 1).is_err());
     }
 
     #[test]
