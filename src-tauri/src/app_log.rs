@@ -1,12 +1,14 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const LOG_FILE_NAME: &str = "wonderful-ui.log";
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 const RETAIN_LOG_BYTES: u64 = 640 * 1024;
 const PREVIEW_BYTES: u64 = 48 * 1024;
+static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +51,13 @@ pub fn write(level: LogLevel, scope: &str, message: impl AsRef<str>) {
 
 pub fn status() -> Result<LogStatus, String> {
     let dir = log_dir()?;
+    status_in_dir(&dir)
+}
+
+fn status_in_dir(dir: &Path) -> Result<LogStatus, String> {
+    let _guard = LOG_LOCK
+        .lock()
+        .map_err(|e| format!("log lock poisoned: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
     cleanup_old_rotations(&dir);
     let path = dir.join(LOG_FILE_NAME);
@@ -73,6 +82,18 @@ pub fn status() -> Result<LogStatus, String> {
 
 fn write_inner(level: LogLevel, scope: &str, message: &str) -> Result<(), String> {
     let dir = log_dir()?;
+    write_inner_in_dir(level, scope, message, &dir)
+}
+
+fn write_inner_in_dir(
+    level: LogLevel,
+    scope: &str,
+    message: &str,
+    dir: &Path,
+) -> Result<(), String> {
+    let _guard = LOG_LOCK
+        .lock()
+        .map_err(|e| format!("log lock poisoned: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
     cleanup_old_rotations(&dir);
     let path = dir.join(LOG_FILE_NAME);
@@ -168,4 +189,41 @@ fn sanitize_token(value: &str) -> String {
 
 fn sanitize_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn writes_wait_for_the_shared_log_maintenance_lock() {
+        let dir = std::env::temp_dir().join(format!("wui-log-lock-test-{}", uuid::Uuid::new_v4()));
+        let guard = LOG_LOCK.lock().expect("test owns log lock");
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let worker_dir = dir.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).expect("start signal");
+            let result = write_inner_in_dir(LogLevel::Info, "test", "serialized", &worker_dir);
+            finished_tx.send(result).expect("finish signal");
+        });
+
+        started_rx.recv().expect("worker starts");
+        let early_result = finished_rx.recv_timeout(Duration::from_millis(30)).ok();
+        let completed_while_locked = early_result.is_some();
+        drop(guard);
+        let result = early_result.unwrap_or_else(|| {
+            finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("write completes after unlock")
+        });
+        worker.join().expect("worker joins");
+
+        assert!(!completed_while_locked);
+        result.expect("serialized write succeeds");
+        assert!(dir.join(LOG_FILE_NAME).is_file());
+        std::fs::remove_dir_all(dir).expect("fixture removed");
+    }
 }
