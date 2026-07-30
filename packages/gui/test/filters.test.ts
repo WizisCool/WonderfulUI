@@ -7,6 +7,7 @@ import {
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
 import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
 import { lookupAgentAsset, lookupMapAsset } from '../src/utils/valorant-assets.ts';
+import { loadRefreshScanMode, saveRefreshScanMode } from '../src/stores/filter.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 
 function mkVideo(overrides: Partial<VideoItem> = {}): VideoItem {
@@ -78,6 +79,25 @@ describe('EMPTY_FILTERS', () => {
   test('returns all matches when no filters active', () => {
     const result = applyFilters(all, EMPTY_FILTERS);
     expect(result.length).toBe(3);
+  });
+});
+
+describe('refresh scan mode persistence', () => {
+  test('loads only the known full value and otherwise defaults to incremental', () => {
+    expect(loadRefreshScanMode({ getItem: () => 'full' })).toBe('full');
+    expect(loadRefreshScanMode({ getItem: () => 'incremental' })).toBe('incremental');
+    expect(loadRefreshScanMode({ getItem: () => 'corrupt' })).toBe('incremental');
+    expect(loadRefreshScanMode(null)).toBe('incremental');
+  });
+
+  test('storage failures never break store initialization or an in-memory mode change', () => {
+    const storage = {
+      getItem(): string | null { throw new Error('storage disabled'); },
+      setItem(): void { throw new Error('storage disabled'); },
+    };
+
+    expect(loadRefreshScanMode(storage)).toBe('incremental');
+    expect(() => saveRefreshScanMode('full', storage)).not.toThrow();
   });
 });
 

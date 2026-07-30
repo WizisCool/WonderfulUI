@@ -14,12 +14,42 @@ export type ScrapeMode = 'incremental' | 'full';
 
 const REFRESH_SCAN_MODE_KEY = 'wui:library.refreshScanMode';
 
+type ReadableStorage = Pick<Storage, 'getItem'>;
+type WritableStorage = Pick<Storage, 'setItem'>;
+
+function browserStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function loadRefreshScanMode(
+  storage: ReadableStorage | null = browserStorage(),
+): ScrapeMode {
+  try {
+    return storage?.getItem(REFRESH_SCAN_MODE_KEY) === 'full' ? 'full' : 'incremental';
+  } catch {
+    return 'incremental';
+  }
+}
+
+export function saveRefreshScanMode(
+  mode: ScrapeMode,
+  storage: WritableStorage | null = browserStorage(),
+): void {
+  try {
+    storage?.setItem(REFRESH_SCAN_MODE_KEY, mode);
+  } catch {
+    // Keep the in-memory choice when WebView storage is unavailable.
+  }
+}
+
 export const useFilterStore = defineStore('filter', () => {
   const filters = ref<FilterState>(normalizeVisibleFilters(loadFilters()));
   const filterBarOpen = ref(loadOpen());
-  const refreshScanMode = ref<ScrapeMode>(
-    localStorage.getItem(REFRESH_SCAN_MODE_KEY) === 'full' ? 'full' : 'incremental'
-  );
+  const refreshScanMode = ref<ScrapeMode>(loadRefreshScanMode());
   const scrollToKey = ref<string | null>(null);
 
   const activeCount = computed(() => activeFilterCount(filters.value));
@@ -76,7 +106,7 @@ export const useFilterStore = defineStore('filter', () => {
 
   function setScanMode(mode: ScrapeMode) {
     refreshScanMode.value = mode;
-    localStorage.setItem(REFRESH_SCAN_MODE_KEY, mode);
+    saveRefreshScanMode(mode);
   }
 
   function focusSection(key: string) {

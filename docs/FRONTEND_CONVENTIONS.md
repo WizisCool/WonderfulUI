@@ -101,6 +101,10 @@ Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.c
   scan. `LoadResult.totalErrors` also covers malformed SQLite match rows, so
   HomeView keeps a compact recovery banner visible while healthy matches stay
   browseable.
+- **Filter persistence failure.** WebView `localStorage` is optional state, not
+  a boot dependency. Refresh scan mode falls back to `incremental` if storage
+  is missing, corrupt, or throws; a failed write keeps the current in-memory
+  choice. Filter values and open state follow the same best-effort rule.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
 
