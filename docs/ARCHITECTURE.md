@@ -199,7 +199,9 @@ Defined in `src-tauri/src/lib.rs`:
 - `log_event(level, scope, message)` — generic log forwarder so the frontend
   can write structured logs that end up in `wonderful-ui.log` next to Rust
   logs. Browser / test environments fall back to `console.*` without
-  throwing on `invoke`.
+  throwing on `invoke`. The shared logger flattens newlines and bounds every
+  scope/message to 64/8192 Unicode characters before disk append; truncation is
+  marked explicitly.
 - `get_library_stats() -> LibraryStats`
   - Reads the local SQLite library and app-owned cache/log metadata to feed the settings `资料库概览`.
   - The GUI currently visualizes per-account video counts from this payload; storage byte fields remain backend diagnostics, not primary UI.

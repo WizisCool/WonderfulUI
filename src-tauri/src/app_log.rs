@@ -8,6 +8,9 @@ const LOG_FILE_NAME: &str = "wonderful-ui.log";
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 const RETAIN_LOG_BYTES: u64 = 640 * 1024;
 const PREVIEW_BYTES: u64 = 48 * 1024;
+const MAX_SCOPE_CHARS: usize = 64;
+const MAX_MESSAGE_CHARS: usize = 8 * 1024;
+const TRUNCATED_MARKER: &str = " …[truncated]";
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, serde::Serialize)]
@@ -177,6 +180,7 @@ fn timestamp_ms() -> String {
 fn sanitize_token(value: &str) -> String {
     value
         .chars()
+        .take(MAX_SCOPE_CHARS)
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.') {
                 c
@@ -188,7 +192,22 @@ fn sanitize_token(value: &str) -> String {
 }
 
 fn sanitize_line(value: &str) -> String {
-    value.replace(['\r', '\n'], " ")
+    let mut chars = value.chars();
+    let mut line = chars
+        .by_ref()
+        .take(MAX_MESSAGE_CHARS)
+        .map(|character| {
+            if matches!(character, '\r' | '\n') {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    if chars.next().is_some() {
+        line.push_str(TRUNCATED_MARKER);
+    }
+    line
 }
 
 #[cfg(test)]
@@ -225,5 +244,20 @@ mod tests {
         result.expect("serialized write succeeds");
         assert!(dir.join(LOG_FILE_NAME).is_file());
         std::fs::remove_dir_all(dir).expect("fixture removed");
+    }
+
+    #[test]
+    fn log_fields_are_single_line_and_bounded_before_disk_write() {
+        let scope = sanitize_token(&"scope".repeat(100));
+        assert_eq!(scope.chars().count(), MAX_SCOPE_CHARS);
+
+        let message = format!("first\n{}", "界".repeat(MAX_MESSAGE_CHARS));
+        let sanitized = sanitize_line(&message);
+        assert!(!sanitized.contains('\n'));
+        assert!(sanitized.ends_with(TRUNCATED_MARKER));
+        assert_eq!(
+            sanitized.chars().count(),
+            MAX_MESSAGE_CHARS + TRUNCATED_MARKER.chars().count()
+        );
     }
 }
