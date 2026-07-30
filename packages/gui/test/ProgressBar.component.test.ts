@@ -60,4 +60,45 @@ describe('ProgressBar drag lifecycle', () => {
     expect(removeListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
     removeListener.mockRestore();
   });
+
+  test('ignores pointer input while the responsive track has zero width', async () => {
+    const wrapper = mountProgress();
+    const track = wrapper.get('.player-progress-track').element as HTMLElement;
+    track.getBoundingClientRect = () => ({
+      x: 10,
+      y: 0,
+      left: 10,
+      right: 10,
+      top: 0,
+      bottom: 4,
+      width: 0,
+      height: 4,
+      toJSON: () => ({}),
+    });
+
+    await wrapper.get('.player-progress-wrap').trigger('mousedown', {
+      button: 0,
+      clientX: 10,
+    });
+
+    expect(wrapper.emitted('seekStart')).toBeUndefined();
+    expect(wrapper.emitted('seek')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  test('clamps visual and ARIA state to finite media bounds', async () => {
+    const wrapper = mountProgress();
+    await wrapper.setProps({ currentTime: 250, duration: 100 });
+    const slider = wrapper.get('.player-progress-wrap');
+    expect(slider.attributes('aria-valuenow')).toBe('100');
+    expect(slider.attributes('aria-valuemax')).toBe('100');
+    expect(wrapper.get('.player-progress-fill').attributes('style')).toContain('scaleX(1)');
+    expect(wrapper.get('.player-progress-thumb').attributes('style')).toContain('left: 100%');
+
+    await wrapper.setProps({ currentTime: Number.POSITIVE_INFINITY, duration: Number.NaN });
+    expect(slider.attributes('aria-valuenow')).toBe('0');
+    expect(slider.attributes('aria-valuemax')).toBe('0');
+    expect(wrapper.get('.player-progress-fill').attributes('style')).toContain('scaleX(0)');
+    wrapper.unmount();
+  });
 });

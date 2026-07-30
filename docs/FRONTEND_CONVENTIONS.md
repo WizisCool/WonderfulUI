@@ -556,6 +556,10 @@ Player state machine:
 Progress bar:
 
 - Thumb positioning uses `left: X%` (relative to parent track), not `translate(calc(X% - 50%), -50%)` — CSS `translate()` percentages are relative to the element's own 8 px width, which collapses the offset to near zero.
+- Current time and duration must be finite and clamped to the media interval
+  before driving fill/thumb styles or ARIA values. Pointer seeking ignores a
+  zero-width/non-finite track instead of emitting a `NaN` percentage while a
+  responsive layout is settling.
 - `lastBufferedPct` must be a `ref`; a plain `let` is invisible to Vue's reactivity and the buffered bar will never update.
 - Event marker container uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop`. Adding `@mousedown.stop` on the container breaks track-seeking in canvas mode because `.is-canvas` has `pointer-events: auto`.
 - `CANVAS_MARKER_THRESHOLD = Infinity` (permanently disables canvas mode; see AGENTS.md for rationale).
