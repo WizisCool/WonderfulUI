@@ -32,6 +32,24 @@ describe('DateRangePicker trigger', () => {
     until.unmount();
   });
 
+  test('preserves an untouched one-sided range and opens at its existing bound', async () => {
+    const upper = new Date(2025, 1, 15).getTime();
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [null, upper] },
+    });
+
+    await wrapper.get('.dr-trigger').trigger('click');
+    expect(document.querySelector('.dr-nav-label')?.textContent).toContain('2025年');
+    expect(document.querySelector('.dr-nav-label')?.textContent).toContain('2月');
+    (document.querySelector('.dr-footer-close') as HTMLButtonElement).click();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+    expect(wrapper.get('.dr-trigger-text').text()).toBe('至 2025-02-15');
+    wrapper.unmount();
+  });
+
   test('clears without opening the date dialog', async () => {
     const wrapper = mount(DateRangePicker, {
       props: { modelValue: [1_719_000_000_000, 1_719_086_399_999] },

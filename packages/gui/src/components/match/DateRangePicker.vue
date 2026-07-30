@@ -46,6 +46,7 @@ const triggerRef = ref<HTMLDivElement | null>(null);
 const isOpen = ref(false);
 const viewDate = ref(new Date());
 let draftRange: { start: Date | null; end: Date | null } = { start: null, end: null };
+let draftDirty = false;
 let focusedDay = startOfDay(new Date());
 let popover: HTMLElement | null = null;
 let outsideListenerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,6 +121,7 @@ function initDraft() {
     start: lo != null ? startOfDay(new Date(lo)) : null,
     end: hi != null ? startOfDay(new Date(hi)) : null,
   };
+  draftDirty = false;
 }
 
 function toggle() {
@@ -130,7 +132,7 @@ function toggle() {
 function openPopover() {
   if (popover) return;
   initDraft();
-  const seed = draftRange.start ?? new Date();
+  const seed = draftRange.start ?? draftRange.end ?? new Date();
   viewDate.value = new Date(seed);
   focusedDay = startOfDay(seed);
 
@@ -181,6 +183,10 @@ function closePopover(restoreFocus = false) {
 }
 
 function applyDraft() {
+  if (!draftDirty) {
+    closePopover(true);
+    return;
+  }
   if (!draftRange.start && !draftRange.end) {
     emit('update:modelValue', [null, null]);
   } else {
@@ -198,6 +204,7 @@ function applyDraft() {
 
 function clearRange() {
   draftRange = { start: null, end: null };
+  draftDirty = true;
   emit('update:modelValue', [null, null]);
   closePopover(true);
 }
@@ -395,7 +402,13 @@ function render() {
         e.stopPropagation();
         const d = startOfDay(day);
         focusedDay = d;
-        if (!draftRange.start || (draftRange.start && draftRange.end)) {
+        draftDirty = true;
+        if (!draftRange.start && draftRange.end) {
+          const existingEnd = draftRange.end;
+          draftRange = d <= existingEnd
+            ? { start: d, end: existingEnd }
+            : { start: existingEnd, end: d };
+        } else if (!draftRange.start || (draftRange.start && draftRange.end)) {
           draftRange = { start: d, end: null };
           render();
         } else {
@@ -425,6 +438,7 @@ function render() {
     reset.textContent = '清除';
     reset.addEventListener('click', () => {
       draftRange = { start: null, end: null };
+      draftDirty = true;
       render();
       focusAfterRender('.dr-footer-close');
     });
