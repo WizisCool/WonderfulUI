@@ -56,6 +56,35 @@ describe('account store request lifecycle', () => {
     ]);
     expect(account.scraping).toBe(false);
   });
+
+  test('does not apply a late guarded reload over a newer manual scan', async () => {
+    const staleRead = deferred<LoadResult>();
+    const fresh: LoadResult = {
+      dir: 'D:\\WonderfulDb',
+      accounts: [{ openid: 'fresh', path: '', matchCount: 1 }],
+      matches: [{ matches_id: 'fresh-match', openID: 'fresh' } as LoadResult['matches'][number]],
+      totalErrors: 0,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'load_library') return staleRead.promise;
+      if (command === 'scrape_library') return Promise.resolve(fresh);
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const account = useAccountStore();
+    const expectedRevision = account.libraryRevision;
+
+    const guardedReload = account.loadLibraryIfCurrent(expectedRevision);
+    await account.scrapeLibrary('full');
+    staleRead.resolve({
+      dir: 'D:\\WonderfulDb',
+      accounts: [{ openid: 'stale', path: '', matchCount: 1 }],
+      matches: [{ matches_id: 'stale-match', openID: 'stale' } as LoadResult['matches'][number]],
+      totalErrors: 0,
+    });
+
+    await expect(guardedReload).resolves.toBe(false);
+    expect(account.matches[0]?.matches_id).toBe('fresh-match');
+  });
 });
 
 describe('settings store request and animation lifecycle', () => {

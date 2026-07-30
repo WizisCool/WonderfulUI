@@ -42,6 +42,7 @@ export const useAccountStore = defineStore('account', () => {
   const dir = ref('');
   const totalErrors = ref(0);
   const scraping = ref(false);
+  const libraryRevision = ref(0);
   const assetPathCache = ref(new Map<string, string>());
   const loadedMatchIds = ref(new Set<string>());
   const accountLabels = ref(new Map<string, string>());
@@ -97,6 +98,7 @@ export const useAccountStore = defineStore('account', () => {
     dir.value = shell.dir;
     totalErrors.value = shell.totalErrors;
     assignAccountLabels();
+    libraryRevision.value += 1;
   }
 
   async function probeAclos(dirOverride?: string): Promise<AclosStatus> {
@@ -105,8 +107,7 @@ export const useAccountStore = defineStore('account', () => {
     return status;
   }
 
-  async function loadLibrary(): Promise<void> {
-    const data = await invoke<LoadResult>('load_library');
+  function applyLibrary(data: LoadResult): void {
     accounts.value = data.accounts;
     matches.value = data.matches;
     // If the selected account disappeared (e.g. purged empty shell), fall back.
@@ -123,6 +124,24 @@ export const useAccountStore = defineStore('account', () => {
     dir.value = data.dir;
     totalErrors.value = data.totalErrors;
     assignAccountLabels();
+    libraryRevision.value += 1;
+  }
+
+  async function loadLibrary(): Promise<void> {
+    applyLibrary(await invoke<LoadResult>('load_library'));
+  }
+
+  /**
+   * Reload only if no newer store result was applied while the native read was
+   * in flight. Used by the startup timeout follow-up so a late background
+   * completion cannot overwrite a manual scan that the user already saw.
+   */
+  async function loadLibraryIfCurrent(expectedRevision: number): Promise<boolean> {
+    if (libraryRevision.value !== expectedRevision) return false;
+    const data = await invoke<LoadResult>('load_library');
+    if (libraryRevision.value !== expectedRevision) return false;
+    applyLibrary(data);
+    return true;
   }
 
   function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
@@ -134,12 +153,8 @@ export const useAccountStore = defineStore('account', () => {
         trigger: mode === 'full' ? 'full_manual' : 'manual',
         mode,
       });
-      accounts.value = fresh.accounts;
-      matches.value = fresh.matches;
-      dir.value = fresh.dir;
-      totalErrors.value = fresh.totalErrors;
+      applyLibrary(fresh);
       loadedMatchIds.value.clear();
-      assignAccountLabels();
       return fresh;
     })();
     const request = operation.finally(() => {
@@ -200,10 +215,10 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   return {
-    accounts, selectedAccountId, matches, dir, totalErrors, scraping,
+    accounts, selectedAccountId, matches, dir, totalErrors, scraping, libraryRevision,
     assetPathCache, loadedMatchIds, aclosStatus,
     realAccounts, accountsForRender, accountLabels, accountOrder, matchAchievements,
-    scanShell, loadLibrary, scrapeLibrary, cacheAssets, probeAclos,
+    scanShell, loadLibrary, loadLibraryIfCurrent, scrapeLibrary, cacheAssets, probeAclos,
     selectAccount, saveAccountOrder, renameAccount,
   };
 });

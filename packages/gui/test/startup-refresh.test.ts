@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { parseStartupRefreshResult } from '../src/utils/startup-refresh.ts';
+import {
+  parseStartupRefreshResult,
+  waitForStartupRefresh,
+} from '../src/utils/startup-refresh.ts';
 
 describe('parseStartupRefreshResult', () => {
   test('accepts the successful terminal event without inventing an error', () => {
@@ -19,5 +22,18 @@ describe('parseStartupRefreshResult', () => {
       error: '后台资料库返回了未知状态',
     });
     expect(parseStartupRefreshResult({ status: 'error' }).error).not.toBe('');
+  });
+});
+
+describe('waitForStartupRefresh', () => {
+  test('releases the caller on timeout without settling the terminal work', async () => {
+    let finish!: (result: { status: 'finished' }) => void;
+    const terminal = new Promise<{ status: 'finished' }>(resolve => {
+      finish = resolve;
+    });
+
+    await expect(waitForStartupRefresh(terminal, 0)).resolves.toEqual({ status: 'timeout' });
+    finish({ status: 'finished' });
+    await expect(terminal).resolves.toEqual({ status: 'finished' });
   });
 });

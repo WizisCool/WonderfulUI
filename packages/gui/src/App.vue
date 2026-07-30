@@ -42,7 +42,7 @@ import {
   computed,
   defineAsyncComponent,
 } from 'vue';
-import { listen } from './tauri-adapter.ts';
+import { listen, type UnlistenFn } from './tauri-adapter.ts';
 import { useAccountStore } from './stores/account.ts';
 import { useUiStore } from './stores/ui.ts';
 import { useUpdateStore } from './stores/update.ts';
@@ -53,6 +53,7 @@ import { useAppShortcuts } from './composables/useAppShortcuts.ts';
 import { useSettingsStore } from './stores/settings.ts';
 import {
   parseStartupRefreshResult,
+  waitForStartupRefresh,
   type StartupRefreshResult,
 } from './utils/startup-refresh.ts';
 
@@ -66,6 +67,104 @@ const bootRef = ref<InstanceType<typeof BootOverlay> | null>(null);
 const booted = ref(false);
 const bootError = ref<string | null>(null);
 let bootInflight: Promise<void> | null = null;
+let appDisposed = false;
+
+interface StartupRefreshSession {
+  terminal: Promise<StartupRefreshResult>;
+  timedOut: boolean;
+  lateFollowupScheduled: boolean;
+  dispose(): void;
+}
+
+let activeStartupRefresh: StartupRefreshSession | null = null;
+
+async function getOrStartStartupRefresh(): Promise<StartupRefreshSession> {
+  if (activeStartupRefresh) return activeStartupRefresh;
+
+  let resolveTerminal!: (result: StartupRefreshResult) => void;
+  const terminal = new Promise<StartupRefreshResult>(resolve => {
+    resolveTerminal = resolve;
+  });
+  let unlisten: UnlistenFn | null = null;
+  let settled = false;
+  const session: StartupRefreshSession = {
+    terminal,
+    timedOut: false,
+    lateFollowupScheduled: false,
+    dispose() {
+      if (settled) return;
+      settled = true;
+      unlisten?.();
+      unlisten = null;
+      if (activeStartupRefresh === session) activeStartupRefresh = null;
+    },
+  };
+  activeStartupRefresh = session;
+
+  try {
+    const registeredUnlisten = await listen<Record<string, unknown>>(
+      'wui://startup_refresh_finished',
+      event => {
+        if (settled) return;
+        settled = true;
+        unlisten?.();
+        unlisten = null;
+        if (activeStartupRefresh === session) activeStartupRefresh = null;
+        resolveTerminal(parseStartupRefreshResult(event.payload));
+      },
+    );
+    if (settled || appDisposed) {
+      registeredUnlisten();
+      if (appDisposed) throw new Error('应用已卸载');
+    } else {
+      unlisten = registeredUnlisten;
+    }
+
+    // The listener is live before the native command starts its background job.
+    await account.scanShell();
+    return session;
+  } catch (error) {
+    session.dispose();
+    throw error;
+  }
+}
+
+function selectInitialAccount(): void {
+  if (account.selectedAccountId) return;
+  if (account.matches.length > 0) {
+    account.selectAccount('__all__');
+  } else if (account.realAccounts.length > 0) {
+    account.selectAccount(account.realAccounts[0]!.openid);
+  }
+}
+
+function scheduleLateStartupRefresh(session: StartupRefreshSession): void {
+  if (session.lateFollowupScheduled) return;
+  session.lateFollowupScheduled = true;
+  const expectedRevision = account.libraryRevision;
+
+  void session.terminal.then(async result => {
+    if (appDisposed) return;
+    const applied = await account.loadLibraryIfCurrent(expectedRevision);
+    if (appDisposed) return;
+    if (applied) {
+      selectInitialAccount();
+      await account.cacheAssets();
+    }
+
+    if (result.status === 'finished') {
+      if (applied) ui.showToast('资料库已在后台刷新完成', 'ok');
+      return;
+    }
+    const message = result.error ?? '后台资料库刷新失败';
+    clientLog(result.status === 'degraded' ? 'warn' : 'error', 'boot', message);
+    ui.showToast('后台资料库刷新失败，当前显示可用的本地资料库', 'error');
+  }).catch(error => {
+    if (appDisposed) return;
+    clientLog('error', 'boot', `late refresh follow-up failed: ${(error as Error)?.message ?? String(error)}`);
+    ui.showToast('后台资料库回载失败，请执行全量扫描重试', 'error');
+  });
+}
 
 // First-run / onboarding gate. ACLOS WonderfulDb must exist AND contain at
 // least one account file. If either is false, we render OnboardingView
@@ -123,59 +222,41 @@ async function performBoot() {
     // local library is empty, so we must keep the BootOverlay visible
     // until the scrape settles — otherwise the user sees a flash of
     // the empty "还没有高光" state while scraping is still running.
-    let resolveRefresh!: (result: StartupRefreshResult) => void;
-    const refreshComplete = new Promise<StartupRefreshResult>(r => { resolveRefresh = r; });
-    let refreshSettled = false;
-    let safetyTimer: number | null = null;
-    const settleRefresh = (result: StartupRefreshResult) => {
-      if (refreshSettled) return;
-      refreshSettled = true;
-      if (safetyTimer !== null) {
-        clearTimeout(safetyTimer);
-        safetyTimer = null;
-      }
-      resolveRefresh(result);
-    };
-    const unlisten = await listen<Record<string, unknown>>('wui://startup_refresh_finished', (event) => {
-      settleRefresh(parseStartupRefreshResult(event.payload));
-    });
-    if (!refreshSettled) {
-      safetyTimer = window.setTimeout(() => settleRefresh({ status: 'timeout' }), 30_000);
-    }
-
     account.scraping = true;
     let refreshResult: StartupRefreshResult;
     try {
-      await account.scanShell();
+      const refreshSession = await getOrStartStartupRefresh();
       await account.loadLibrary();
 
-      // Wait for the background scrape to finish.
-      refreshResult = await refreshComplete;
+      // A previous boot attempt may already have timed out while the same
+      // native job continues. Do not create another scan or another deadline.
+      refreshResult = refreshSession.timedOut
+        ? { status: 'timeout' }
+        : await waitForStartupRefresh(refreshSession.terminal, 30_000);
+      if (refreshResult.status === 'timeout') {
+        refreshSession.timedOut = true;
+        scheduleLateStartupRefresh(refreshSession);
+      }
     } finally {
-      if (safetyTimer !== null) clearTimeout(safetyTimer);
-      unlisten();
       account.scraping = false;
     }
 
     // 3) Reload library now that scrape has settled so the view has
-    // fresh accounts + matches.
-    await account.loadLibrary();
+    // fresh accounts + matches. A timed-out job owns a guarded late reload.
+    if (refreshResult.status !== 'timeout') await account.loadLibrary();
     if (refreshResult.status === 'error') {
-      throw new Error(refreshResult.error ?? '后台资料库刷新失败');
+      clientLog('error', 'boot', refreshResult.error ?? '后台资料库刷新失败');
+      throw new Error('后台资料库刷新失败');
     }
     if (refreshResult.status === 'degraded') {
       const message = refreshResult.error ?? '源数据暂时不可用';
       clientLog('warn', 'boot', `background refresh degraded: ${message}`);
-      ui.showToast(`源数据刷新失败，当前显示上次资料库: ${message}`, 'error');
+      ui.showToast('源数据刷新失败，当前显示可用的本地资料库', 'error');
     } else if (refreshResult.status === 'timeout') {
       clientLog('warn', 'boot', 'background refresh exceeded the 30 second boot wait');
     }
     await account.cacheAssets();
-    if (account.matches.length > 0) {
-      account.selectAccount('__all__');
-    } else if (account.realAccounts.length > 0) {
-      account.selectAccount(account.realAccounts[0]!.openid);
-    }
+    selectInitialAccount();
     booted.value = true;
     bootRef.value?.complete();
     // 启动静默更新检查。必须在 runBoot 显露 UI 之后调用，不与后台抓取竞争
@@ -275,6 +356,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  appDisposed = true;
+  activeStartupRefresh?.dispose();
   document.removeEventListener('mouseover', onDocMouseOver);
   document.removeEventListener('mousemove', onDocMouseMove);
   document.removeEventListener('mouseout', onDocMouseOut);
