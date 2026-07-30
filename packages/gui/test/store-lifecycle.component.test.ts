@@ -250,6 +250,23 @@ describe('settings store request and animation lifecycle', () => {
     expect(settings.logStatus?.latestText).toBe('ready');
   });
 
+  test('turns nullish IPC rejections into recoverable settings errors', async () => {
+    invokeMock
+      .mockRejectedValueOnce(null)
+      .mockRejectedValueOnce(undefined);
+    const settings = useSettingsStore();
+    settings.statsData = libraryStats(7);
+
+    await expect(settings.fetchLogs()).resolves.toBeUndefined();
+    expect(settings.logLoading).toBe(false);
+    expect(settings.logError).toBe('日志读取失败: 未知错误');
+
+    await expect(settings.fetchLibraryStats()).resolves.toBeUndefined();
+    expect(settings.statsLoading).toBe(false);
+    expect(settings.statsError).toBe('资料库统计失败: 未知错误');
+    expect(settings.statsData?.totalVideos).toBe(7);
+  });
+
   test('queues a fresh stats read after an older in-flight snapshot', async () => {
     const stale = deferred<LibraryStats>();
     const fresh = deferred<LibraryStats>();

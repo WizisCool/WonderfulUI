@@ -12,6 +12,13 @@ export interface LogStatus {
 
 const ANIMATION_MS = 150;
 
+function rejectionMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (error === null || error === undefined) return '未知错误';
+  const message = String(error).trim();
+  return message || '未知错误';
+}
+
 export const useSettingsStore = defineStore('settings', () => {
   const isOpen = ref(false);
   const isClosing = ref(false);
@@ -55,7 +62,7 @@ export const useSettingsStore = defineStore('settings', () => {
       try {
         logStatus.value = await invoke<LogStatus>('get_log_status');
       } catch (e) {
-        logError.value = `日志读取失败: ${(e as Error).message ?? String(e)}`;
+        logError.value = `日志读取失败: ${rejectionMessage(e)}`;
       }
     })();
     const request = operation.finally(() => {
@@ -79,7 +86,7 @@ export const useSettingsStore = defineStore('settings', () => {
         statsData.value = await invoke<LibraryStats>('get_library_stats');
       } catch (e) {
         statsData.value = prev;
-        statsError.value = `资料库统计失败: ${(e as Error).message ?? String(e)}`;
+        statsError.value = `资料库统计失败: ${rejectionMessage(e)}`;
       }
     })();
     const request = operation.finally(() => {

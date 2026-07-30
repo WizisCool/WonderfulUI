@@ -165,6 +165,11 @@ Use Vue ownership hooks (and cancellation/generation checks for async wiring):
 - If listener registration itself is asynchronous, immediately release a late
   unlisten handle after disposal and coalesce overlapping registration calls.
 
+Store actions that intentionally convert rejected IPC calls into visible,
+retryable state must accept any JavaScript rejection value, including strings,
+`null`, and `undefined`. Their `catch` blocks must not assume `Error.message`
+exists or throw a second error while formatting the original failure.
+
 ## Account Sentinel
 
 `ALL_ACCOUNTS = '__all__'` is a synthetic sentinel, not a real account.
