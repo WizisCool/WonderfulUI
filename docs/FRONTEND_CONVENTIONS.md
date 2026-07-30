@@ -167,6 +167,10 @@ Use Vue ownership hooks (and cancellation/generation checks for async wiring):
   game-mode, and per-video poster failures whenever the selected match object
   changes; video ids are not a cross-match failure cache. Moment filter chips
   expose their toggle state with `aria-pressed`.
+- Match cards are keyed by stable match id, so a library refresh can reuse the
+  component with a replacement match object. Reset map/hero/mode image failure
+  flags on that object change; an obsolete failed URL must not suppress the
+  refreshed bundled/local asset.
 
 - Middle column title is `对局列表`, not `高光时刻`.
 - `高光时刻` is still correct inside the detail pane for moment-card groups.

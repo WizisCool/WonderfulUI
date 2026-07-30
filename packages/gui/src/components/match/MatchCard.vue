@@ -81,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { convertFileSrc } from '../../tauri-adapter.ts';
 import { useAccountStore } from '../../stores/account.ts';
@@ -112,6 +112,14 @@ const optionId = computed(() => matchOptionId(props.match.matches_id));
 const mapBgFailed = ref(false);
 const heroFailed = ref(false);
 const modeIconFailed = ref(false);
+
+watch(() => props.match, () => {
+  // A library refresh keeps the stable match id/key but replaces its object.
+  // Do not retain failures from obsolete asset URLs across that replacement.
+  mapBgFailed.value = false;
+  heroFailed.value = false;
+  modeIconFailed.value = false;
+});
 
 const agentName = computed(() => agentCn(props.match));
 const agentInitial = computed(() => agentName.value[0]?.toUpperCase() ?? '?');

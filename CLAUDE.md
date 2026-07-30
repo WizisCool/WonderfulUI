@@ -261,6 +261,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - Async Tauri listener registration must be single-flight and cancellation-safe: if a component unmounts before `listen()` resolves, immediately call the late unlisten handle instead of retaining an orphan callback. `BootOverlay` also keeps one shared registration across its mounted hook and parent `start()` call.
 - Match videos group by `video_type`, not by array position or duration.
 - Detail image failure flags are selection-scoped and must reset when the selected match object changes; never let one broken hero/mode/poster suppress valid images in later matches. Moment filter chips expose `aria-pressed`.
+- MatchCard instances are keyed by stable match id and survive same-id library object replacement; reset map/hero/mode error flags when `props.match` changes so a stale failed asset cannot hide the refreshed one.
 - User-facing hero/map/mode labels should come from `career.*` when available.
 - Rust `VideoItem.video_is_processing` must serialize as `video_isProcessing`.
 - Date range end dates are inclusive through `23:59:59.999` local time.
