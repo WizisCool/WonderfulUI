@@ -54,6 +54,7 @@ WonderfulUI is a product for many Windows installs, not a one-PC script.
 - The registry uses stable map URLs / agent UUIDs / mode asset paths. Runtime `career.*` labels are unknown-entity fallbacks, not competing truth sources; runtime HTTP(S) image fallbacks are forbidden.
 - The updater downloads canonical source PNGs into the content-addressed `packages/gui/assets/valorant-source/` tree. Maps use the API `splash` field, never the banner-shaped `listViewIcon`. Byte-identical records share one source and one runtime path.
 - `bun run assets:build` uses the committed sources to generate fixed-size WebP files under ignored `packages/gui/public/valorant/`; `packages/gui` runs it before both Vite dev and build. Vite copies only those compressed files to `dist`, so source PNGs never enter the installer. `bun run assets:check` must pass before shipping.
+- Production Vite builds keep `build.sourcemap = false`; the dev server already supports source debugging, while `.map` files add multiple MiB to the Tauri payload and disclose source without helping runtime behavior.
 - A metadata change must include source provenance plus invariant/regression tests (unique IDs, non-empty labels, content-addressed paths, source hashes/aspect ratios, fixed output dimensions, physical deduplication, and consistent fixture identity).
 
 ### Goal-Driven Execution

@@ -33,4 +33,10 @@ describe('low-frequency bundle boundaries', () => {
       expect(register).not.toContain(speculative);
     }
   });
+
+  test('production build does not ship JavaScript source maps', () => {
+    const vite = source('vite.config.ts');
+    expect(vite).toContain('sourcemap: false');
+    expect(vite).not.toContain('sourcemap: true');
+  });
 });

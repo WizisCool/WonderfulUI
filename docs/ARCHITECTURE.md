@@ -216,6 +216,9 @@ Defined in `src-tauri/src/lib.rs`:
 - `bun run assets:check` verifies source checksums/aspect ratios, output format,
   dimensions, byte ceilings, exact registry parity and physical deduplication;
   production build also verifies the copied `dist/valorant` tree.
+- Vite production builds do not emit JavaScript source maps. The dev server
+  retains normal source debugging, while packaged Tauri frontend assets avoid
+  several MiB of non-runtime `.map` files and do not disclose application source.
 
 ## Tauri Security Boundary
 
