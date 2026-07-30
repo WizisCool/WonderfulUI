@@ -101,8 +101,8 @@ export const useAccountStore = defineStore('account', () => {
     libraryRevision.value += 1;
   }
 
-  async function probeAclos(dirOverride?: string): Promise<AclosStatus> {
-    const status = await invoke<AclosStatus>('aclos_status', dirOverride ? { dir: dirOverride } : undefined);
+  async function probeAclos(): Promise<AclosStatus> {
+    const status = await invoke<AclosStatus>('aclos_status');
     aclosStatus.value = status;
     return status;
   }

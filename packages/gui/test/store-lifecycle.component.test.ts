@@ -45,6 +45,19 @@ beforeEach(() => {
 });
 
 describe('account store request lifecycle', () => {
+  test('probes only the fixed backend ACLOS source without a renderer path', async () => {
+    invokeMock.mockResolvedValue({
+      dir: 'C:\\Users\\tester\\AppData\\Roaming\\ACLOS\\WonderfulDb',
+      dirExists: true,
+      hasAccounts: true,
+    });
+    const account = useAccountStore();
+
+    await account.probeAclos();
+
+    expect(invokeMock).toHaveBeenCalledWith('aclos_status');
+  });
+
   test('keeps parse-error accounts visible while hiding clean empty shells', () => {
     const account = useAccountStore();
     account.accounts = [

@@ -65,15 +65,24 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-fn default_wonderful_dir() -> PathBuf {
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_default();
-    PathBuf::from(home)
+fn wonderful_dir_from_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
+    let home = home.ok_or_else(|| "USERPROFILE and HOME are not set".to_string())?;
+    if !home.is_absolute() {
+        return Err("user profile path is not absolute".to_string());
+    }
+    Ok(home
         .join("AppData")
         .join("Roaming")
         .join("ACLOS")
-        .join("WonderfulDb")
+        .join("WonderfulDb"))
+}
+
+fn default_wonderful_dir() -> Result<PathBuf, String> {
+    let home = std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("HOME").filter(|value| !value.is_empty()))
+        .map(PathBuf::from);
+    wonderful_dir_from_home(home)
 }
 
 const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv", "avi"];
@@ -180,9 +189,8 @@ struct ScanShellPayload {
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AclosStatusPayload {
-    /// The directory WonderfulUI is currently configured to read from. May
-    /// be the platform default (`%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`)
-    /// or a user-selected override (not yet exposed in the GUI).
+    /// The fixed ACLOS source directory WonderfulUI is allowed to read:
+    /// `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`.
     dir: String,
     /// True if `dir` exists on disk. The frontend uses this to decide
     /// whether to show the onboarding / first-run screen.
@@ -198,12 +206,7 @@ struct AclosStatusPayload {
 /// state without running a full scan. Returns the path, whether it exists,
 /// and whether it contains any account files. This is read-only: it does
 /// not create, modify, or touch the directory in any way.
-#[tauri::command]
-fn aclos_status(dir: Option<String>) -> Result<AclosStatusPayload, String> {
-    let base = match dir {
-        Some(d) => PathBuf::from(d),
-        None => default_wonderful_dir(),
-    };
+fn aclos_status_for_base(base: &std::path::Path) -> Result<AclosStatusPayload, String> {
     let dir_str = base.to_string_lossy().into_owned();
     let dir_exists = base.is_dir();
     let has_accounts = if dir_exists {
@@ -223,22 +226,24 @@ fn aclos_status(dir: Option<String>) -> Result<AclosStatusPayload, String> {
     })
 }
 
+#[tauri::command]
+fn aclos_status() -> Result<AclosStatusPayload, String> {
+    aclos_status_for_base(&default_wonderful_dir()?)
+}
+
 /// Return existing library state immediately, then spawn a background
 /// thread to refresh from WonderfulDb. The frontend receives the account
 /// shell in the return value and streams per-account scrape results via
 /// `wui://account_loaded` events. This keeps the UI responsive during
 /// first launch.
 #[tauri::command]
-fn scan_shell(app: tauri::AppHandle, dir: Option<String>) -> Result<ScanShellPayload, String> {
+fn scan_shell(app: tauri::AppHandle) -> Result<ScanShellPayload, String> {
     app_log::write(
         app_log::LogLevel::Info,
         "scan_shell",
         "loading library shell",
     );
-    let base = match dir {
-        Some(d) => PathBuf::from(d),
-        None => default_wonderful_dir(),
-    };
+    let base = default_wonderful_dir()?;
     let dir_str = base.to_string_lossy().into_owned();
     let conn = library::db::open_library().map_err(|e| format!("open library: {}", e))?;
 
@@ -328,16 +333,13 @@ fn scan_shell(app: tauri::AppHandle, dir: Option<String>) -> Result<ScanShellPay
 /// then return the library view. WonderfulDb is only read by the source
 /// adapter; this command no longer has a direct parser fallback.
 #[tauri::command]
-fn scan_all(app: tauri::AppHandle, dir: Option<String>) -> Result<LoadResult, String> {
+fn scan_all(app: tauri::AppHandle) -> Result<LoadResult, String> {
     app_log::write(
         app_log::LogLevel::Info,
         "scan_all",
         "startup incremental scan requested",
     );
-    let base = match dir {
-        Some(d) => PathBuf::from(d),
-        None => default_wonderful_dir(),
-    };
+    let base = default_wonderful_dir()?;
     let conn = library::db::open_library()?;
     let view = load_after_startup_scrape(&conn, &base, Some(&app))?.view;
     allow_load_result_assets(&app, &view);
@@ -347,7 +349,6 @@ fn scan_all(app: tauri::AppHandle, dir: Option<String>) -> Result<LoadResult, St
 #[tauri::command]
 fn scrape_library(
     app: tauri::AppHandle,
-    dir: Option<String>,
     trigger: Option<String>,
     mode: Option<String>,
 ) -> Result<LoadResult, String> {
@@ -357,10 +358,7 @@ fn scrape_library(
         "scrape_library",
         format!("manual scrape requested mode={mode_label}"),
     );
-    let base = match dir {
-        Some(d) => PathBuf::from(d),
-        None => default_wonderful_dir(),
-    };
+    let base = default_wonderful_dir()?;
     let conn = library::db::open_library()?;
     library::scraper::scrape_wonderful_dir_with_mode(
         &conn,
@@ -390,7 +388,7 @@ fn load_library(app: tauri::AppHandle) -> Result<LoadResult, String> {
     let conn = library::db::open_library()?;
     let view = library::db::load_library_view(
         &conn,
-        default_wonderful_dir().to_string_lossy().into_owned(),
+        default_wonderful_dir()?.to_string_lossy().into_owned(),
     )
     .map_err(|e| format!("load library: {}", e))?;
     allow_load_result_assets(&app, &view);
@@ -1034,17 +1032,31 @@ mod tests {
         std::fs::write(dir.join("README"), b"notes").expect("readme fixture");
         std::fs::create_dir(dir.join("123456")).expect("numeric directory fixture");
 
-        let without_account =
-            aclos_status(Some(dir.to_string_lossy().into_owned())).expect("status probe succeeds");
+        let without_account = aclos_status_for_base(&dir).expect("status probe succeeds");
         assert!(without_account.dir_exists);
         assert!(!without_account.has_accounts);
 
         std::fs::write(dir.join("9876543210"), b"account").expect("account fixture");
-        let with_account =
-            aclos_status(Some(dir.to_string_lossy().into_owned())).expect("status probe succeeds");
+        let with_account = aclos_status_for_base(&dir).expect("status probe succeeds");
         assert!(with_account.has_accounts);
 
         std::fs::remove_dir_all(&dir).expect("temp dir removed");
+    }
+
+    #[test]
+    fn wonderful_dir_resolution_fails_closed_without_an_absolute_profile() {
+        assert!(wonderful_dir_from_home(None).is_err());
+        assert!(wonderful_dir_from_home(Some(PathBuf::from("relative-profile"))).is_err());
+
+        let home = std::env::temp_dir().join("wui-profile-fixture");
+        let resolved = wonderful_dir_from_home(Some(home.clone())).expect("absolute home accepted");
+        assert_eq!(
+            resolved,
+            home.join("AppData")
+                .join("Roaming")
+                .join("ACLOS")
+                .join("WonderfulDb")
+        );
     }
 
     #[test]

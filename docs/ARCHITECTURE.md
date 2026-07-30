@@ -62,7 +62,7 @@ Account display overrides and drag order live in SQLite `account_preferences`. T
 
 Defined in `src-tauri/src/lib.rs`:
 
-- `aclos_status(dir?: string) -> AclosStatusPayload`
+- `aclos_status() -> AclosStatusPayload`
   - **Read-only** probe of the ACLOS WonderfulDb directory. Returns
     `{ dir, dirExists, hasAccounts }` so the GUI can route the user to the
     first-run / onboarding screen without paying the cost of `scan_shell`.
@@ -75,7 +75,7 @@ Defined in `src-tauri/src/lib.rs`:
   - Does not create, modify, or touch the directory.
   - The frontend calls this at boot, before `scan_shell`, in
     `App.vue -> runBoot()`.
-- `scan_shell(dir?: string) -> ScanShellPayload`
+- `scan_shell() -> ScanShellPayload`
   - Opens the local SQLite library and returns the existing account shell
     immediately so startup can render without waiting for a full source scan.
   - Spawns the WonderfulDb source refresh in the background and streams
@@ -88,19 +88,23 @@ Defined in `src-tauri/src/lib.rs`:
     `degraded`; do not report it as an unconditional success.
   - The frontend follows with `load_library()` after startup progress to read
     the current rounds-stripped library view from SQLite.
-- `scan_all(dir?: string) -> LoadResult`
+- `scan_all() -> LoadResult`
   - Opens the local SQLite library.
-  - Runs the WonderfulDb source adapter in **incremental** mode against `dir` (default `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`).
+  - Runs the WonderfulDb source adapter in **incremental** mode against the fixed `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb` source.
   - Loads the library view from SQLite.
   - Per-account source failures are persisted on `accounts[].error`.
   - If startup source refresh fails but SQLite already has accounts or matches, returns the existing library view. If the library is empty, the source error is returned.
   - **Strips `rounds` from every match before sending** (via
     `strip_match_rounds`) so the bulk payload stays at ~50 KB / account
     instead of ~6 MB. Use `get_match_rounds` to fetch the rest on demand.
-- `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full") -> LoadResult`
+- `scrape_library(trigger?: string, mode?: "incremental" | "full") -> LoadResult`
   - Manually refreshes the local SQLite library from the configured WonderfulDb source, then returns the same library view as `scan_all`.
   - Missing or unknown `mode` defaults to `incremental`. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
   - Manual source failures return an error so the user gets explicit feedback.
+- Source-directory IPC is intentionally absent. The product has no custom
+  directory picker, so renderer input cannot redirect any probe or scan to an
+  arbitrary filesystem path. Missing or non-absolute user-profile state fails
+  closed rather than degrading to a relative directory.
 - `load_library() -> LoadResult`
   - Returns the current SQLite library view without reading WonderfulDb.
   - Malformed `matches.raw_json` rows are omitted from the visible match list,
