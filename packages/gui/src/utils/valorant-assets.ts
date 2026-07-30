@@ -122,9 +122,22 @@ function stringValue(value: unknown): string | undefined {
 
 function localAssetValue(value: unknown): string | undefined {
   const source = stringValue(value);
-  return source && (source.startsWith('/') || source.startsWith('data:'))
-    ? source
-    : undefined;
+  if (!source) return undefined;
+  // SVG data URLs can themselves reference network resources. Unknown
+  // fallbacks only need self-contained raster fixtures.
+  if (/^data:image\/(?:png|jpe?g|webp|gif|avif|bmp|x-icon)(?:;[^,]*)?,/i.test(source)) {
+    return source;
+  }
+  if (!source.startsWith('/')) return undefined;
+  try {
+    // URL syntax, not the first character, decides whether a value is local:
+    // `//host/x`, `///host/x`, and `/\\host/x` all navigate to another origin.
+    const base = new URL('https://wonderful-ui.invalid/');
+    const resolved = new URL(source, base);
+    return resolved.origin === base.origin ? source : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function matchMapAsset(match: MatchRecord): MapAsset | undefined {

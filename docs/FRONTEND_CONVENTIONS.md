@@ -287,8 +287,10 @@ the registry supplies the icon when a stable match exists.
 - `career.game_mode`
 
 Unknown HTTP(S) image fields (`career.hero_image`, `career.map_image`,
-`career.game_mode_icon`, `map.map_image`) are intentionally ignored. A local
-`/…` or `data:` value remains acceptable for deterministic fixtures, but the
+`career.game_mode_icon`, `map.map_image`) are intentionally ignored. A
+browser-verified same-origin root path or self-contained raster `data:` value
+remains acceptable for deterministic fixtures. Protocol-relative, backslash
+host, SVG-data, and other network-capable fallbacks are rejected, so the
 shipped application never contacts an image CDN at runtime.
 
 Fallbacks are documented in `docs/ACLOS_FORMAT.md`.

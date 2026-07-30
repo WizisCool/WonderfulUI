@@ -114,6 +114,34 @@ describe('canonical match resolution', () => {
     expect(resolveMatchAssetUrl(value, 'map_image')).toBeUndefined();
   });
 
+  test('rejects protocol-relative and network-capable unknown image fallbacks', () => {
+    for (const source of [
+      '//example.com/future.png',
+      '///example.com/future.png',
+      '/\\\\example.com/future.png',
+      'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+    ]) {
+      const value = match({
+        map: { map_id: '/Game/Maps/Future/Future' },
+        career: { map_image: source },
+      });
+      expect(resolveMatchAssetUrl(value, 'map_image')).toBeUndefined();
+    }
+
+    const localFixture = match({
+      map: { map_id: '/Game/Maps/Future/Future' },
+      career: { map_image: '/fixtures/future-map.png' },
+    });
+    expect(resolveMatchAssetUrl(localFixture, 'map_image')).toBe('/fixtures/future-map.png');
+
+    const rasterData = match({
+      map: { map_id: '/Game/Maps/Future/Future' },
+      career: { map_image: 'data:image/png;base64,iVBORw0KGgo=' },
+    });
+    expect(resolveMatchAssetUrl(rasterData, 'map_image'))
+      .toBe('data:image/png;base64,iVBORw0KGgo=');
+  });
+
   test('resolves a bundled game-mode icon from the internal mode path', () => {
     const value = match({
       stats: {

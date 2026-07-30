@@ -118,7 +118,7 @@ records cannot make the same map/agent change label or image URL:
 - Hero avatar / map cover / mode icon: **only** via `packages/gui/src/utils/valorant-assets.ts`.
   - URL: `resolveMatchAssetUrl(match, kind)` (canonical identity → bundled `/valorant/...` path).
   - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
-  - Unknown HTTP(S) image values are ignored; missing imagery degrades to the existing glyph/text fallback instead of going online.
+  - Unknown network-capable image values are ignored, including HTTP(S), protocol-relative (`//host` / `/\\host`), and SVG data URLs; missing imagery degrades to the existing glyph/text fallback instead of going online. Only browser-verified same-origin root paths and self-contained raster data URLs are accepted for deterministic fixtures.
 - Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and the content-addressed PNGs in `packages/gui/assets/valorant-source/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater. Map covers use the 16:9 `splash` source, not `listViewIcon` banners.
 - `bun run assets:build` offline-compiles those sources to fixed-size WebP files in `packages/gui/public/valorant/`. Records with an identical source hash intentionally share one file.
 - `bun run assets:check` must verify source hashes/aspect ratios, registry parity, fixed runtime dimensions, byte limits, physical deduplication, and the copied `dist` tree.
