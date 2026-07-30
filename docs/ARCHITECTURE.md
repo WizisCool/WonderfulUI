@@ -247,6 +247,8 @@ Defined in `src-tauri/src/lib.rs`:
   pitched/negative-stride row copy; older 2D buffers use bounded contiguous
   copy, and plain media buffers use `cur_len`. Width/height arithmetic is
   checked and decoded RGBA output is capped at 512 MiB before allocation.
+  Renderer `timeMs` is checked before conversion to signed 100 ns units, so a
+  large `u64` cannot wrap into a negative seek and silently capture frame zero.
 - ACLOS Chromium Local Storage LevelDB is never opened in place. Because
   `rusty-leveldb` has no read-only mode and can create `LOCK`/log files, the
   identity index copies regular database files (excluding live `LOCK`) into a

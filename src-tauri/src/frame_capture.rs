@@ -12,6 +12,14 @@ use std::sync::Mutex;
 #[cfg(any(windows, test))]
 const MAX_FRAME_BYTES: usize = 512 * 1024 * 1024;
 
+#[cfg(any(windows, test))]
+fn time_ms_to_hns(time_ms: u64) -> Result<i64, String> {
+    let hns = time_ms
+        .checked_mul(10_000)
+        .ok_or_else(|| "截图时间超出支持范围".to_string())?;
+    i64::try_from(hns).map_err(|_| "截图时间超出支持范围".to_string())
+}
+
 /// Capture one frame as PNG (base64) at `time_ms`.
 #[cfg(windows)]
 pub fn capture_frame_png_base64(path: &str, time_ms: u64) -> Result<String, String> {
@@ -37,7 +45,7 @@ fn capture_frame_png(path: &str, time_ms: u64) -> Result<Vec<u8>, String> {
     }
 
     ensure_mf_started()?;
-    let target_hns = (time_ms as i64).saturating_mul(10_000);
+    let target_hns = time_ms_to_hns(time_ms)?;
     let bgra = with_reader(path, |reader| read_frame_bgra(reader, target_hns))?;
     encode_bgra_png_fast(&bgra.pixels, bgra.width, bgra.height)
 }
@@ -508,7 +516,15 @@ fn win_err(ctx: &'static str) -> impl Fn(windows::core::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_scanline_address, validate_frame_layout};
+    use super::{checked_scanline_address, time_ms_to_hns, validate_frame_layout};
+
+    #[test]
+    fn capture_timestamp_conversion_rejects_u64_wraparound() {
+        let max_ms = (i64::MAX as u64) / 10_000;
+        assert_eq!(time_ms_to_hns(max_ms), Ok((max_ms * 10_000) as i64));
+        assert!(time_ms_to_hns(max_ms + 1).is_err());
+        assert!(time_ms_to_hns(u64::MAX).is_err());
+    }
 
     #[test]
     fn frame_layout_rejects_short_and_excessive_buffers() {
