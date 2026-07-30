@@ -232,6 +232,11 @@ Defined in `src-tauri/src/lib.rs`:
   Library video/poster paths are added dynamically only after they came from a
   SQLite library result, have a supported media extension, and are current
   non-symlink regular files.
+- Windows screenshot decoding treats Media Foundation buffers as untrusted
+  lengths. `IMF2DBuffer2::Lock2DSize` supplies the allocation bounds for every
+  pitched/negative-stride row copy; older 2D buffers use bounded contiguous
+  copy, and plain media buffers use `cur_len`. Width/height arithmetic is
+  checked and decoded RGBA output is capped at 512 MiB before allocation.
 - IPC commands that open, reveal, decode, or share a video independently
   re-authorize the exact path against SQLite `videos.path`. Asset-protocol
   visibility is not treated as command authorization.
