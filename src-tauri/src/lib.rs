@@ -347,12 +347,8 @@ fn scan_all(app: tauri::AppHandle) -> Result<LoadResult, String> {
 }
 
 #[tauri::command]
-fn scrape_library(
-    app: tauri::AppHandle,
-    trigger: Option<String>,
-    mode: Option<String>,
-) -> Result<LoadResult, String> {
-    let mode_label = mode.as_deref().unwrap_or("incremental");
+fn scrape_library(app: tauri::AppHandle, mode: Option<String>) -> Result<LoadResult, String> {
+    let (scrape_mode, trigger, mode_label) = validated_manual_scrape_request(mode.as_deref())?;
     app_log::write(
         app_log::LogLevel::Info,
         "scrape_library",
@@ -363,8 +359,8 @@ fn scrape_library(
     library::scraper::scrape_wonderful_dir_with_mode(
         &conn,
         &base,
-        trigger.as_deref().unwrap_or("manual"),
-        library::scraper::ScrapeMode::from_arg(mode.as_deref()),
+        trigger,
+        scrape_mode,
         Some(&app),
     )?;
     app_log::write(
@@ -376,6 +372,20 @@ fn scrape_library(
         .map_err(|e| format!("load library: {}", e))?;
     allow_load_result_assets(&app, &view);
     Ok(view)
+}
+
+fn validated_manual_scrape_request(
+    mode: Option<&str>,
+) -> Result<(library::scraper::ScrapeMode, &'static str, &'static str), String> {
+    match mode {
+        None | Some("incremental") => Ok((
+            library::scraper::ScrapeMode::Incremental,
+            "manual",
+            "incremental",
+        )),
+        Some("full") => Ok((library::scraper::ScrapeMode::Full, "full_manual", "full")),
+        Some(_) => Err("无效的资料库扫描模式".to_string()),
+    }
 }
 
 #[tauri::command]
@@ -405,12 +415,13 @@ fn get_match_rounds(
     openid: String,
     match_id: String,
 ) -> Result<MatchRecord, String> {
+    let conn = library::db::open_library()?;
+    validate_match_round_request(&conn, &openid, &match_id)?;
     app_log::write(
         app_log::LogLevel::Info,
         "get_match_rounds",
         format!("loading rounds match_id={match_id} openid={openid}"),
     );
-    let conn = library::db::open_library()?;
     let full = library::db::load_match_rounds(&conn, &openid, &match_id)?;
     allow_match_asset_paths(&app, std::slice::from_ref(&full));
     Ok(full)
@@ -436,15 +447,34 @@ fn rename_account(openid: String, custom_name: Option<String>) -> Result<(), Str
 const MAX_ACCOUNT_ORDER_ITEMS: usize = 1024;
 const MAX_ACCOUNT_ID_CHARS: usize = 256;
 const MAX_ACCOUNT_CUSTOM_NAME_CHARS: usize = 64;
+const MAX_MATCH_ID_CHARS: usize = 512;
 
 fn validate_known_account_request(conn: &rusqlite::Connection, openid: &str) -> Result<(), String> {
-    if openid.is_empty() || openid.chars().count() > MAX_ACCOUNT_ID_CHARS {
+    if openid.is_empty()
+        || openid.chars().count() > MAX_ACCOUNT_ID_CHARS
+        || openid.chars().any(char::is_control)
+    {
         return Err("无效账户标识".to_string());
     }
     let known =
         library::db::is_known_account(conn, openid).map_err(|e| format!("验证账户失败: {e}"))?;
     if !known {
         return Err("仅允许修改资料库中的账户".to_string());
+    }
+    Ok(())
+}
+
+fn validate_match_round_request(
+    conn: &rusqlite::Connection,
+    openid: &str,
+    match_id: &str,
+) -> Result<(), String> {
+    validate_known_account_request(conn, openid)?;
+    if match_id.is_empty()
+        || match_id.chars().count() > MAX_MATCH_ID_CHARS
+        || match_id.chars().any(char::is_control)
+    {
+        return Err("无效对局标识".to_string());
     }
     Ok(())
 }
@@ -1166,6 +1196,7 @@ mod tests {
         );
         assert!(validate_account_order_request(&conn, &["unknown".into()]).is_err());
         assert!(validate_known_account_request(&conn, "unknown").is_err());
+        assert!(validate_known_account_request(&conn, "account-a\n").is_err());
         assert!(validate_account_order_request(
             &conn,
             &vec!["account-a".into(); MAX_ACCOUNT_ORDER_ITEMS + 1]
@@ -1179,6 +1210,47 @@ mod tests {
         ))
         .is_err());
         assert!(validate_account_custom_name(Some("line\nbreak")).is_err());
+    }
+
+    #[test]
+    fn renderer_scan_requests_allow_only_canonical_modes() {
+        let (mode, trigger, label) =
+            validated_manual_scrape_request(None).expect("missing mode is incremental");
+        assert_eq!(mode, library::scraper::ScrapeMode::Incremental);
+        assert_eq!((trigger, label), ("manual", "incremental"));
+
+        let (mode, trigger, label) =
+            validated_manual_scrape_request(Some("full")).expect("full mode accepted");
+        assert_eq!(mode, library::scraper::ScrapeMode::Full);
+        assert_eq!((trigger, label), ("full_manual", "full"));
+
+        for invalid in ["", "FULL", "full_scan", "unknown"] {
+            assert!(validated_manual_scrape_request(Some(invalid)).is_err());
+        }
+    }
+
+    #[test]
+    fn match_round_requests_require_known_accounts_and_bounded_ids() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO accounts(openid, source_id, last_seen_at)
+             VALUES('account-a', 'aclos_wonderfuldb', 1)",
+            [],
+        )
+        .expect("account seeded");
+
+        validate_match_round_request(&conn, "account-a", "match-1")
+            .expect("known bounded request accepted");
+        assert!(validate_match_round_request(&conn, "unknown", "match-1").is_err());
+        assert!(validate_match_round_request(&conn, "account-a", "").is_err());
+        assert!(validate_match_round_request(&conn, "account-a", "match\n1").is_err());
+        assert!(validate_match_round_request(
+            &conn,
+            "account-a",
+            &"m".repeat(MAX_MATCH_ID_CHARS + 1),
+        )
+        .is_err());
     }
 
     #[test]

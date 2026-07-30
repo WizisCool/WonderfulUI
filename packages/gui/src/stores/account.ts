@@ -150,7 +150,6 @@ export const useAccountStore = defineStore('account', () => {
     scraping.value = true;
     const operation = (async () => {
       const fresh = await invoke<LoadResult>('scrape_library', {
-        trigger: mode === 'full' ? 'full_manual' : 'manual',
         mode,
       });
       applyLibrary(fresh);

@@ -97,11 +97,11 @@ Defined in `src-tauri/src/lib.rs`:
   - **Strips `rounds` from every match before sending** (via
     `strip_match_rounds`) so the bulk payload stays at ~50 KB / account
     instead of ~6 MB. Use `get_match_rounds` to fetch the rest on demand.
-- `scrape_library(trigger?: string, mode?: "incremental" | "full") -> LoadResult`
+- `scrape_library(mode?: "incremental" | "full") -> LoadResult`
   - Manually refreshes the local SQLite library from the configured WonderfulDb source, then returns the same library view as `scan_all`.
-  - Missing or unknown `mode` defaults to `incremental`. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
+  - Missing `mode` defaults to `incremental`; any other value is rejected. The backend derives the persisted scan trigger (`manual` / `full_manual`) instead of trusting renderer audit text. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
   - Manual source failures return an error so the user gets explicit feedback.
-- Source-directory IPC is intentionally absent. The product has no custom
+- Source-directory and scan-trigger IPC are intentionally absent. The product has no custom
   directory picker, so renderer input cannot redirect any probe or scan to an
   arbitrary filesystem path. Missing or non-absolute user-profile state fails
   closed rather than degrading to a relative directory.

@@ -89,20 +89,6 @@ pub enum ScrapeMode {
     Full,
 }
 
-impl ScrapeMode {
-    pub fn from_arg(value: Option<&str>) -> Self {
-        match value
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "full" | "full_scan" | "full-scan" | "full_rescan" | "full-rescan" => Self::Full,
-            _ => Self::Incremental,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SourceFileMeta {
     size_bytes: i64,

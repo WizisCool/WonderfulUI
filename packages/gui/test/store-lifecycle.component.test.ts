@@ -79,6 +79,7 @@ describe('account store request lifecycle', () => {
 
     expect(account.scraping).toBe(true);
     expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('scrape_library', { mode: 'incremental' });
 
     reply.resolve({ dir: 'D:\\WonderfulDb', accounts: [], matches: [], totalErrors: 0 });
     await expect(Promise.all([first, second])).resolves.toEqual([
