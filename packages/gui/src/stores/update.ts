@@ -1,4 +1,4 @@
-// 应用内自更新 Pinia store（第 7 个）。
+// 应用内自更新 Pinia store。
 //
 // 封装 tauri-plugin-updater（check / downloadAndInstall）+ tauri-plugin-process
 // （relaunch），组件不直接 invoke。

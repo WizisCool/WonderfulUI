@@ -513,7 +513,7 @@ WonderfulUI/
 │           │   └── settings/  # SettingsModal
 │           ├── composables/   # useVirtualScroll, useFloating
 │           ├── router/
-│           ├── stores/        # 6 Pinia stores: account, filter, detail, player, settings, ui
+│           ├── stores/        # 8 Pinia stores: account, filter, detail, player, settings, share, update, ui
 │           ├── utils/         # Pure logic: filters, event-state-machine, weapons, etc.
 │           └── views/         # HomeView, DetailView, SettingsView
 ├── docs/
