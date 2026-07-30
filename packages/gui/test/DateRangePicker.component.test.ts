@@ -19,6 +19,19 @@ describe('DateRangePicker trigger', () => {
     expect(wrapper.findAll('.dr-trigger-wrap > button')).toHaveLength(2);
   });
 
+  test('labels one-sided persisted ranges instead of looking unselected', () => {
+    const start = new Date(2026, 5, 15).getTime();
+    const from = mount(DateRangePicker, { props: { modelValue: [start, null] } });
+    expect(from.get('.dr-trigger-text').text()).toBe('从 2026-06-15');
+    expect(from.find('.dr-trigger-clear').exists()).toBe(true);
+    from.unmount();
+
+    const until = mount(DateRangePicker, { props: { modelValue: [null, start] } });
+    expect(until.get('.dr-trigger-text').text()).toBe('至 2026-06-15');
+    expect(until.find('.dr-trigger-clear').exists()).toBe(true);
+    until.unmount();
+  });
+
   test('clears without opening the date dialog', async () => {
     const wrapper = mount(DateRangePicker, {
       props: { modelValue: [1_719_000_000_000, 1_719_086_399_999] },

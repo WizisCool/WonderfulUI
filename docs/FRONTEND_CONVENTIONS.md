@@ -170,6 +170,12 @@ retryable state must accept any JavaScript rejection value, including strings,
 `null`, and `undefined`. Their `catch` blocks must not assume `Error.message`
 exists or throw a second error while formatting the original failure.
 
+Persisted filter state is an untrusted compatibility boundary. On load, keep
+only non-empty string categories and finite numeric bounds, dedupe categories,
+and order two-sided ranges. Malformed values must fall back to inactive bounds
+instead of producing an active-looking `NaN` filter. One-sided date ranges are
+valid and their trigger text must explicitly render `从 …` or `至 …`.
+
 ## Account Sentinel
 
 `ALL_ACCOUNTS = '__all__'` is a synthetic sentinel, not a real account.

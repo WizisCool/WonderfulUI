@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   EMPTY_FILTERS, activeFilterCount,
   FilterState, kdaOf, kdOf, matchDurationSec, normalizeVisibleFilters, videoTotalDuration,
+  sanitizePersistedFilters,
   agentCn, mapCn, mapImageUrl, heroImageUrl, fmtMap, fmtMatchDuration,
 } from '../src/utils/filters.ts';
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
@@ -310,6 +311,33 @@ describe('visible filter normalization', () => {
     expect(normalized.deaths).toEqual([null, null]);
     expect(normalized.score).toEqual([null, null]);
     expect(normalized.kills).toEqual([20, null]);
+  });
+
+  test('sanitizes malformed persisted categories and ranges', () => {
+    const normalized = sanitizePersistedFilters({
+      heroes: [' 捷风 ', null, '', '捷风', 42],
+      maps: { bad: true },
+      results: ['win', 'bogus', 1],
+      achievements: ['svp', 'other'],
+      kills: ['20', 'not-a-number'],
+      kda: [5, 2],
+      dateRange: [Number.NaN, Number.POSITIVE_INFINITY],
+      query: 42,
+    });
+
+    expect(normalized.heroes).toEqual(['捷风']);
+    expect(normalized.maps).toEqual([]);
+    expect(normalized.results).toEqual(['win']);
+    expect(normalized.achievements).toEqual(['svp']);
+    expect(normalized.kills).toEqual([20, null]);
+    expect(normalized.kda).toEqual([2, 5]);
+    expect(normalized.dateRange).toEqual([null, null]);
+    expect(normalized.query).toBe('');
+    expect(activeFilterCount(normalized)).toBe(5);
+
+    normalized.heroes.push('贤者');
+    expect(sanitizePersistedFilters({}).heroes).toEqual([]);
+    expect(EMPTY_FILTERS.heroes).toEqual([]);
   });
 });
 

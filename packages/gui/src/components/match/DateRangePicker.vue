@@ -58,6 +58,8 @@ const hasRange = computed(() => props.modelValue[0] !== null || props.modelValue
 const triggerText = computed(() => {
   const [lo, hi] = props.modelValue;
   if (lo != null && hi != null) return `${fmtDate(new Date(lo))}  —  ${fmtDate(new Date(hi))}`;
+  if (lo != null) return `从 ${fmtDate(new Date(lo))}`;
+  if (hi != null) return `至 ${fmtDate(new Date(hi))}`;
   return '选择日期范围';
 });
 
