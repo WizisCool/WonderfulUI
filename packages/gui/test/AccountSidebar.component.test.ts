@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import AccountSidebar from '../src/components/common/AccountSidebar.vue';
 import { useAccountStore } from '../src/stores/account.ts';
+import { EMPTY_FILTERS } from '../src/utils/filters.ts';
+import type { MatchRecord } from '@wonderful-ui/parser';
 
 vi.mock('sortablejs', () => ({
   default: class SortableMock {
@@ -11,6 +13,54 @@ vi.mock('sortablejs', () => ({
 }));
 
 describe('AccountSidebar rename lifecycle', () => {
+  test('shows zero instead of the unfiltered total when an active filter has no account hits', () => {
+    const match = {
+      matches_id: 'match-a',
+      matches_time: new Date('2026-06-15').getTime(),
+      map: { map_id: '/Game/Maps/Ascent/Ascent' },
+      agent: { agent_id: 'agent-a', agent_name: 'Jett' },
+      stats: {
+        kills: 20, deaths: 10, assists: 5, score: 300,
+        has_won: true, mode_name: '', rounds_won: 13, rounds_lost: 8,
+        game_level: '150',
+      },
+      openID: 'account-a',
+      mode: 'competitive',
+      minRoundId: 0,
+      gameStartTime: '2026-06-15T10:00:00Z',
+      gameEndTime: '2026-06-15T10:35:00Z',
+      videos: [],
+      career: { hero_name: '捷风', map_name: '亚海悬城', game_mode: '竞技模式' },
+    } satisfies MatchRecord;
+    const wrapper = mount(AccountSidebar, {
+      attachTo: document.body,
+      global: {
+        plugins: [
+          createTestingPinia({
+            createSpy: vi.fn,
+            stubActions: false,
+            initialState: {
+              account: {
+                accounts: [{ openid: 'account-a', path: '', matchCount: 1 }],
+                matches: [match],
+                selectedAccountId: '__all__',
+                accountLabels: new Map([['account-a', '账户 A']]),
+              },
+              filter: { filters: { ...EMPTY_FILTERS, query: 'definitely-no-hit' } },
+              update: { badge: false, update: null },
+            },
+          }),
+        ],
+      },
+    });
+
+    const rows = wrapper.findAll('.account[role="option"]');
+    expect(rows.map(row => row.get('.account-count').text())).toEqual(['0 / 1', '0 / 1']);
+    expect(rows[1]!.classes()).toContain('is-filter-empty');
+    expect(rows[1]!.attributes('data-tip')).toContain('0 / 1 条命中');
+    wrapper.unmount();
+  });
+
   test('renders a recoverable generic row for an account parse failure', () => {
     const wrapper = mount(AccountSidebar, {
       attachTo: document.body,

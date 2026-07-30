@@ -179,6 +179,10 @@ Use Vue ownership hooks (and cancellation/generation checks for async wiring):
   visible row when nothing is selected) participates in Tab order. Arrow Up /
   Down and Home / End move focus; Enter / Space select. Key handling must
   ignore events originating from the nested rename input/button.
+- Filtered account counts are aggregated in one pass. Zero-hit real accounts
+  are intentionally absent from the returned count map, so the sidebar must
+  render a missing key as `0` while any filter is active; it may use the
+  account's unfiltered `matchCount` only when no filter is active.
 
 ## Match and Detail Semantics
 

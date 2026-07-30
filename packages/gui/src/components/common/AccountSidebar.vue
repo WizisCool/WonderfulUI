@@ -185,20 +185,29 @@ function accountLabel(a: Account): string {
   return account.accountLabels.get(a.openid) ?? a.openid;
 }
 
+function filteredCount(a: Account): number {
+  if (!hasActiveFilters.value) return a.openid === ALL_ACCOUNTS
+    ? account.matches.length
+    : a.matchCount;
+  // filteredAccountCounts intentionally omits zero-hit real accounts.
+  return filteredCounts.value.get(a.openid) ?? 0;
+}
+
 function countText(a: Account): string {
   if (a.openid === ALL_ACCOUNTS) {
-    const fc = filteredCounts.value.get(ALL_ACCOUNTS) ?? account.matches.length;
-    return hasActiveFilters.value ? `${fc} / ${account.matches.length}` : `${account.matches.length}`;
+    return hasActiveFilters.value
+      ? `${filteredCount(a)} / ${account.matches.length}`
+      : `${account.matches.length}`;
   }
   if (a.error) return '!';
-  const fc = filteredCounts.value.get(a.openid) ?? a.matchCount;
-  return hasActiveFilters.value ? `${fc} / ${a.matchCount}` : `${a.matchCount}`;
+  return hasActiveFilters.value ? `${filteredCount(a)} / ${a.matchCount}` : `${a.matchCount}`;
 }
 
 function rowTip(a: Account): string {
   if (a.openid === ALL_ACCOUNTS) {
-    const fc = filteredCounts.value.get(ALL_ACCOUNTS) ?? account.matches.length;
-    return hasActiveFilters.value ? `所有账户的高光\n${fc} / ${account.matches.length} 条命中` : `所有账户的高光\n${account.matches.length} 条高光`;
+    return hasActiveFilters.value
+      ? `所有账户的高光\n${filteredCount(a)} / ${account.matches.length} 条命中`
+      : `所有账户的高光\n${account.matches.length} 条高光`;
   }
   if (a.error) return '账户读取失败\n请执行全量扫描重试，详细原因已写入本地日志';
   const label = accountLabel(a);
@@ -209,13 +218,12 @@ function rowTip(a: Account): string {
 }
 
 function rowClass(a: Account): Record<string, boolean> {
-  const fc = filteredCounts.value.get(a.openid);
   return {
     'is-selected': a.openid === account.selectedAccountId,
     'is-error': !!a.error,
     'is-all': a.openid === ALL_ACCOUNTS,
     'is-editing': editingOpenid.value === a.openid,
-    'is-filter-empty': hasActiveFilters.value && (fc ?? 0) === 0 && a.openid !== account.selectedAccountId,
+    'is-filter-empty': hasActiveFilters.value && filteredCount(a) === 0 && a.openid !== account.selectedAccountId,
   };
 }
 

@@ -125,8 +125,9 @@ export const useFilterStore = defineStore('filter', () => {
   // Previously called applyFilters once for ALL_ACCOUNTS and once per real
   // account (O((N+1) * M), with each applyFilters rebuilding a full TanStack
   // table). Now: one applyFilters pass, then group by openID in a single
-  // linear walk. The map omits accounts with zero matches after filtering;
-  // AccountSidebar's consumer falls back to a.matchCount in that case.
+  // linear walk. The map intentionally omits non-error accounts with zero
+  // matches after filtering; consumers must interpret a missing real-account
+  // key as zero while filters are active, never as the unfiltered total.
   function filteredAccountCounts(matches: MatchRecord[], realAccounts: Array<{ openid: string; error?: string }>) {
     const counts = new Map<string, number>();
     const filtered = applyFilters(matches, filters.value);
