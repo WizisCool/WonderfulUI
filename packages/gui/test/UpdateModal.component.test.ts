@@ -184,6 +184,28 @@ describe('useUpdateStore', () => {
     await flushPromises();
     expect(checkMock).toHaveBeenCalledTimes(2);
     expect(store.status).toBe('uptodate');
+    expect(store.modalOpen).toBe(false);
+    w.unmount();
+  });
+
+  test('closes the modal if a fresh install check no longer finds an update', async () => {
+    checkMock.mockResolvedValueOnce(null);
+    const w = mountModal({
+      status: 'available',
+      update: { version: '0.1.6', date: '', body: '' },
+      badge: true,
+      modalOpen: true,
+    });
+    const store = useUpdateStore();
+
+    await store.startUpdate();
+    await flushPromises();
+
+    expect(store.status).toBe('uptodate');
+    expect(store.update).toBeNull();
+    expect(store.modalOpen).toBe(false);
+    expect(downloadAndInstallMock).not.toHaveBeenCalled();
+    expect(relaunchMock).not.toHaveBeenCalled();
     w.unmount();
   });
 

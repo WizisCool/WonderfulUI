@@ -415,6 +415,7 @@ export const useUpdateStore = defineStore('update', () => {
           update.value = null;
           error.value = null;
           errorKind.value = null;
+          modalOpen.value = false;
           clearSkippedVersion();
           if (!silent) {
             useUiStore().showToast('已是最新版本', 'ok');
@@ -502,6 +503,7 @@ export const useUpdateStore = defineStore('update', () => {
         status.value = 'uptodate';
         badge.value = false;
         update.value = null;
+        modalOpen.value = false;
         clearSkippedVersion();
         useUiStore().showToast('已是最新版本', 'ok');
         return;

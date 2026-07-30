@@ -91,6 +91,9 @@ retry()                 // check 失败 → checkForUpdate；download 失败 →
 dismiss()               // 仅 available/error 可关；下载中 no-op
 ```
 
+重试检查或安装前的二次检查若已无更新，store 必须切到 `uptodate` 并同步
+关闭 modal；不能留下没有对应内容、也不可关闭的空白遮罩。
+
 ### UpdateModal.vue
 
 - z-index 1400；关闭契约同 v0.1.5（下载/安装中不可关）。
