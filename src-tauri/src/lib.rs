@@ -594,8 +594,10 @@ fn get_library_stats() -> Result<LibraryStats, String> {
 }
 
 fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
-    if !matches!(kind, "hero_image" | "map_image" | "game_mode_icon") {
-        return Err(format!("unsupported asset kind: {kind}"));
+    if kind.len() > MAX_ASSET_KIND_BYTES
+        || !matches!(kind, "hero_image" | "map_image" | "game_mode_icon")
+    {
+        return Err("unsupported asset kind".to_string());
     }
     let local = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA not set".to_string())?;
     Ok(std::path::PathBuf::from(local)
@@ -605,9 +607,15 @@ fn assets_dir(kind: &str) -> Result<std::path::PathBuf, String> {
 }
 
 const MAX_ASSET_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_ASSET_URL_BYTES: usize = 4096;
+const MAX_ASSET_KIND_BYTES: usize = 32;
+const MAX_CACHE_ENTRIES: usize = 256;
 const ALLOWED_ASSET_HOSTS: &[&str] = &["media.valorant-api.com", "game.gtimg.cn"];
 
 fn validated_asset_url(raw: &str) -> Result<String, String> {
+    if raw.len() > MAX_ASSET_URL_BYTES {
+        return Err("asset URL is too long".to_string());
+    }
     let trimmed = raw.trim();
     let mut parsed = tauri::Url::parse(trimmed).map_err(|_| "invalid asset URL".to_string())?;
     if parsed.scheme() != "https" {
@@ -804,7 +812,7 @@ fn cache_asset(kind: String, url: String) -> Result<String, String> {
     cache_asset_inner(&kind, &url).map(|(p, _, _)| p)
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct CacheEntry {
     kind: String,
     url: String,
@@ -826,11 +834,29 @@ struct CacheAssetProgress {
 
 const CACHE_CONCURRENCY: usize = 6;
 
+fn validate_cache_entries(entries: &[CacheEntry]) -> Result<(), String> {
+    if entries.len() > MAX_CACHE_ENTRIES {
+        return Err(format!(
+            "asset cache batch exceeds {MAX_CACHE_ENTRIES} entries"
+        ));
+    }
+    if entries.iter().any(|entry| {
+        entry.kind.len() > MAX_ASSET_KIND_BYTES || entry.url.len() > MAX_ASSET_URL_BYTES
+    }) {
+        return Err("asset cache entry is too long".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<String, String> {
+fn cache_assets(
+    app: tauri::AppHandle,
+    entries: Vec<CacheEntry>,
+) -> Result<HashMap<String, String>, String> {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
+    validate_cache_entries(&entries)?;
     // Pre-dedupe by url; later entries with the same url are skipped
     // (they'd produce the same file and rewrite SQLite needlessly).
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -845,7 +871,7 @@ fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<Stri
         .collect();
     let total = work.len();
     if total == 0 {
-        return HashMap::new();
+        return Ok(HashMap::new());
     }
 
     let results: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
@@ -917,7 +943,7 @@ fn cache_assets(app: tauri::AppHandle, entries: Vec<CacheEntry>) -> HashMap<Stri
         }
     });
 
-    results.into_inner().unwrap_or_default()
+    Ok(results.into_inner().unwrap_or_default())
 }
 
 // ============================================================================
@@ -1285,6 +1311,7 @@ mod tests {
                 "accepted {rejected}"
             );
         }
+        assert!(validated_asset_url(&"x".repeat(MAX_ASSET_URL_BYTES + 1)).is_err());
     }
 
     #[test]
@@ -1324,5 +1351,20 @@ mod tests {
     fn asset_kind_is_rejected_before_environment_lookup() {
         let error = assets_dir("../escape").expect_err("unsupported kind rejected");
         assert!(error.contains("unsupported asset kind"), "{error}");
+    }
+
+    #[test]
+    fn legacy_asset_batches_are_bounded_before_starting_workers() {
+        let entry = CacheEntry {
+            kind: "hero_image".into(),
+            url: "https://media.valorant-api.com/a.png".into(),
+        };
+        validate_cache_entries(std::slice::from_ref(&entry)).expect("small batch accepted");
+        assert!(validate_cache_entries(&vec![entry.clone(); MAX_CACHE_ENTRIES + 1]).is_err());
+        assert!(validate_cache_entries(&[CacheEntry {
+            kind: "hero_image".into(),
+            url: "x".repeat(MAX_ASSET_URL_BYTES + 1),
+        }])
+        .is_err());
     }
 }

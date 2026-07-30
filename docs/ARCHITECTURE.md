@@ -210,6 +210,8 @@ Defined in `src-tauri/src/lib.rs`:
   - Defense in depth: only the three known asset kinds, HTTPS on the two legacy
     source hosts, raster PNG/JPEG/WebP responses matching the URL extension,
     and files up to 16 MiB are accepted. Redirects and custom ports are blocked.
+    Batch IPC is rejected before worker creation above 256 entries; URL and
+    kind strings are bounded to 4096 and 32 bytes respectively.
   - Downloads use bounded timeouts plus a temporary file and atomic publish;
     declared or streamed empty responses are rejected before publish, and the
     final regular-file size is revalidated. Interrupted zero-byte/oversized
