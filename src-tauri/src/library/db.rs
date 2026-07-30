@@ -438,6 +438,14 @@ pub fn is_library_video_path(conn: &Connection, path: &str) -> Result<bool> {
     )
 }
 
+pub fn is_known_account(conn: &Connection, openid: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM accounts WHERE openid = ?1)",
+        [openid],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

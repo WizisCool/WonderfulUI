@@ -419,6 +419,7 @@ fn get_match_rounds(
 #[tauri::command]
 fn save_account_order(openids: Vec<String>) -> Result<(), String> {
     let conn = library::db::open_library()?;
+    validate_account_order_request(&conn, &openids)?;
     library::db::save_account_order(&conn, &openids)
         .map_err(|e| format!("save account order: {}", e))
 }
@@ -426,8 +427,56 @@ fn save_account_order(openids: Vec<String>) -> Result<(), String> {
 #[tauri::command]
 fn rename_account(openid: String, custom_name: Option<String>) -> Result<(), String> {
     let conn = library::db::open_library()?;
+    validate_known_account_request(&conn, &openid)?;
+    validate_account_custom_name(custom_name.as_deref())?;
     library::db::set_account_custom_name(&conn, &openid, custom_name.as_deref())
         .map_err(|e| format!("rename account: {}", e))
+}
+
+const MAX_ACCOUNT_ORDER_ITEMS: usize = 1024;
+const MAX_ACCOUNT_ID_CHARS: usize = 256;
+const MAX_ACCOUNT_CUSTOM_NAME_CHARS: usize = 64;
+
+fn validate_known_account_request(conn: &rusqlite::Connection, openid: &str) -> Result<(), String> {
+    if openid.is_empty() || openid.chars().count() > MAX_ACCOUNT_ID_CHARS {
+        return Err("无效账户标识".to_string());
+    }
+    let known =
+        library::db::is_known_account(conn, openid).map_err(|e| format!("验证账户失败: {e}"))?;
+    if !known {
+        return Err("仅允许修改资料库中的账户".to_string());
+    }
+    Ok(())
+}
+
+fn validate_account_order_request(
+    conn: &rusqlite::Connection,
+    openids: &[String],
+) -> Result<(), String> {
+    if openids.len() > MAX_ACCOUNT_ORDER_ITEMS {
+        return Err("账户排序项目过多".to_string());
+    }
+    let mut seen = HashSet::with_capacity(openids.len());
+    for openid in openids {
+        if !seen.insert(openid.as_str()) {
+            return Err("账户排序包含重复项目".to_string());
+        }
+        validate_known_account_request(conn, openid)?;
+    }
+    Ok(())
+}
+
+fn validate_account_custom_name(custom_name: Option<&str>) -> Result<(), String> {
+    let Some(name) = custom_name.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    if name.chars().count() > MAX_ACCOUNT_CUSTOM_NAME_CHARS || name.chars().any(char::is_control) {
+        return Err(format!(
+            "账户显示名必须为 {} 个字符以内的单行文本",
+            MAX_ACCOUNT_CUSTOM_NAME_CHARS
+        ));
+    }
+    Ok(())
 }
 
 fn validated_library_video_path_with_conn(
@@ -1057,6 +1106,41 @@ mod tests {
                 .join("ACLOS")
                 .join("WonderfulDb")
         );
+    }
+
+    #[test]
+    fn account_preference_requests_require_known_bounded_unique_accounts() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO accounts(openid, source_id, last_seen_at)
+             VALUES('account-a', 'aclos_wonderfuldb', 1),
+                   ('account-b', 'aclos_wonderfuldb', 1)",
+            [],
+        )
+        .expect("accounts seeded");
+
+        validate_account_order_request(&conn, &["account-b".into(), "account-a".into()])
+            .expect("known unique order accepted");
+        assert!(
+            validate_account_order_request(&conn, &["account-a".into(), "account-a".into()])
+                .is_err()
+        );
+        assert!(validate_account_order_request(&conn, &["unknown".into()]).is_err());
+        assert!(validate_known_account_request(&conn, "unknown").is_err());
+        assert!(validate_account_order_request(
+            &conn,
+            &vec!["account-a".into(); MAX_ACCOUNT_ORDER_ITEMS + 1]
+        )
+        .is_err());
+
+        validate_account_custom_name(None).expect("clear accepted");
+        validate_account_custom_name(Some("  主账号  ")).expect("normal name accepted");
+        assert!(validate_account_custom_name(Some(
+            &"名".repeat(MAX_ACCOUNT_CUSTOM_NAME_CHARS + 1)
+        ))
+        .is_err());
+        assert!(validate_account_custom_name(Some("line\nbreak")).is_err());
     }
 
     #[test]

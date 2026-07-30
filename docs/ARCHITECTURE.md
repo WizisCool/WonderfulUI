@@ -121,7 +121,11 @@ Defined in `src-tauri/src/lib.rs`:
     roll back earlier positions so a frontend optimistic rollback and the
     persisted order cannot diverge.
   - The synthetic `__all__` account is not stored; it always renders at the top.
+  - IPC rejects unknown or duplicate account IDs and caps the request before
+    starting the preference transaction.
 - `rename_account(openid: string, customName?: string)`
+  - Only an existing SQLite account may be renamed. A non-empty custom name is
+    bounded to 64 Unicode characters and must be single-line text.
   - Persists a WonderfulUI-local account display name override.
   - Empty/null clears the override and falls back to snapshot nickname/tag.
 - `play_video(path)`
