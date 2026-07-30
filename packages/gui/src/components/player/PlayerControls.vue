@@ -40,8 +40,20 @@
           <WIcon v-else-if="volumeLevel < 50" icon="ph:speaker-low" :size="16" />
           <WIcon v-else icon="ph:speaker-high" :size="16" />
         </button>
-        <div class="player-vol-track" ref="volTrackRef" @mousedown.prevent="onVolMouseDown">
-          <div class="player-vol-fill" :style="{ width: `${volumeMuted ? 0 : volumeLevel}%` }" />
+        <div
+          class="player-vol-track"
+          ref="volTrackRef"
+          role="slider"
+          tabindex="0"
+          aria-label="音量"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="displayedVolume"
+          :aria-valuetext="`${displayedVolume}%`"
+          @mousedown.prevent="onVolMouseDown"
+          @keydown="onVolKeydown"
+        >
+          <div class="player-vol-fill" :style="{ width: `${displayedVolume}%` }" />
         </div>
       </div>
 
@@ -60,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import ProgressBar from './ProgressBar.vue';
 import { SHARE_ICON, SHARE_ICON_SIZE } from '../../share/icons.ts';
@@ -98,6 +110,10 @@ const controlsEl = ref<HTMLElement | null>(null);
 const volTrackRef = ref<HTMLElement | null>(null);
 const progressRef = ref<InstanceType<typeof ProgressBar> | null>(null);
 const isFullscreen = ref(false);
+const displayedVolume = computed(() => {
+  const level = props.volumeMuted ? 0 : props.volumeLevel;
+  return Number.isFinite(level) ? Math.max(0, Math.min(100, level)) : 0;
+});
 
 function onMarkerClick(timeMs: number) {
   if (props.duration <= 0) return;
@@ -107,8 +123,33 @@ function onMarkerClick(timeMs: number) {
 }
 
 function onVolWheel(e: WheelEvent) {
-  const cur = props.volumeMuted ? 0 : props.volumeLevel;
+  const cur = displayedVolume.value;
   const next = Math.max(0, Math.min(100, cur - Math.sign(e.deltaY) * 5));
+  emit('volumeChange', next);
+}
+
+function onVolKeydown(e: KeyboardEvent) {
+  let next: number;
+  switch (e.key) {
+    case 'ArrowUp':
+    case 'ArrowRight':
+      next = Math.min(100, displayedVolume.value + 5);
+      break;
+    case 'ArrowDown':
+    case 'ArrowLeft':
+      next = Math.max(0, displayedVolume.value - 5);
+      break;
+    case 'Home':
+      next = 0;
+      break;
+    case 'End':
+      next = 100;
+      break;
+    default:
+      return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
   emit('volumeChange', next);
 }
 
@@ -135,6 +176,7 @@ function setVolFromClient(clientX: number) {
   const track = volTrackRef.value;
   if (!track) return;
   const rect = track.getBoundingClientRect();
+  if (!Number.isFinite(clientX) || !Number.isFinite(rect.width) || rect.width <= 0) return;
   const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   emit('volumeChange', Math.round(pct * 100));
 }

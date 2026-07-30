@@ -1143,9 +1143,10 @@ function fmtTime(sec: number): string {
 
 function loadVolume() {
   try {
-    const v = localStorage.getItem(LS_VOL);
+    const stored = localStorage.getItem(LS_VOL);
     const m = localStorage.getItem(LS_MUTED);
-    volLevel.value = Math.max(0, Math.min(100, Number(v) || 100));
+    const parsed = stored === null || stored.trim() === '' ? Number.NaN : Number(stored);
+    volLevel.value = normalizeVolumeLevel(parsed) ?? 100;
     isMuted.value = m === '1';
     preMuteVol = volLevel.value;
   } catch {
@@ -1153,6 +1154,11 @@ function loadVolume() {
     isMuted.value = false;
     preMuteVol = 100;
   }
+}
+
+function normalizeVolumeLevel(level: number): number | null {
+  if (!Number.isFinite(level)) return null;
+  return Math.max(0, Math.min(100, level));
 }
 
 function saveVolume() {
@@ -1173,9 +1179,11 @@ function applyVolumeToVideo() {
 }
 
 function setVolume(level: number) {
-  volLevel.value = level;
+  const normalized = normalizeVolumeLevel(level);
+  if (normalized === null) return;
+  volLevel.value = normalized;
   isMuted.value = false;
-  preMuteVol = level;
+  preMuteVol = normalized;
   applyVolumeToVideo();
   saveVolume();
 }

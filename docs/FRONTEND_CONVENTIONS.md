@@ -499,6 +499,10 @@ Player controls:
 - Auto-hide after 3 seconds.
 - Cancel auto-hide on pause, hover, or ended.
 - Toggle visibility with `.is-hidden`.
+- Volume is always a finite value clamped to 0–100. Persisted `0` is valid and
+  must not fall back to 100; malformed values use 100. The track ignores
+  zero-width geometry and exposes slider semantics with arrow keys (±5),
+  Home (0), and End (100).
 - Keyboard handler uses capture phase: `document.addEventListener('keydown', handler, true)`.
 - Escape first exits fullscreen, second closes the modal.
 - Fullscreen is requested on `.player-modal`, not on the `<video>` element.

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import { nextTick } from 'vue';
 import PlayerHost from '../src/components/player/PlayerHost.vue';
+import PlayerControls from '../src/components/player/PlayerControls.vue';
 import { usePlayerStore } from '../src/stores/player.ts';
 import { useUiStore } from '../src/stores/ui.ts';
 import type { VideoItem, MatchRecord } from '@wonderful-ui/parser';
@@ -68,6 +69,36 @@ function mountPlayer() {
     },
   });
 }
+
+describe('PlayerHost volume boundaries', () => {
+  test('restores a persisted zero volume instead of replacing it with 100', async () => {
+    localStorage.setItem('wui:player.vol', '0');
+    localStorage.setItem('wui:player.muted', '0');
+    const wrapper = mountPlayer();
+    await nextTick();
+
+    expect(wrapper.get('.player-vol-fill').attributes('style')).toContain('width: 0%');
+    wrapper.unmount();
+  });
+
+  test('ignores non-finite child input and clamps accepted volume before persistence', async () => {
+    const wrapper = mountPlayer();
+    const controls = wrapper.getComponent(PlayerControls);
+
+    controls.vm.$emit('volumeChange', Number.NaN);
+    await nextTick();
+    expect(localStorage.getItem('wui:player.vol')).toBeNull();
+
+    controls.vm.$emit('volumeChange', 150);
+    await nextTick();
+    expect(localStorage.getItem('wui:player.vol')).toBe('100');
+
+    controls.vm.$emit('volumeChange', -20);
+    await nextTick();
+    expect(localStorage.getItem('wui:player.vol')).toBe('0');
+    wrapper.unmount();
+  });
+});
 
 describe('PlayerHost context menu', () => {
   let wrapper: ReturnType<typeof mountPlayer>;
