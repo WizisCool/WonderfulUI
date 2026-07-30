@@ -352,6 +352,9 @@ Account list uses a custom tooltip, not native `title=`.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
 - Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库`, `日志`, and `关于`.
 - The `日志` tab reads from Tauri `get_log_status` and opens the WonderfulUI log directory through `reveal_logs_dir`; frontend code must not read arbitrary local files directly.
+- Library-stat and log reads are single-flight. After a full scan, call
+  `refreshLibraryStats()` rather than merely joining an older read: it waits
+  for any pre-scan snapshot and then performs one fresh post-scan request.
 - The `日志` tab shows one app-owned log file only. Do not expose automatic maintenance as a user setting; it is backend behavior.
 - Do not show the full absolute log path as primary UI. Show the log filename/status and rely on `打开目录` for filesystem location.
 - The log preview should present timestamps in a human-readable local format and stay pinned to the latest lines after refresh.

@@ -9,6 +9,7 @@ vi.mock('../src/tauri-adapter.ts', () => ({
 
 import { useAccountStore, type LoadResult } from '../src/stores/account.ts';
 import { useSettingsStore, type LogStatus } from '../src/stores/settings.ts';
+import type { LibraryStats } from '../src/utils/library-stats.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -18,6 +19,23 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function libraryStats(totalVideos: number): LibraryStats {
+  return {
+    sourceBytes: 0,
+    libraryDbBytes: 0,
+    assetCacheBytes: 0,
+    logBytes: 0,
+    videosBytes: 0,
+    missingVideosBytes: 0,
+    totalVideos,
+    missingVideos: 0,
+    totalAccounts: 0,
+    accounts: [],
+    recentScans: [],
+    assetKinds: [],
+  };
 }
 
 beforeEach(() => {
@@ -142,5 +160,28 @@ describe('settings store request and animation lifecycle', () => {
 
     expect(settings.logLoading).toBe(false);
     expect(settings.logStatus?.latestText).toBe('ready');
+  });
+
+  test('queues a fresh stats read after an older in-flight snapshot', async () => {
+    const stale = deferred<LibraryStats>();
+    const fresh = deferred<LibraryStats>();
+    invokeMock
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise);
+    const settings = useSettingsStore();
+
+    const initial = settings.fetchLibraryStats();
+    const refresh = settings.refreshLibraryStats();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    stale.resolve(libraryStats(1));
+    await initial;
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
+
+    fresh.resolve(libraryStats(2));
+    await refresh;
+
+    expect(settings.statsData?.totalVideos).toBe(2);
+    expect(settings.statsLoading).toBe(false);
   });
 });

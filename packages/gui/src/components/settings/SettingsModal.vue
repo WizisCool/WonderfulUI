@@ -412,7 +412,7 @@ async function onFullScan() {
     const result = await account.scrapeLibrary('full');
     const feedback = scanCompletionFeedback('full', result.totalErrors);
     ui.showToast(feedback.message, feedback.tone);
-    await settings.fetchLibraryStats();
+    await settings.refreshLibraryStats();
   } catch (error) {
     clientLog('error', 'library-scan', error instanceof Error ? error.message : String(error));
     ui.showToast(SCAN_FAILURE_MESSAGE, 'error');
