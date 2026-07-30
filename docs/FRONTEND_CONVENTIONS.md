@@ -88,6 +88,12 @@ Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.c
   its mounted hook and the parent `start()` call can overlap while Tauri
   `listen()` is pending. In-flight registrations carry a generation token;
   listeners that resolve after component disposal must unsubscribe immediately.
+- **Toast delivery.** `ui.showToast()` increments `toastSeq`; ToastHost watches
+  that event identity rather than a boolean visibility flag, so repeated or
+  overlapping messages are never dropped. The watcher flushes synchronously and
+  immediately consumes a pending boot-time event when the host first mounts.
+  Each rendered toast owns its removal timer, and ToastHost clears all pending
+  timers when it unmounts.
 - **Recoverable library errors.** Clean zero-match shells stay hidden, but an
   account with `accounts[].error` remains visible as a generic error row even
   when `matchCount` is zero. Raw parser/database messages can contain local
