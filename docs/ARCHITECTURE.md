@@ -203,6 +203,12 @@ Defined in `src-tauri/src/lib.rs`:
 - Canonical metadata and content-addressed source PNGs are generated together by
   the networked maintenance command `bun run update:valorant-metadata`. Map
   sources are canonical 16:9 `splash` images; exact duplicates share one hash.
+  The maintenance update is transactional: every asset kind downloads and
+  validates inside a temporary staging tree, new hash paths publish additively,
+  metadata is replaced through a same-directory temporary file, and stale PNGs
+  are pruned only after that replacement succeeds. A later-kind download,
+  metadata render, or metadata publish failure therefore leaves every source
+  referenced by the previous registry intact.
 - Every `packages/gui` dev/build first runs the offline `bun run assets:build`
   pipeline. Sharp produces 256x256 agent, 640x360 map and 128x128 mode WebPs in
   ignored `packages/gui/public/valorant/`; only these outputs reach Vite `dist`
