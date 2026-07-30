@@ -106,6 +106,80 @@ describe('account store request lifecycle', () => {
     });
   });
 
+  test('does not roll a failed order save back over a newer library result', async () => {
+    const save = deferred<void>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'save_account_order') return save.promise;
+      if (command === 'load_library') {
+        return Promise.resolve({
+          dir: 'D:\\WonderfulDb',
+          accounts: [
+            { openid: 'new', path: '', matchCount: 1 },
+            { openid: 'a', path: '', matchCount: 1 },
+            { openid: 'b', path: '', matchCount: 1 },
+          ],
+          matches: [],
+          totalErrors: 0,
+        });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const account = useAccountStore();
+    account.accounts = [
+      { openid: 'a', path: '', matchCount: 1 },
+      { openid: 'b', path: '', matchCount: 1 },
+    ];
+
+    const saving = account.saveAccountOrder(['b', 'a']);
+    await account.loadLibrary();
+    save.reject(new Error('save failed'));
+
+    await expect(saving).rejects.toThrow('save failed');
+    expect(account.accounts.map(item => item.openid)).toEqual(['new', 'a', 'b']);
+  });
+
+  test('merges a confirmed order and rename into a newer library result', async () => {
+    const saveOrder = deferred<void>();
+    const saveName = deferred<void>();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'save_account_order') return saveOrder.promise;
+      if (command === 'rename_account') return saveName.promise;
+      if (command === 'load_library') {
+        return Promise.resolve({
+          dir: 'D:\\WonderfulDb',
+          accounts: [
+            { openid: 'new', path: '', matchCount: 1 },
+            { openid: 'a', path: '', matchCount: 1, nick: 'Alpha' },
+            { openid: 'b', path: '', matchCount: 1, nick: 'Beta' },
+          ],
+          matches: [],
+          totalErrors: 0,
+        });
+      }
+      throw new Error(`unexpected command: ${command}`);
+    });
+    const account = useAccountStore();
+    account.accounts = [
+      { openid: 'a', path: '', matchCount: 1, nick: 'Alpha' },
+      { openid: 'b', path: '', matchCount: 1, nick: 'Beta' },
+    ];
+
+    const ordering = account.saveAccountOrder(['b', 'a']);
+    const renaming = account.renameAccount('a', '  主账号  ');
+    await account.loadLibrary();
+    saveOrder.resolve();
+    saveName.resolve();
+    await Promise.all([ordering, renaming]);
+
+    expect(account.accounts.map(item => item.openid)).toEqual(['b', 'a', 'new']);
+    expect(account.accounts.find(item => item.openid === 'a')?.customName).toBe('主账号');
+    expect(account.accountLabels.get('a')).toBe('主账号');
+    expect(invokeMock).toHaveBeenCalledWith('rename_account', {
+      openid: 'a',
+      customName: '主账号',
+    });
+  });
+
   test('does not apply a late guarded reload over a newer manual scan', async () => {
     const staleRead = deferred<LoadResult>();
     const fresh: LoadResult = {

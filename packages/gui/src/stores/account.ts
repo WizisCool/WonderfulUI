@@ -184,12 +184,22 @@ export const useAccountStore = defineStore('account', () => {
 
   async function saveAccountOrder(order: string[]): Promise<void> {
     const prev = [...accounts.value];
+    const requestRevision = libraryRevision.value;
+    const ordered = applyAccountOrder(accounts.value, order);
+    const persistedOrder = ordered.map(account => account.openid);
+    accounts.value = ordered;
     try {
-      const ordered = applyAccountOrder(accounts.value, order);
-      accounts.value = ordered;
-      await invoke('save_account_order', { openids: ordered.map(account => account.openid) });
+      await invoke('save_account_order', { openids: persistedOrder });
+      if (libraryRevision.value !== requestRevision) {
+        // A scan/load replaced the collection while SQLite was saving. Merge
+        // the confirmed preference into that newer collection and append any
+        // newly discovered accounts instead of restoring an old snapshot.
+        accounts.value = applyAccountOrder(accounts.value, persistedOrder);
+      }
     } catch (e) {
-      accounts.value = prev;
+      // Roll back only the optimistic array this request actually changed.
+      // A newer library result owns the store once the revision advances.
+      if (libraryRevision.value === requestRevision) accounts.value = prev;
       throw e;
     }
   }
@@ -197,13 +207,22 @@ export const useAccountStore = defineStore('account', () => {
   async function renameAccount(openid: string, customName: string | null): Promise<void> {
     const account = accounts.value.find(a => a.openid === openid);
     if (!account) return;
+    const requestRevision = libraryRevision.value;
+    const normalizedName = customName?.trim() || null;
     const prev = account.customName;
-    account.customName = customName || undefined;
+    account.customName = normalizedName ?? undefined;
     try {
-      await invoke('rename_account', { openid, customName: customName || null });
+      await invoke('rename_account', { openid, customName: normalizedName });
+      if (libraryRevision.value !== requestRevision) {
+        const current = accounts.value.find(item => item.openid === openid);
+        if (current) current.customName = normalizedName ?? undefined;
+      }
       assignAccountLabels();
     } catch (e) {
-      account.customName = prev;
+      if (libraryRevision.value === requestRevision) {
+        account.customName = prev;
+        assignAccountLabels();
+      }
       throw e;
     }
   }
