@@ -92,6 +92,29 @@ describe('HomeView', () => {
     wrapper.unmount();
   });
 
+  test('clamps stale scroll position when the visible list becomes shorter', async () => {
+    const matches = Array.from({ length: 20 }, (_, index) => mkMatch('test-1', {
+      matches_id: `match-${index}`,
+      matches_time: 20 - index,
+    }));
+    const { wrapper } = await mountHome(matches);
+    const list = wrapper.get('.match-list');
+    const listEl = list.element as HTMLElement;
+    listEl.scrollTop = 1_600;
+    await list.trigger('scroll');
+
+    const account = useAccountStore();
+    account.matches = [mkMatch('test-1', {
+      matches_id: 'only-match',
+      matches_time: 1,
+    })];
+    await wrapper.vm.$nextTick();
+
+    expect(listEl.scrollTop).toBe(0);
+    expect(wrapper.find(`#${matchOptionId('only-match')}`).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   test('renders match count text', async () => {
     const { wrapper } = await mountHome([mkMatch(), mkMatch()]);
     expect(wrapper.text()).toContain('2 条');
