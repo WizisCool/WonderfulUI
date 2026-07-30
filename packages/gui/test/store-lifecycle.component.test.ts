@@ -57,6 +57,23 @@ describe('account store request lifecycle', () => {
     expect(account.scraping).toBe(false);
   });
 
+  test('preserves unmentioned accounts and persists one complete stable order', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    const account = useAccountStore();
+    account.accounts = [
+      { openid: 'a', path: '', matchCount: 1 },
+      { openid: 'b', path: '', matchCount: 1 },
+      { openid: 'c', path: '', matchCount: 1 },
+    ];
+
+    await account.saveAccountOrder(['c', 'a']);
+
+    expect(account.accounts.map(item => item.openid)).toEqual(['c', 'a', 'b']);
+    expect(invokeMock).toHaveBeenCalledWith('save_account_order', {
+      openids: ['c', 'a', 'b'],
+    });
+  });
+
   test('does not apply a late guarded reload over a newer manual scan', async () => {
     const staleRead = deferred<LoadResult>();
     const fresh: LoadResult = {

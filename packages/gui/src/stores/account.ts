@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
-import { accountDisplayLabel } from '../utils/account-preferences.ts';
+import { accountDisplayLabel, applyAccountOrder } from '../utils/account-preferences.ts';
 import { collectMatchAssetEntries } from '../utils/valorant-assets.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
@@ -188,7 +188,7 @@ export const useAccountStore = defineStore('account', () => {
     try {
       const ordered = applyAccountOrder(accounts.value, order);
       accounts.value = ordered;
-      await invoke('save_account_order', { openids: order });
+      await invoke('save_account_order', { openids: ordered.map(account => account.openid) });
     } catch (e) {
       accounts.value = prev;
       throw e;
@@ -207,11 +207,6 @@ export const useAccountStore = defineStore('account', () => {
       account.customName = prev;
       throw e;
     }
-  }
-
-  function applyAccountOrder(list: Account[], order: string[]): Account[] {
-    const byId = new Map(list.map(a => [a.openid, a]));
-    return order.map(id => byId.get(id)).filter((a): a is Account => !!a);
   }
 
   return {
