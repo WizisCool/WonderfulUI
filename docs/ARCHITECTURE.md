@@ -15,7 +15,7 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
   `packages/gui/src/tauri-adapter.ts`, so UI surfaces can be inspected with
   browser tooling without reading ACLOS or launching the Tauri shell.
 - Parser: Rust in-process inside the Tauri shell.
-- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**.
+- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**. Every connection installs a 5-second busy timeout before PRAGMAs/migration, so normal overlap between scan transactions, preferences, stats, and cache metadata waits for a writer handoff instead of immediately returning `SQLITE_BUSY`.
 - App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
 - TS parser: retained for CLI and Bun unit tests.
 - **Test infrastructure**: two runners.

@@ -3,8 +3,10 @@ use crate::library::now_ms;
 use crate::parser::model::{strip_match_rounds, Account, MatchRecord, SnapshotAchievement};
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+const LIBRARY_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn library_dir() -> std::result::Result<PathBuf, String> {
     let base = std::env::var("LOCALAPPDATA")
@@ -18,10 +20,23 @@ pub fn open_library() -> std::result::Result<Connection, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
     let path = dir.join("library.db");
     let conn = Connection::open(&path).map_err(|e| format!("open {}: {}", path.display(), e))?;
+    configure_library_connection(&conn, &path)?;
+    Ok(conn)
+}
+
+fn configure_library_connection(
+    conn: &Connection,
+    path: &std::path::Path,
+) -> std::result::Result<(), String> {
+    // Every command opens its own connection. Migrations, scrape transactions,
+    // preferences, and legacy asset writes can briefly overlap; wait for a
+    // normal writer handoff instead of failing immediately with SQLITE_BUSY.
+    conn.busy_timeout(LIBRARY_BUSY_TIMEOUT)
+        .map_err(|e| format!("busy timeout {}: {}", path.display(), e))?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .map_err(|e| format!("pragma {}: {}", path.display(), e))?;
-    migrate(&conn).map_err(|e| format!("migrate {}: {}", path.display(), e))?;
-    Ok(conn)
+    migrate(conn).map_err(|e| format!("migrate {}: {}", path.display(), e))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -461,6 +476,18 @@ mod tests {
                 .expect("table lookup works");
             assert_eq!(count, 1, "missing table {table}");
         }
+    }
+
+    #[test]
+    fn configured_connections_wait_for_short_sqlite_writer_handoffs() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        configure_library_connection(&conn, std::path::Path::new(":memory:"))
+            .expect("connection config succeeds");
+
+        let timeout_ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .expect("busy timeout reads");
+        assert_eq!(timeout_ms, LIBRARY_BUSY_TIMEOUT.as_millis() as i64);
     }
 
     #[test]
