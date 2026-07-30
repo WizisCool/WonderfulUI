@@ -139,11 +139,12 @@ Whole-app rebuilds break input focus, date-picker anchors, scroll position, and 
 
 Component-owned `document` or `window` listeners must be disposed when their owner leaves the DOM.
 
-Use the pattern from `date-picker.ts`:
+Use Vue ownership hooks (and cancellation/generation checks for async wiring):
 
 - Register the listener while mounted.
-- Use a `MutationObserver` or equivalent ownership check.
-- Remove resize, scroll, key, or document listeners when the trigger/root is removed.
+- Remove resize, scroll, key, or document listeners in `onUnmounted`.
+- If listener registration itself is asynchronous, immediately release a late
+  unlisten handle after disposal and coalesce overlapping registration calls.
 
 ## Account Sentinel
 

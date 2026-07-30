@@ -252,6 +252,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - Clean zero-match shells stay hidden, but parse-error accounts remain visible even with `matchCount = 0`. All manual scan entry points must distinguish success, partial `totalErrors`, and rejected IPC; raw backend errors stay in the app log rather than being rendered as tooltips/toasts.
 - `update:valorant-metadata` is a maintenance-only network command and must remain transactional across agents/maps/game modes: stage and hash-validate all downloads first, add new content-addressed PNGs, atomically replace generated metadata, then prune stale sources. Any pre-publication failure must leave the old registry and all of its referenced PNGs intact; never prune per asset kind as soon as that kind downloads.
 - Account rows use roving keyboard focus (arrows/Home/End + Enter/Space). Collapsed performance filters are `inert`, filter chips expose `aria-pressed`, and the date dialog must preserve one live focused day across every DOM re-render with clamped month navigation.
+- Date-range UI is owned only by `DateRangePicker.vue`; `utils/date-picker.ts` contains the shared inclusive local-day boundary helper and must not regain a second imperative DOM picker implementation.
 - `snapshot<openid>` is optional and must not block highlight loading.
 - `ALL_ACCOUNTS = '__all__'` is a synthetic sentinel, not a real account.
 - Frontend uses a stable DOM skeleton; do not rebuild all of `#app` for normal state changes.
