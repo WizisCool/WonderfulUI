@@ -261,6 +261,7 @@ For doc-only changes, at minimum verify Markdown links and review `git diff`.
 - Frontend uses a stable DOM skeleton; do not rebuild all of `#app` for normal state changes.
 - Component-owned global listeners must be disposed when their owner leaves the DOM.
 - Async Tauri listener registration must be single-flight and cancellation-safe: if a component unmounts before `listen()` resolves, immediately call the late unlisten handle instead of retaining an orphan callback. `BootOverlay` also keeps one shared registration across its mounted hook and parent `start()` call.
+- App unmount must settle the frontend startup-refresh terminal as internal `cancelled`, which clears the 30 s wait and late-followup closure. Check `appDisposed` after every awaited boot boundary so no library reload, asset cache, toast, or boot visibility mutation commits after unmount. This frontend cancellation must not attempt to stop the native scan.
 - Match videos group by `video_type`, not by array position or duration.
 - Detail image failure flags are selection-scoped and must reset when the selected match object changes; never let one broken hero/mode/poster suppress valid images in later matches. Moment filter chips expose `aria-pressed`.
 - MatchCard instances are keyed by stable match id and survive same-id library object replacement; reset map/hero/mode error flags when `props.match` changes so a stale failed asset cannot hide the refreshed one.

@@ -97,6 +97,9 @@ async function getOrStartStartupRefresh(): Promise<StartupRefreshSession> {
       unlisten?.();
       unlisten = null;
       if (activeStartupRefresh === session) activeStartupRefresh = null;
+      // Settle the frontend-only wait so its 30 s timer and late-followup
+      // closure do not retain an unmounted App. The native scan keeps running.
+      resolveTerminal({ status: 'cancelled' });
     },
   };
   activeStartupRefresh = session;
@@ -145,6 +148,7 @@ function scheduleLateStartupRefresh(session: StartupRefreshSession): void {
 
   void session.terminal.then(async result => {
     if (appDisposed) return;
+    if (result.status === 'cancelled') return;
     const applied = await account.loadLibraryIfCurrent(expectedRevision);
     if (appDisposed) return;
     if (applied) {
@@ -198,6 +202,7 @@ const showOnboarding = computed(() => {
 });
 
 function runBoot(): Promise<void> {
+  if (appDisposed) return Promise.resolve();
   if (bootInflight) return bootInflight;
   const operation = performBoot();
   const request = operation.finally(() => {
@@ -208,11 +213,13 @@ function runBoot(): Promise<void> {
 }
 
 async function performBoot() {
+  if (appDisposed) return;
   bootError.value = null;
   try {
     bootRef.value?.start({ mode: 'boot' });
     // 1) Probe the ACLOS WonderfulDb directory (read-only, cheap).
     await account.probeAclos();
+    if (appDisposed) return;
 
     // 2) Subscribe to the scanShell-specific terminal event before invoking
     // it so success, degraded fallback, and fatal failure all settle boot.
@@ -226,7 +233,9 @@ async function performBoot() {
     let refreshResult: StartupRefreshResult;
     try {
       const refreshSession = await getOrStartStartupRefresh();
+      if (appDisposed) return;
       await account.loadLibrary();
+      if (appDisposed) return;
 
       // A previous boot attempt may already have timed out while the same
       // native job continues. Do not create another scan or another deadline.
@@ -241,9 +250,12 @@ async function performBoot() {
       account.scraping = false;
     }
 
+    if (appDisposed || refreshResult.status === 'cancelled') return;
+
     // 3) Reload library now that scrape has settled so the view has
     // fresh accounts + matches. A timed-out job owns a guarded late reload.
     if (refreshResult.status !== 'timeout') await account.loadLibrary();
+    if (appDisposed) return;
     if (refreshResult.status === 'error') {
       clientLog('error', 'boot', refreshResult.error ?? '后台资料库刷新失败');
       throw new Error('后台资料库刷新失败');
@@ -256,6 +268,7 @@ async function performBoot() {
       clientLog('warn', 'boot', 'background refresh exceeded the 30 second boot wait');
     }
     await account.cacheAssets();
+    if (appDisposed) return;
     selectInitialAccount();
     booted.value = true;
     bootRef.value?.complete();
@@ -270,6 +283,7 @@ async function performBoot() {
       update.checkForUpdate(true).catch(() => {});
     }
   } catch (e) {
+    if (appDisposed) return;
     bootError.value = (e as Error)?.message ?? String(e);
     clientLog('error', 'boot', bootError.value);
     ui.showToast(`启动失败: ${bootError.value}`, 'error');

@@ -1,4 +1,4 @@
-export type StartupRefreshStatus = 'finished' | 'degraded' | 'error' | 'timeout';
+export type StartupRefreshStatus = 'finished' | 'degraded' | 'error' | 'timeout' | 'cancelled';
 
 export interface StartupRefreshResult {
   status: StartupRefreshStatus;
