@@ -537,6 +537,14 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
 - Screenshot (Windows only): `capture_video_frame(path, timeMs)` → MF SourceReader → PNG. Clipboard: `ClipboardItem`. Save: dialog + `plugin-fs`.
 - Screenshot UX (copy/save): real `paused` + stage freeze canvas (HW video collapsed) → progress overlay → native capture → resume if was playing. Hold blocks autoplay/hotkeys; pins scrubber.
+- Every `player.open()` increments `sessionSeq`, even when reopening the same
+  video object at a different event time. `PlayerHost` resets seek/buffer/FPS/
+  frame/context/share state per sequence. FPS callbacks and screenshot jobs
+  carry that identity; late work from a closed or replaced video must not
+  change the new session, resume it, write its UI state, or show stale toasts.
+- Player letter shortcuts are case-normalized before dispatch. In particular,
+  Shift+J / Shift+L must reach the documented five-frame step rather than fall
+  through because `KeyboardEvent.key` is uppercase.
 - Player video: `convertFileSrc` (asset protocol).
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.

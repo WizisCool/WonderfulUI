@@ -7,6 +7,8 @@ export const usePlayerStore = defineStore('player', () => {
   const matchContext = ref<MatchRecord | null>(null);
   const seekMs = ref<number | undefined>(undefined);
   const isOpen = ref(false);
+  /** Every open() call starts a distinct playback session, even for the same video object. */
+  const sessionSeq = ref(0);
   /**
    * Bumped by shell shortcuts (Ctrl+W) so PlayerHost can run doClose()
    * (close animation) instead of hard-clearing isOpen.
@@ -17,6 +19,7 @@ export const usePlayerStore = defineStore('player', () => {
     video.value = v;
     matchContext.value = m ?? null;
     seekMs.value = seek;
+    sessionSeq.value += 1;
     isOpen.value = true;
   }
 
@@ -33,5 +36,5 @@ export const usePlayerStore = defineStore('player', () => {
     closeRequestSeq.value += 1;
   }
 
-  return { video, matchContext, seekMs, isOpen, closeRequestSeq, open, close, requestClose };
+  return { video, matchContext, seekMs, isOpen, sessionSeq, closeRequestSeq, open, close, requestClose };
 });
