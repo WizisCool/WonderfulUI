@@ -370,8 +370,12 @@ Account list uses a custom tooltip, not native `title=`.
 
 ## Share ("快传") Modal
 
-- **Abstract platform layer** at `packages/gui/src/utils/share/`: `SharePlatform` interface, registry map, `openShareMenu` / `listAvailablePlatforms`. Each platform is one self-contained module under `platforms/`. Currently only `win32-share-sheet` (placeholder; production platform is the in-app `lan-qr` flow which doesn't go through the share abstract — see below).
-- **Production share path = LAN QR ("快传")**: instead of the `SharePlatform` interface, the player toolbar's `share` event opens `ShareModal` directly. Rust side runs an embedded `tiny_http` server (see ARCHITECTURE.md). The modal owns the server lifecycle — server starts on `onMounted`, stops on `onUnmounted` (so closing × / Esc / backdrop all guarantee the port is released).
+- **Single production share path = LAN QR ("快传")**: the player toolbar's
+  `share` event opens `ShareModal` directly. Rust runs an embedded `tiny_http`
+  server (see ARCHITECTURE.md). There is no dormant platform registry or
+  unrendered popover abstraction; add a second real target only when product
+  behavior requires it. The modal owns the server lifecycle — server starts on
+  `onMounted`, stops on `onUnmounted` (so × / Esc / backdrop release the port).
 - **Modal layout (极简)**: title `快传` + 240×240 QR (Rust-rendered circles, `EcLevel::H`, click-to-copy) + a single status row `<size> · <dot><status text>` + 6 px progress bar matching `.boot-progress` (indeterminate shimmer while waiting, `scaleX(0→1)` on completion). No "复制链接" button — the QR is the button.
 - **Accessible state:** the QR button has an explicit copy action label and its
   injected SVG is decorative. The status row is one polite atomic live region;
