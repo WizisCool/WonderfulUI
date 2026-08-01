@@ -425,10 +425,10 @@ async function mockInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
       const sessionId = String(args?.sessionId ?? 'browser-debug-session');
       const path = typeof args?.path === 'string' ? args.path : 'D:\\WonderfulUIDebug\\debug.mp4';
       const videoName = path.split(/[\\/]/).filter(Boolean).pop() ?? 'debug.mp4';
-      const url = `http://192.168.1.42:53124/w/browser-debug-${sessionId}`;
+      const url = `http://192.168.1.42:22357/w/browser-debug-${sessionId}`;
       return deepClone({
         sessionId,
-        port: 53124,
+        port: 22357,
         token: `browser-debug-${sessionId}`,
         url,
         lanIp: '192.168.1.42',

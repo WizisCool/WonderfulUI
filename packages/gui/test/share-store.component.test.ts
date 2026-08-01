@@ -8,7 +8,6 @@ vi.mock('../src/tauri-adapter.ts', () => ({
 }));
 
 import {
-  FRIENDLY_SHARE_START_ERROR,
   FRIENDLY_SHARE_STOP_ERROR,
   useShareStore,
   type ShareServerInfo,
@@ -17,9 +16,9 @@ import {
 function info(sessionId: string): ShareServerInfo {
   return {
     sessionId,
-    port: 53124,
+    port: 22357,
     token: `token-${sessionId}`,
-    url: `http://192.168.1.42:53124/w/token-${sessionId}`,
+    url: `http://192.168.1.42:22357/w/token-${sessionId}`,
     lanIp: '192.168.1.42',
     qrSvg: '<svg/>',
     videoName: 'clip.mp4',
@@ -100,19 +99,21 @@ describe('share store session races', () => {
 
   test('keeps native paths and server details out of visible errors', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    invokeMock.mockRejectedValueOnce(new Error('open D:\\Private\\clip.mp4: access denied'));
+    invokeMock.mockRejectedValueOnce(
+      new Error('WUI_SHARE_PORT_IN_USE|native detail D:\\Private\\clip.mp4'),
+    );
     const share = useShareStore();
 
     await share.start('D:\\Private\\clip.mp4');
     expect(share.status).toBe('error');
-    expect(share.lastError).toBe(FRIENDLY_SHARE_START_ERROR);
+    expect(share.lastError).toBe('快传端口 22357 被占用，请关闭占用该端口的程序后重试。');
     expect(share.lastError).not.toContain('Private');
 
     const sessionId = share.activeSessionId!;
     expect(share.onStopped({
       sessionId,
       reason: 'error',
-      message: 'listener 0.0.0.0:53124 failed',
+      message: 'WUI_SHARE_FIREWALL_AUTHORIZATION_FAILED|listener detail',
     })).toBe(true);
     expect(share.lastError).toBe(FRIENDLY_SHARE_STOP_ERROR);
     expect(share.lastError).not.toContain('53124');

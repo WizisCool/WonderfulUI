@@ -1,9 +1,11 @@
 mod app_log;
+mod firewall;
 mod frame_capture;
 mod lan_ip;
 mod library;
 mod os_shell;
 mod parser;
+mod share_policy;
 mod share_server;
 
 use std::collections::{HashMap, HashSet};
@@ -16,6 +18,10 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(exit_code) = firewall::run_helper_if_requested() {
+        std::process::exit(exit_code);
+    }
+
     let app = tauri::Builder::default()
         // 注册"快传" server 状态。所有 share 相关命令通过
         // `app.state::<...>()` 访问 —— 这里 .manage() 必须在 build
@@ -991,15 +997,27 @@ fn share_state(app: &tauri::AppHandle) -> tauri::State<'_, share_server::ShareSe
 }
 
 #[tauri::command]
-fn start_share_server(
+async fn start_share_server(
     app: tauri::AppHandle,
     path: String,
     session_id: String,
 ) -> Result<share_server::ShareServerInfo, String> {
     validate_share_session_id(&session_id)?;
     let path = validated_library_video_path(&path)?;
-    let state = share_state(&app);
-    share_server::start_server(&app, state.inner(), path, session_id)
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = share_state(&app_for_task);
+        share_server::start_server(&app_for_task, state.inner(), path, session_id)
+    })
+    .await
+    .map_err(|error| {
+        app_log::write(
+            app_log::LogLevel::Error,
+            "share",
+            format!("share start task failed: {error}"),
+        );
+        share_policy::ipc_error(share_policy::ShareErrorCode::ServerStartFailed)
+    })?
 }
 
 #[tauri::command]

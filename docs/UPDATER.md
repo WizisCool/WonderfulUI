@@ -71,6 +71,21 @@ GitHub Release (latest.json + setup.exe + setup.exe.sig)
 
 - 自定义 `installer.nsi` 含 `/UPDATE`；passive 模式复用。
 - 覆盖安装走安装段，不触发 `un.RemoveAppData`。
+- `windows/installer-hooks.nsh` 在每次正常安装、重装和 `/UPDATE` 的
+  post-install 阶段幂等重建 `WonderfulUI Quick Share` 入站规则。规则精确
+  绑定 `wonderful-ui.exe`、TCP `localport=22357`、所有 Windows 配置文件、
+  `remoteip=LocalSubnet` 和 `edge=no`，禁止 UDP 和全端口放行。
+- updater 以 `/P /R /UPDATE` 启动同一 per-machine NSIS 包，因此从没有该
+  规则的 0.2.0 升级时，会在新程序启动前自动校准规则，无需重新下载安装包。
+  Windows 不允许应用绕过 UAC 静默取得管理员权限；安装器规则失败时更新仍
+  会继续，首次开启快传再通过一次受限 helper 请求修复。
+- 运行时使用 Windows Firewall COM API 检查规则，不解析本地化 `netsh` 文本。
+  规则正确时不弹 UAC；规则缺失、被删除或内容错误时，父进程等待同一签名
+  `wonderful-ui.exe` 的固定 helper 返回码，并再次检查规则。规则在快传结束
+  后保留，完整卸载才删除，避免第二次使用重复授权。
+- 完整卸载删除规则；更新模式保留规则并由 post-install 校准，避免留下孤儿
+  规则或重复规则。企业组策略/显式 block、第三方防火墙以及路由器 AP 隔离
+  仍可能阻止手机访问，应用不能绕过这些边界。
 
 ## 前端
 
@@ -154,6 +169,8 @@ __WUI_DEBUG_UPDATE__.reset()
 ## 风险备忘
 
 - **perMachine + UAC**：passive 会弹 UAC，不可绕过；勿用 `quiet`。
+- **防火墙边界**：安装器只配置 Windows Defender Firewall；组策略、显式
+  block 规则、第三方安全软件、路由器 AP 隔离不受它控制。
 - **私钥丢失 = 无法向旧版本推送更新**。
 - **Content-Length 缺失**：进度走 indeterminate，不要误判为卡死。
 - 不改 bundle id；无 WebView2 localStorage 迁移问题。

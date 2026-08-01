@@ -21,6 +21,7 @@ import { useUiStore } from '../../stores/ui.ts';
 import { SHARE_ICON } from '../../share/icons.ts';
 import { listen } from '../../tauri-adapter.ts';
 import { clientLog } from '../../utils/client-log.ts';
+import { friendlyShareError } from '../../utils/share-errors.ts';
 import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
 import { useDialogFocus } from '../../utils/dialog-focus.ts';
 import type {
@@ -100,8 +101,8 @@ async function initializeShare(): Promise<void> {
           'share-modal',
           `server stopped: reason=${e.payload.reason}${e.payload.message ? ' msg=' + e.payload.message : ''}`,
         );
-        if (e.payload.reason === 'error' && e.payload.message) {
-          ui.showToast('快传服务异常停止，请重试', 'error');
+        if (e.payload.reason === 'error') {
+          ui.showToast(share.lastError || friendlyShareError(e.payload.message, 'stop'), 'error');
         } else if (e.payload.reason === 'idle_timeout') {
           ui.showToast('快传端口已闲置超时', 'ok');
           emit('close');
@@ -121,7 +122,7 @@ async function initializeShare(): Promise<void> {
     if (disposed) return;
     if (share.status === 'error') {
       clientLog('error', 'share-modal', `start failed: ${share.lastError}`);
-      ui.showToast('启动快传失败，请重试', 'error');
+      ui.showToast(share.lastError || friendlyShareError(null, 'start'), 'error');
       emit('close');
     } else if (share.info) {
       clientLog(
@@ -134,7 +135,7 @@ async function initializeShare(): Promise<void> {
     if (disposed) return;
     const message = e instanceof Error ? e.message : String(e);
     clientLog('error', 'share-modal', `initialization failed: ${message}`);
-    ui.showToast('启动快传失败，请重试', 'error');
+    ui.showToast(friendlyShareError(e, 'start'), 'error');
     emit('close');
   }
 }
@@ -197,6 +198,7 @@ function close() {
           <div v-if="share.status === 'starting'" class="share-modal-state" role="status" aria-live="polite">
             <div class="share-spinner" />
             <p>正在启动快传…</p>
+            <p class="share-modal-sub">首次使用可能需要确认 Windows 管理员授权。</p>
           </div>
 
           <div v-else-if="share.status === 'error'" class="share-modal-state">

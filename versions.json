@@ -1,6 +1,6 @@
 {
   "$schema": "https://example.com/wonderful-ui/versions.schema.json",
-  "current": "0.2.0",
+  "current": "0.2.1",
   "min_supported": "0.1.0",
   "releases": {
     "v0.1.0": {
@@ -127,6 +127,18 @@
       "tag": "v0.2.0",
       "date": "2026-08-01",
       "notes": "- 离线资源：内置 70 条 Valorant 地图、特工与模式元数据，生成 60 个内容去重 WebP，运行时不再依赖外部图片 CDN\n- 资料库与启动：ACLOS LevelDB 严格使用只读副本，SQLite 写入与扫描事务化，完善首次启动、部分解析失败和并发刷新恢复\n- 安全与分享：收紧 Tauri IPC、路径、日志和缓存边界，强化 LAN 分享会话、令牌、Host 校验与取消状态\n- 界面与可访问性：完善账户、筛选、日期弹窗和模态焦点，修复播放器进度、音量、toast、更新与分享状态反馈\n- Windows 与发布：加固帧捕获缓冲区和时间戳边界，补齐离线资源、前后端及 Release 回归门禁",
+      "min_supported_version": "0.1.0",
+      "assets": {
+        "windows-x86_64": {
+          "url": "",
+          "signature": ""
+        }
+      }
+    },
+    "v0.2.1": {
+      "tag": "v0.2.1",
+      "date": "2026-08-02",
+      "notes": "- 修复 Windows 防火墙下手机无法访问快传\n- 快传固定使用 22357/TCP，端口占用时返回明确错误\n- 安装、覆盖安装和自动更新自动配置精确的 Windows 防火墙规则\n- 规则缺失或内容错误时，首次开启快传可请求一次管理员授权修复\n- 快传结束保留持久规则，完整卸载时清理规则",
       "min_supported_version": "0.1.0",
       "assets": {
         "windows-x86_64": {
