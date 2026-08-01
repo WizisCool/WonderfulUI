@@ -211,7 +211,7 @@ the next release (the repo can show **0 caches** forever).
 
 | Workflow | Role |
 |---|---|
-| `cache-warm.yml` | On `main` pushes that touch Rust/GUI/lockfiles (or manual dispatch): bun install + Vite build + `cargo build --release`. Saves rust-cache key `wui-release` and bun lockfile cache. |
+| `cache-warm.yml` | On `main` pushes that touch Rust/GUI/lockfiles (or manual dispatch), runs separate release/debug jobs: Vite + `cargo build --release` warms `wui-release`, while `cargo test --lib` warms `wui-debug-lib`. |
 | `release.yml` | Tag builds restore those caches (`cache: false` on setup-rust-toolchain so keys are not split). Bun install cache, debug `cargo test --lib`, then one release `tauri build` (no second release-profile test compile). |
 | `ci.yml` | Manual Check; same cache keys when useful. |
 
@@ -292,6 +292,9 @@ Caches (must stay aligned with `cache-warm.yml` on `main`):
   repository-root `target/` directory.
 - Rust cache prefix: `v1-rust`; bump it whenever cache layout semantics change,
   because an existing GitHub cache key cannot be overwritten in place.
+- Keep release and debug warming in separate jobs. `rust-cache` saves and
+  cleans target artifacts in post steps; stacking both keys around one target
+  in a single job makes the first post step consume artifacts for the second.
 
 A PR can still be used for a release if the user wants a review checkpoint, but
 it is not the default maintainer path.

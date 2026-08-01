@@ -7,7 +7,7 @@ name: Cache Warm
 #
 # Shared keys MUST stay in sync with release.yml:
 #   rust release: shared-key wui-release   (build job)
-#   rust debug:   shared-key wui-debug-lib (validate job; warmed below optionally)
+#   rust debug:   shared-key wui-debug-lib (validate job)
 #   bun:  ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
 
 on:
@@ -34,7 +34,7 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  warm:
+  release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -77,7 +77,18 @@ jobs:
       - name: Cargo build release lib
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
-      # Warm the validate-job debug lib-test cache (separate key from release).
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      # Keep this in a separate job from the release cache. rust-cache saves and
+      # cleans targets in post steps, so two cache actions sharing one target in
+      # one job would let the first post step consume artifacts needed by the next.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> ../target
