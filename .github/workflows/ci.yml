@@ -43,7 +43,9 @@ jobs:
       # manual full-build can hit warm deps when available.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          # The target path is relative to src-tauri; Tauri writes to root target/.
+          workspaces: src-tauri -> ../target
+          prefix-key: v1-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true

@@ -57,7 +57,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          # The target path is relative to src-tauri; Tauri writes to root target/.
+          workspaces: src-tauri -> ../target
+          prefix-key: v1-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true
@@ -78,7 +80,8 @@ jobs:
       # Warm the validate-job debug lib-test cache (separate key from release).
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: src-tauri -> ../target
+          prefix-key: v1-rust
           shared-key: wui-debug-lib
           cache-all-crates: true
           cache-on-failure: true

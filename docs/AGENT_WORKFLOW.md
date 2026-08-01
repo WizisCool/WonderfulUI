@@ -287,6 +287,11 @@ Caches (must stay aligned with `cache-warm.yml` on `main`):
 - Bun: `${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}`
 - Rust release: Swatinem `shared-key: wui-release` (build job)
 - Rust debug tests: `shared-key: wui-debug-lib` (validate job)
+- Rust target mapping: `src-tauri -> ../target`; the right-hand path is
+  relative to `src-tauri`, while Tauri writes build artifacts to the
+  repository-root `target/` directory.
+- Rust cache prefix: `v1-rust`; bump it whenever cache layout semantics change,
+  because an existing GitHub cache key cannot be overwritten in place.
 
 A PR can still be used for a release if the user wants a review checkpoint, but
 it is not the default maintainer path.
