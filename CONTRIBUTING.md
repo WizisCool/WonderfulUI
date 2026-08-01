@@ -1,115 +1,85 @@
 # 贡献指南
 
+感谢你愿意帮助改进 WonderfulUI。它是一个面向 Windows x64 无畏契约玩家的个人高光
+资料库，贡献应优先改善真实用户的整理、筛选、回看和问题恢复体验。
+
 ## 开发环境
 
-- **Bun 1.1+** — 前端依赖与构建
-- **Rust 1.77+** — 后端编译（通过 rustup 安装）
-- **Windows** — ACLOS 仅限 Windows 平台，故本项目仅支持 Windows
+- Windows 10/11 x64：运行 Tauri、验证 WebView2、快传、防火墙和 NSIS 需要 Windows。
+- Bun 1.3.14：见根目录 `.bun-version`。
+- Rust 1.88.0：见 `rust-toolchain.toml`。
+- Tauri 2 所需的 Windows SDK、WebView2 和 Rust 工具链。
+
+安装依赖：
 
 ```bash
 bun install --frozen-lockfile
-bunx tauri dev
 ```
 
-## 开发模型
+`bun run dev:browser` 可以在普通浏览器中查看固定 mock 数据，适合检查 Vue 结构和
+样式；它不读取真实 ACLOS，也不能替代 Windows Tauri smoke test。
 
-WonderfulUI 主要是个人维护者项目。维护者的默认路径是：
+## 修改边界
 
-- 在 `main` 上小步开发
-- 按改动范围运行本地验证
-- 需要时直接提交；**推送到远程（尤其是 `main`）仅在明确需要发布/同步时进行**
-- 自动化 agent / 助手默认只做本地提交，**除非维护者明确要求，否则不要 `git push`**
-- 发布时由 `v*` tag 触发 GitHub Actions 构建正式产物
+- ACLOS `WonderfulDb`、`snapshot<openid>` 和身份缓存只读；不要修改游戏、Riot、WeGame、
+  Vanguard 或 ACLOS 文件。
+- 不要把真实 openid、昵称、完整用户路径、NAS 路径、日志、视频或二维码令牌提交到仓库。
+- 不要把应用说成完全不联网：正式版本会检查 GitHub Releases，用户主动快传时会启动
+  `22357/TCP` 的临时局域网 HTTP 服务。
+- 不要在未实现时承诺删除、编辑、导出、备份、手动选择目录、便携运行或云同步。
+- 如果只处理文档或用户文案，不要顺手修改业务逻辑、IPC、CSS、依赖、构建配置和工作流。
 
-外部贡献仍建议使用短分支和 Pull Request，方便讨论和审阅：
+## 分支、提交和 Pull Request
+
+外部贡献请从最新 `main` 创建短分支，例如：
 
 ```text
-feat/xxx
-fix/xxx
-docs/xxx
+feat/filter-by-kda
+fix/share-firewall-message
+docs/clarify-first-run
 ```
 
-`.github/workflows/ci.yml` 不会在 PR 或 push 时自动运行。需要远端 Windows
-复验时，维护者可以在 GitHub Actions 手动触发 `Manual Check`；正式发布仍由
-`v*` tag 触发 Release workflow。
+提交信息使用 [Conventional Commits](https://www.conventionalcommits.org/)，例如：
 
-## 提交规范
-
-采用 [Conventional Commits](https://www.conventionalcommits.org/)，便于自动生成 changelog 和版本 bump：
-
-```
-feat(gui): add scan settings modal
-fix(parser): handle empty snapshot gracefully
-docs: clarify ACLOS legal boundary
-chore(release): v0.2.0
-test(parser): add fixture for empty snapshot
+```text
+feat(gui): add a performance filter
+fix(parser): handle an empty snapshot
+docs: clarify local data and network boundaries
 ```
 
-| 前缀 | 对应版本变动 |
-|---|---|
-| `feat:` | minor |
-| `fix:` | patch |
-| `BREAKING CHANGE:` / `feat!:` | major |
-| `docs:` / `refactor:` / `test:` / `chore:` | 不触发 |
+一个提交应围绕一个可以独立理解和回退的问题域。PR 描述请说明用户影响、验证命令、
+Windows 未验证边界，以及是否只有文案/注释变化。
 
-## 开发约束
+## 验证
 
-**不得触碰 ACLOS / Riot / Vanguard 游戏文件。** 本项目只读解析 ACLOS 本地缓存，不会修改任何游戏数据、启动游戏或触发反作弊。
-
-详情见项目根目录下的设计文档。
-
-## 构建验证
-
-提交前请确保以下命令通过：
+按改动范围选择命令；文档-only 改动不需要为了形式运行 Rust 构建。
 
 ```bash
-bun run assets:build  # 从已提交的原始 PNG 生成固定规格 WebP
-bun run assets:check  # 校验来源、尺寸、去重与离线产物完整性
-bun run typecheck    # TypeScript 类型检查
-bun test             # 前端 + 解析器测试
-cargo test --manifest-path src-tauri/Cargo.toml --lib  # Rust 测试
+bun run typecheck
+bun run test:all
+bun run assets:check
+bun run --cwd packages/gui build
+git diff --check
 ```
 
-地图、特工、模式资源禁止手工逐条修改。使用
-`bun run update:valorant-metadata` 同步生成 registry 和
-`packages/gui/assets/valorant-source/` 中按 SHA-256 去重的原始 PNG；该维护命令
-需要网络。`bun run assets:build` 在本地将它们编译为忽略版本控制的
-`packages/gui/public/valorant/` WebP。应用运行、开发调试、CI 和普通构建只使用
-已提交的来源文件，不访问图片 CDN。
-
-这些检查主要在本地运行。需要远端 Windows 复验时，可手动触发 `Manual Check`。
-该 workflow 默认运行 typecheck、Bun 测试和 Rust lib 测试；需要打包验证时可勾选
-`full-build`。正式发布由 Release workflow 从 `v*` tag 执行完整验证和
-`bun run build`。
-
-## 发布流程
-
-正式发布必须由 GitHub Actions 从 tag 构建，不手动上传本地产物。
-
-维护者通常在干净的 `main` 上执行：
+Rust/IPC 变化还需要：
 
 ```bash
-bun run version:patch   # bump 版本号（patch/minor/major）
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-该脚本会更新版本文件、提交 `chore(release): vX.Y.Z` 并创建 tag。确认本地验证
-通过后，推送 `main` 和 tag：
+Windows 上的发布前验证还包括 `bun run build`，它生成 NSIS 安装器。GitHub Actions 的
+`.github/workflows/ci.yml` 是手动触发的 `Manual Check`，不会自动为每个 PR 或 push 运行。
 
-```bash
-git push origin main
-git push origin vX.Y.Z
-```
+## 发布
 
-`.github/workflows/release.yml` 会运行完整验证、执行 `bun run build`，并自动创建
-GitHub Release，上传：
+正式 Release 由 GitHub Actions 从 `v*` tag 构建，不手动上传本地产物。版本文件、签名、
+tag 和发布边界见 [VERSIONING.md](VERSIONING.md) 与 [docs/UPDATER.md](docs/UPDATER.md)。
+不要在普通贡献中运行 `bun run version:*`；该脚本会更新版本文件、提交、创建 tag 并推送远程。
 
-- `WonderfulUI_*_x64-setup.exe`
-- `WonderfulUI_*_x64_zh-CN.msi`
+## 问题与安全
 
-完整 agent/维护者流程见 `docs/AGENT_WORKFLOW.md`。
-
-## 问题报告
-
-- Bug 请使用 GitHub Issues，附上 ACLOS 版本号
-- 安全问题请参阅 `SECURITY.md`
-- 新功能建议先开 Discussion 讨论
+- 普通 Bug 请使用 GitHub Issues，附上 ACLOS 版本（如知道）和脱敏日志。
+- 功能建议请描述用户问题，不要只提交实现方案。
+- 安全问题请参阅 [SECURITY.md](SECURITY.md)，不要公开发 Issue。
+- 讨论行为与数据格式前，请先查看 [docs/README.md](docs/README.md) 中的唯一事实源。
