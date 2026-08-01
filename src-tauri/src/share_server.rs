@@ -810,7 +810,14 @@ mod tests {
     #[test]
     fn bind_server_reports_port_in_use_without_falling_back() {
         let _lock = bind_test_lock().lock().unwrap();
-        let listener = std::net::TcpListener::bind(("0.0.0.0", QUICK_SHARE_PORT));
+        // Another process may already own the fixed port in a developer or CI
+        // environment. That is still a valid setup for this test; unrelated
+        // bind errors must fail loudly instead of silently skipping the setup.
+        let listener = match std::net::TcpListener::bind(("0.0.0.0", QUICK_SHARE_PORT)) {
+            Ok(listener) => Some(listener),
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => None,
+            Err(error) => panic!("failed to reserve fixed share port: {error}"),
+        };
         let result = bind_server();
         let error = match result {
             Ok(_) => panic!("occupied fixed port must fail"),
