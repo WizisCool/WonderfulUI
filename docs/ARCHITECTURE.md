@@ -163,9 +163,10 @@ Defined in `src-tauri/src/lib.rs`:
   - Accepts only a current SQLite-registered video path through the same gate
     as playback and frame capture; an injected WebView cannot turn the LAN
     server into an arbitrary-file endpoint.
-  - Starts a 1-shot HTTP server on a free local port (49152-65535), generates a
+  - Starts a 1-shot HTTP server on fixed `0.0.0.0:22357/TCP`, generates a
     256-bit URL-safe token, returns `{ sessionId, port, token, url, lanIp,
-    qrSvg, videoName, videoSize, startedAtUnix }`.
+    qrSvg, videoName, videoSize, startedAtUnix }`. A bind conflict returns a
+    stable error code; startup never falls back to a random port.
   - The QR SVG is generated Rust-side using **circle modules** (not rectangles)
     with `EcLevel::H` (30% recovery) and a 4-module quiet zone for iPhone
     / Android native scanner compatibility.
@@ -179,6 +180,28 @@ Defined in `src-tauri/src/lib.rs`:
     validation; a route change cannot make the server reject its own URL. If
     no reachable LAN address exists, startup fails explicitly instead of
     generating an unusable `127.0.0.1` QR code.
+  - The per-machine NSIS installer/update hook creates one inbound Windows
+    Firewall rule named `WonderfulUI Quick Share` for the installed
+    `wonderful-ui.exe`: inbound allow, TCP, local port `22357`, Domain/Private/
+    Public profiles (`profile=any` in NSIS), `remoteip=LocalSubnet`, and
+    `edge=no`. Full uninstall removes the rule; Tauri `/UPDATE` runs the same
+    idempotent post-install hook so existing users receive it without
+    reinstalling manually.
+  - At runtime, `firewall.rs` checks the rule through `INetFwPolicy2` rather
+    than parsing localized `netsh` output. Missing or incorrect name, path,
+    protocol, port, profiles, address scope, action, direction, enabled state,
+    or edge traversal requests one UAC repair through the exact signed binary
+    helper argument. The process-wide repair mutex prevents concurrent starts
+    from opening multiple UAC prompts; a correct persistent rule needs no UAC
+    on later shares. The helper is recognized before Tauri initialization and
+    accepts no renderer-controlled arguments.
+  - Stopping a share only closes the HTTP listener; it does not delete the
+    persistent rule. A complete uninstall removes the rule. Installer/runtime
+    failures remain visible as stable frontend error codes while raw Windows
+    details go to the app log.
+  - The `start_share_server` command performs firewall/UAC work in
+    `spawn_blocking`, so COM inspection and the elevation wait do not block the
+    WebView/UI thread.
   - Server lifetime is **driven by the frontend** (modal mounted → up, modal
     unmounted → down). Rust holds the running server state in a
     `tauri::State<ShareServerState>` registered via `.manage()` on the

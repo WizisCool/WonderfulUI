@@ -63,6 +63,7 @@
         ],
         "displayLanguageSelector": false,
         "installMode": "perMachine",
+        "installerHooks": "windows/installer-hooks.nsh",
         "template": "installer.nsi",
         "installerIcon": "icons/icon.ico"
       }

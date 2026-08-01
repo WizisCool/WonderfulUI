@@ -60,9 +60,9 @@ describe('ShareModal async lifecycle', () => {
         const sessionId = String(args?.sessionId);
         return Promise.resolve({
           sessionId,
-          port: 53124,
+          port: 22357,
           token: 'token',
-          url: 'http://192.168.1.2:53124/w/token',
+          url: 'http://192.168.1.2:22357/w/token',
           lanIp: '192.168.1.2',
           qrSvg: '<svg/>',
           videoName: 'clip.mp4',

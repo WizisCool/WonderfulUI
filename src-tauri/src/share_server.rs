@@ -1,6 +1,6 @@
 //! "快传" 内嵌 HTTP server。
 //!
-//! 启动时随机监听一个空闲端口、生成 256-bit token、起一个 tiny_http
+//! 启动时监听固定的 22357/TCP、生成 256-bit token、起一个 tiny_http
 //! 实例在独立线程跑。每收到一个匹配 token 的 GET 请求：
 //! 1. 检查路径精确匹配 `/w/<token>`；
 //! 2. 检查 Host header 命中本机 IP（防 DNS rebinding）；
@@ -27,7 +27,9 @@ use rand::RngCore;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::firewall;
 use crate::lan_ip;
+use crate::share_policy::{ipc_error, ShareErrorCode, QUICK_SHARE_PORT};
 
 const CANCELLED_SESSION_TTL: Duration = Duration::from_secs(60);
 const MAX_CANCELLED_SESSIONS: usize = 128;
@@ -102,16 +104,38 @@ impl Default for ShareServerState {
     }
 }
 
-/// Bind once to an OS-assigned port. Returning the live server avoids the
-/// check-then-bind race of probing a port and reopening it in another thread.
+/// Bind once to the documented Quick Share port. Returning the live server
+/// avoids the check-then-bind race of probing a port and reopening it in
+/// another thread.
 fn bind_server() -> Result<(tiny_http::Server, u16), String> {
-    let server =
-        tiny_http::Server::http(("0.0.0.0", 0)).map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
+    let server = tiny_http::Server::http(("0.0.0.0", QUICK_SHARE_PORT)).map_err(|error| {
+        let in_use = error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::AddrInUse);
+        crate::app_log::write(
+            crate::app_log::LogLevel::Error,
+            "share",
+            format!("bind 0.0.0.0:{QUICK_SHARE_PORT} failed: {error}"),
+        );
+        if in_use {
+            ipc_error(ShareErrorCode::PortInUse)
+        } else {
+            ipc_error(ShareErrorCode::PortBindFailed)
+        }
+    })?;
     let port = server
         .server_addr()
         .to_ip()
-        .ok_or_else(|| "share server did not bind an IP socket".to_string())?
+        .ok_or_else(|| ipc_error(ShareErrorCode::PortBindFailed))?
         .port();
+    if port != QUICK_SHARE_PORT {
+        crate::app_log::write(
+            crate::app_log::LogLevel::Error,
+            "share",
+            format!("server returned unexpected port {port}"),
+        );
+        return Err(ipc_error(ShareErrorCode::PortBindFailed));
+    }
     Ok((server, port))
 }
 
@@ -198,10 +222,17 @@ pub fn start_server(
             "share",
             format!("source missing: {}", video_path.display()),
         );
-        return Err(format!("源文件丢失: {}", video_path.display()));
+        return Err(ipc_error(ShareErrorCode::SourceUnavailable));
     }
     let video_size = std::fs::metadata(&video_path)
-        .map_err(|e| format!("stat video: {e}"))?
+        .map_err(|error| {
+            crate::app_log::write(
+                crate::app_log::LogLevel::Error,
+                "share",
+                format!("stat video failed: {error}"),
+            );
+            ipc_error(ShareErrorCode::SourceUnavailable)
+        })?
         .len();
     let video_name = video_path
         .file_name()
@@ -209,20 +240,24 @@ pub fn start_server(
         .unwrap_or("video.mp4")
         .to_string();
 
-    let (server, port) = bind_server().map_err(|e| {
+    // Firewall readiness is checked before binding so a missing rule cannot
+    // leave a live server behind while UAC is being requested.
+    firewall::ensure_ready().map_err(|error| {
         crate::app_log::write(
             crate::app_log::LogLevel::Error,
             "share",
-            format!("server bind: {e}"),
+            format!("firewall readiness failed: {error}"),
         );
-        e
+        error
     })?;
+
+    let (server, port) = bind_server()?;
     let token = make_token();
-    let lan_ip = lan_ip::detect_lan_ipv4()
-        .ok_or_else(|| "未检测到可供其他设备访问的局域网 IPv4 地址".to_string())?;
+    let lan_ip =
+        lan_ip::detect_lan_ipv4().ok_or_else(|| ipc_error(ShareErrorCode::LanIpUnavailable))?;
     let lan_ip_v4: Ipv4Addr = lan_ip
         .parse()
-        .map_err(|_| "检测到的局域网 IPv4 地址无效".to_string())?;
+        .map_err(|_| ipc_error(ShareErrorCode::LanIpUnavailable))?;
     let url = format!("http://{}:{}/w/{}", lan_ip, port, token);
 
     let qr_svg = make_qr_svg(&url);
@@ -310,7 +345,7 @@ pub fn start_server(
                 "share",
                 format!("spawn server thread: {e}"),
             );
-            format!("spawn server thread: {e}")
+            ipc_error(ShareErrorCode::ServerStartFailed)
         })?;
     let info = ShareServerInfo {
         session_id: session_id.clone(),
@@ -336,7 +371,7 @@ pub fn start_server(
     prune_cancelled_sessions(&mut cancelled);
     if cancelled.remove(&session_id).is_some() {
         let _ = stop_tx.send(());
-        return Err("快传启动已取消".to_string());
+        return Err(ipc_error(ShareErrorCode::StartCancelled));
     }
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
     if let Some(old) = guard.take() {
@@ -723,9 +758,9 @@ mod tests {
     fn test_info(session_id: &str) -> ShareServerInfo {
         ShareServerInfo {
             session_id: session_id.into(),
-            port: 53124,
+            port: QUICK_SHARE_PORT,
             token: format!("token-{session_id}"),
-            url: format!("http://192.168.1.42:53124/w/token-{session_id}"),
+            url: format!("http://192.168.1.42:{QUICK_SHARE_PORT}/w/token-{session_id}"),
             lan_ip: "192.168.1.42".into(),
             qr_svg: "<svg/>".into(),
             video_name: "clip.mp4".into(),
@@ -751,7 +786,7 @@ mod tests {
     #[test]
     fn make_qr_svg_returns_dotted_svg() {
         // Rust 端用 <circle> 画每个 dark module（圆点 QR），不用 rect。
-        let svg = make_qr_svg("http://192.168.1.42:53124/w/abc123");
+        let svg = make_qr_svg(&format!("http://192.168.1.42:{QUICK_SHARE_PORT}/w/abc123"));
         assert!(svg.contains("<svg"), "got: {svg}");
         assert!(svg.contains("</svg>"));
         // 圆点风格：每 dark module 是 <circle cx=.. cy=.. r=0.45/>
@@ -762,13 +797,35 @@ mod tests {
     }
 
     #[test]
-    fn bind_server_reports_its_live_ephemeral_port() {
-        let (server, port) = bind_server().expect("ephemeral bind succeeds");
-        assert_ne!(port, 0);
+    fn bind_server_reports_the_fixed_port() {
+        let _lock = bind_test_lock().lock().unwrap();
+        let (server, port) = bind_server().expect("fixed port is available");
+        assert_eq!(port, QUICK_SHARE_PORT);
         assert_eq!(
             server.server_addr().to_ip().map(|addr| addr.port()),
-            Some(port)
+            Some(QUICK_SHARE_PORT)
         );
+    }
+
+    #[test]
+    fn bind_server_reports_port_in_use_without_falling_back() {
+        let _lock = bind_test_lock().lock().unwrap();
+        let listener = std::net::TcpListener::bind(("0.0.0.0", QUICK_SHARE_PORT));
+        let result = bind_server();
+        let error = match result {
+            Ok(_) => panic!("occupied fixed port must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error.starts_with("WUI_SHARE_PORT_IN_USE|"),
+            "unexpected error: {error}"
+        );
+        drop(listener);
+    }
+
+    fn bind_test_lock() -> &'static Mutex<()> {
+        static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     #[test]
@@ -880,18 +937,24 @@ mod tests {
     #[test]
     fn host_header_requires_the_started_address_and_port() {
         let lan_ip = "192.168.1.42".parse().unwrap();
-        for accepted in ["192.168.1.42:53124", "localhost:53124", "127.0.0.1:53124"] {
-            assert!(host_header_matches(accepted, lan_ip, 53124), "{accepted}");
+        for accepted in ["192.168.1.42:22357", "localhost:22357", "127.0.0.1:22357"] {
+            assert!(
+                host_header_matches(accepted, lan_ip, QUICK_SHARE_PORT),
+                "{accepted}"
+            );
         }
         for rejected in [
-            "192.168.1.99:53124",
+            "192.168.1.99:22357",
             "192.168.1.42:80",
             "192.168.1.42:invalid",
-            "192.168.1.42:53124:extra",
-            "http://192.168.1.42:53124",
-            "user@192.168.1.42:53124",
+            "192.168.1.42:22357:extra",
+            "http://192.168.1.42:22357",
+            "user@192.168.1.42:22357",
         ] {
-            assert!(!host_header_matches(rejected, lan_ip, 53124), "{rejected}");
+            assert!(
+                !host_header_matches(rejected, lan_ip, QUICK_SHARE_PORT),
+                "{rejected}"
+            );
         }
     }
 }
