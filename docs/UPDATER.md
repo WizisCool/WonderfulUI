@@ -2,11 +2,11 @@
 
 WonderfulUI 的应用内自更新方案。基于 `tauri-plugin-updater`（Tauri 2）+ GitHub Releases 托管，UI 与现有设计系统（暗色 oklch tokens、ShareModal 范式、MiSans 中文、`ph:*` 图标）一致。
 
-> 本文档描述**已落地**行为（自 v0.1.5 起）。决策点：GitHub Releases 托管 / 静默检查+侧栏红点+轻 toast / 2026-06-24 生成的签名密钥。
+> 本文档描述当前已落地行为：GitHub Releases 托管、启动静默检查、侧栏提示和签名 NSIS 更新。
 
 ## 合规性
 
-自更新只与项目自己的 GitHub Release 通信，**不触碰** Riot / Vanguard / ACLOS / `WonderfulDb`，不启动游戏客户端。下载 NSIS 安装包并覆盖安装是普通桌面行为，符合 `CLAUDE.md` 全部硬约束。
+自更新只与项目自己的 GitHub Release 通信，**不触碰** Riot / Vanguard / ACLOS / `WonderfulDb`，不启动游戏客户端。下载 NSIS 安装包并覆盖安装是普通桌面行为，符合 `AGENTS.md` 的安全边界。
 
 ## 架构
 
