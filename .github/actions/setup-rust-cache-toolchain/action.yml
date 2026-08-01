@@ -1,0 +1,30 @@
+name: Setup cache-stable Rust toolchain
+description: Install the pinned toolchain and remove runner-provided toolchains that would churn rust-cache keys.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        cache: false
+
+    # Swatinem/rust-cache hashes every toolchain returned by `rustup toolchain
+    # list`, including the moving `stable` toolchain preinstalled on hosted
+    # runners. Keep only the rust-toolchain.toml override so the key is stable.
+    - name: Remove unpinned Rust toolchains
+      shell: pwsh
+      run: |
+        $pinned = (rustup show active-toolchain).Split(' ')[0]
+        $installed = @(rustup toolchain list --quiet)
+
+        foreach ($toolchain in $installed) {
+          if ($toolchain -ne $pinned) {
+            rustup toolchain uninstall $toolchain
+          }
+        }
+
+        $remaining = @(rustup toolchain list --quiet)
+        if ($remaining.Count -ne 1 -or $remaining[0] -ne $pinned) {
+          Write-Error "Expected only pinned Rust toolchain '$pinned'; found: $($remaining -join ', ')"
+          exit 1
+        }

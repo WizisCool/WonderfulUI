@@ -212,7 +212,7 @@ the next release (the repo can show **0 caches** forever).
 | Workflow | Role |
 |---|---|
 | `cache-warm.yml` | On `main` pushes that touch Rust/GUI/lockfiles (or manual dispatch), runs separate release/debug jobs: Vite + `cargo build --release` warms `wui-release`, while `cargo test --lib` warms `wui-debug-lib`. |
-| `release.yml` | Tag builds restore those caches (`cache: false` on setup-rust-toolchain so keys are not split). Bun install cache, debug `cargo test --lib`, then one release `tauri build` (no second release-profile test compile). |
+| `release.yml` | Tag builds restore those caches through the shared cache-stable Rust setup action. Bun install cache, debug `cargo test --lib`, then one release `tauri build` (no second release-profile test compile). |
 | `ci.yml` | Manual Check; same cache keys when useful. |
 
 Do **not** reintroduce `cargo test --release` before `tauri build` on the
@@ -287,11 +287,14 @@ Caches (must stay aligned with `cache-warm.yml` on `main`):
 - Bun: `${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}`
 - Rust release: Swatinem `shared-key: wui-release` (build job)
 - Rust debug tests: `shared-key: wui-debug-lib` (validate job)
-- Rust target mapping: `src-tauri -> ../target`; the right-hand path is
-  relative to `src-tauri`, while Tauri writes build artifacts to the
-  repository-root `target/` directory.
-- Rust cache prefix: `v1-rust`; bump it whenever cache layout semantics change,
+- Rust workspace mapping: `. -> target`; both the Cargo workspace/lockfile and
+  Tauri build artifacts live at the repository root.
+- Rust cache prefix: `v2-rust`; bump it whenever cache layout semantics change,
   because an existing GitHub cache key cannot be overwritten in place.
+- Rust setup: use `.github/actions/setup-rust-cache-toolchain`. `rust-cache`
+  hashes every installed rustup toolchain, so the action removes the hosted
+  runner's moving preinstalled toolchain and leaves only `rust-toolchain.toml`'s
+  pinned version before calculating the cache key.
 - Keep release and debug warming in separate jobs. `rust-cache` saves and
   cleans target artifacts in post steps; stacking both keys around one target
   in a single job makes the first post step consume artifacts for the second.

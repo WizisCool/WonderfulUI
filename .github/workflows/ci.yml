@@ -23,9 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
+      - uses: ./.github/actions/setup-rust-cache-toolchain
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -43,9 +41,9 @@ jobs:
       # manual full-build can hit warm deps when available.
       - uses: Swatinem/rust-cache@v2
         with:
-          # The target path is relative to src-tauri; Tauri writes to root target/.
-          workspaces: src-tauri -> ../target
-          prefix-key: v1-rust
+          # Cargo workspace, Cargo.lock, and target/ all live at the repo root.
+          workspaces: . -> target
+          prefix-key: v2-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true

@@ -30,9 +30,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
+      - uses: ./.github/actions/setup-rust-cache-toolchain
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -49,9 +47,9 @@ jobs:
       # Debug profile cache key is separate from release (wui-release).
       - uses: Swatinem/rust-cache@v2
         with:
-          # The target path is relative to src-tauri; Tauri writes to root target/.
-          workspaces: src-tauri -> ../target
-          prefix-key: v1-rust
+          # Cargo workspace, Cargo.lock, and target/ all live at the repo root.
+          workspaces: . -> target
+          prefix-key: v2-rust
           shared-key: wui-debug-lib
           cache-all-crates: true
           cache-on-failure: true
@@ -76,9 +74,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
+      - uses: ./.github/actions/setup-rust-cache-toolchain
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -95,8 +91,8 @@ jobs:
       # Restore release-profile deps warmed on main (see cache-warm.yml).
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> ../target
-          prefix-key: v1-rust
+          workspaces: . -> target
+          prefix-key: v2-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true
