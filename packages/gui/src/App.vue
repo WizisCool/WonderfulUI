@@ -273,7 +273,7 @@ async function performBoot() {
     booted.value = true;
     bootRef.value?.complete();
     // 启动静默更新检查。必须在 runBoot 显露 UI 之后调用，不与后台抓取竞争
-    // （CLAUDE.md / docs/UPDATER.md「启动检查时机」）。失败静默；成功有更新时
+    // （AGENTS.md / docs/UPDATER.md「启动检查时机」）。失败静默；成功有更新时
     // 亮侧栏红点，未跳过的版本自动开弹窗。fire-and-forget。
     // DEV：始终 mock 有更新，便于调 UpdateModal（不打真实 GitHub）。
     // 生产构建 import.meta.env.DEV === false，走真实 check。

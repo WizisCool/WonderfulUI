@@ -1,3 +1,6 @@
+// Reference source retained for ACLOS schema compatibility. WonderfulUI's
+// production parser does not import or expose these ACLOS storage/network
+// mutators; the app reads its local source through the Rust scraper.
 const {post} = require("../network/request");
 const {logger, delFileSync} = require("../utils/util");
 

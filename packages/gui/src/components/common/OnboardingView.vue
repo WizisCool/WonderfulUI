@@ -5,7 +5,7 @@
         <img class="onboarding-logo" :src="brandLogoUrl" alt="" aria-hidden="true" width="48" height="48" decoding="async" />
         <h1 id="onboarding-title" class="onboarding-title">欢迎使用 WonderfulUI</h1>
         <p class="onboarding-sub">
-          WonderfulUI 是 Valorant 高光时刻的本地浏览工具。它只读取 ACLOS 写入的本地数据,不会联网,也不会修改你的游戏。
+          WonderfulUI 是用于整理和回看本地无畏契约高光的个人资料库。它只读取 ACLOS 已生成的数据，不修改游戏文件；正式版会检查更新，快传只在你主动开启时使用局域网。
         </p>
       </header>
 
@@ -14,18 +14,18 @@
           <li class="onboarding-step">
             <span class="onboarding-step-num">1</span>
             <div class="onboarding-step-body">
-              <div class="onboarding-step-title">安装并登录腾讯 ACLOS 客户端</div>
+              <div class="onboarding-step-title">先让 ACLOS 生成本地高光</div>
               <p class="onboarding-step-text">
-                WonderfulUI 不附带你玩过的对局数据。腾讯"掌上无畏契约"客户端会在你对局结束后把高光写入本地的 <code>WonderfulDb</code> 目录;没有客户端,这里就没有东西可看。
+                WonderfulUI 不会替你录制或生成高光。请先让腾讯 ACLOS/“无畏时刻”在本机生成数据；我们会读取默认 <code>WonderfulDb</code> 目录中的账户文件和可选快照。
               </p>
             </div>
           </li>
           <li class="onboarding-step">
             <span class="onboarding-step-num">2</span>
             <div class="onboarding-step-body">
-              <div class="onboarding-step-title">玩一局并等待"无畏时刻"自动生成</div>
+              <div class="onboarding-step-title">等待高光写入完成</div>
               <p class="onboarding-step-text">
-                客户端在每局结束后会异步生成击杀集锦 / 高光时刻 / 三杀时刻 等多个高光视频。生成完会写入本地缓存,然后我们这边才能看到。
+                对局结束后，客户端会异步生成击杀集锦、高光时刻、三杀时刻等视频。生成完成并写入本地后，WonderfulUI 才能把它们加入资料库。
               </p>
             </div>
           </li>
@@ -34,7 +34,7 @@
             <div class="onboarding-step-body">
               <div class="onboarding-step-title">回到这里刷新资料库</div>
               <p class="onboarding-step-text">
-                回到这个窗口,点顶部对局列表的"刷新"按钮(<WIcon icon="ph:arrows-clockwise" :size="12" />),新生成的高光就会出现在列表里。点列表中的某行可以在右侧看集锦,双击直接播放。
+                回到这个窗口，点击对局列表顶部的“刷新”按钮（<WIcon icon="ph:arrows-clockwise" :size="12" />）。新生成的高光会出现在列表中，双击视频即可播放。
               </p>
             </div>
           </li>
@@ -65,18 +65,18 @@
         <button
           class="btn btn-ghost onboarding-settings"
           type="button"
-          :data-tip="'数据目录选择 — 开发中'"
+          :data-tip="'当前使用 ACLOS 默认目录，暂不支持更改'"
           @click="onSettings"
           disabled
         >
           <WIcon icon="ph:folder-open" :size="14" />
-          更改数据目录
+          数据目录固定
         </button>
       </footer>
 
       <p class="onboarding-note">
         <WIcon icon="ph:info" :size="12" />
-        启动器不会上传或修改任何游戏文件,也不启动游戏客户端本身。
+        应用不会上传资料库或修改游戏文件；正式版启动时会检查更新，快传只在你主动开启时使用局域网。
       </p>
     </div>
   </main>
