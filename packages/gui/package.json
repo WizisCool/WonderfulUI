@@ -1,14 +1,14 @@
 {
   "name": "@wonderful-ui/gui",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "bun ../../tools/build-valorant-assets.ts && bun ../../tools/check-valorant-assets.ts && vite",
+    "build": "bun ../../tools/build-valorant-assets.ts && bun ../../tools/check-valorant-assets.ts && vite build && bun ../../tools/check-valorant-assets.ts --dist",
     "preview": "vite preview",
     "icons:extract": "node scripts/extract-ph-icons.mjs",
-    "test": "bun test --path-ignore-patterns \"**/*.component.test.ts\"",
+    "test": "bun test --path-ignore-patterns \"test/*.component.test.ts\"",
     "test:components": "vitest run"
   },
   "dependencies": {

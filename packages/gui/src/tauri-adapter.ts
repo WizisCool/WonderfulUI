@@ -178,7 +178,7 @@ const fullMatches: MatchRecord[] = [
   {
     matches_id: 'debug-match-20260620-001',
     matches_time: now,
-    map: { map_id: '/Game/Maps/Jam/Jam', map_name: '亚海悬城', map_image: ascentMap },
+    map: { map_id: '/Game/Maps/Ascent/Ascent', map_name: '亚海悬城', map_image: ascentMap },
     agent: { agent_id: 'debug-agent-jett', agent_name: 'Jett' },
     stats: {
       kills: 24,
@@ -342,6 +342,7 @@ function startMockBootEvents(): void {
   window.setTimeout(() => emitMockEvent('wui://account_loaded', { current: 1, total: 2 }), 80);
   window.setTimeout(() => emitMockEvent('wui://account_loaded', { current: 2, total: 2 }), 120);
   window.setTimeout(() => emitMockEvent('wui://scrape_summary', { matches: fullMatches.length }), 150);
+  window.setTimeout(() => emitMockEvent('wui://startup_refresh_finished', { status: 'finished' }), 155);
   window.setTimeout(() => emitMockEvent('wui://phase', { phase: 'loading_view' }), 180);
 }
 
@@ -420,6 +421,25 @@ async function mockInvoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
       }) as T;
     case 'get_library_stats':
       return deepClone(libraryStats()) as T;
+    case 'start_share_server': {
+      const sessionId = String(args?.sessionId ?? 'browser-debug-session');
+      const path = typeof args?.path === 'string' ? args.path : 'D:\\WonderfulUIDebug\\debug.mp4';
+      const videoName = path.split(/[\\/]/).filter(Boolean).pop() ?? 'debug.mp4';
+      const url = `http://192.168.1.42:53124/w/browser-debug-${sessionId}`;
+      return deepClone({
+        sessionId,
+        port: 53124,
+        token: `browser-debug-${sessionId}`,
+        url,
+        lanIp: '192.168.1.42',
+        qrSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#fff"/><path d="M5 5h12v12H5zm18 0h12v12H23zM5 23h12v12H5zm20 2h3v3h-3zm6 0h4v10h-4zm-8 6h5v4h-5z" fill="#d23a3a"/></svg>`,
+        videoName,
+        videoSize: 24 * 1024 * 1024,
+        startedAtUnix: Math.floor(Date.now() / 1000),
+      }) as T;
+    }
+    case 'stop_share_server':
+      return undefined as T;
     case 'play_video':
     case 'open_external_url':
     case 'reveal_in_explorer':

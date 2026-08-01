@@ -7,17 +7,18 @@
     <div v-if="realCount === 0" class="empty">
       <div class="empty-title">还没有账户数据</div>
     </div>
-    <div v-else class="account-list" role="listbox">
+    <div v-else class="account-list" role="listbox" aria-label="账户">
       <div
         v-if="allRow.some(a => a.openid === ALL_ACCOUNTS)"
         class="account is-all"
         :class="rowClass(allRow.find(a => a.openid === ALL_ACCOUNTS)!)"
         role="option"
-        aria-selected="false"
-        tabindex="0"
+        :aria-selected="account.selectedAccountId === ALL_ACCOUNTS"
+        :tabindex="rowTabIndex(ALL_ACCOUNTS)"
         :data-account-id="ALL_ACCOUNTS"
         :data-tip="rowTip(allRow.find(a => a.openid === ALL_ACCOUNTS)!)"
         @click="onSelect(ALL_ACCOUNTS)"
+        @keydown="onAccountKeydown($event, ALL_ACCOUNTS)"
       >
         <span class="account-main">
           <span class="account-name">全部</span>
@@ -29,11 +30,12 @@
         class="account"
         :class="rowClass(a)"
         role="option"
-        :aria-selected="String(a.openid === account.selectedAccountId)"
-        tabindex="0"
+        :aria-selected="a.openid === account.selectedAccountId"
+        :tabindex="rowTabIndex(a.openid)"
         :data-account-id="a.openid"
         :data-tip="rowTip(a)"
         @click="onSelect(a.openid)"
+        @keydown="onAccountKeydown($event, a.openid)"
       >
         <span class="account-main">
           <span v-if="a.openid !== ALL_ACCOUNTS" class="account-grip" aria-hidden="true">
@@ -41,7 +43,7 @@
           </span>
           <input
             v-if="editingOpenid === a.openid"
-            ref="renameInputRef"
+            :ref="setRenameInputRef"
             class="account-rename-input"
             type="text"
             v-model="renameValue"
@@ -98,7 +100,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import {
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  type ComponentPublicInstance,
+} from 'vue';
 import WIcon from './WIcon.vue';
 import Sortable from 'sortablejs';
 import { useAccountStore, ALL_ACCOUNTS, type Account } from '../../stores/account.ts';
@@ -156,6 +165,10 @@ const renameValue = ref('');
 const renameInputRef = ref<HTMLInputElement | null>(null);
 let sortable: Sortable | null = null;
 
+function setRenameInputRef(element: Element | ComponentPublicInstance | null) {
+  renameInputRef.value = element instanceof HTMLInputElement ? element : null;
+}
+
 const realCount = computed(() =>
   account.realAccounts.length
 );
@@ -172,22 +185,31 @@ function accountLabel(a: Account): string {
   return account.accountLabels.get(a.openid) ?? a.openid;
 }
 
+function filteredCount(a: Account): number {
+  if (!hasActiveFilters.value) return a.openid === ALL_ACCOUNTS
+    ? account.matches.length
+    : a.matchCount;
+  // filteredAccountCounts intentionally omits zero-hit real accounts.
+  return filteredCounts.value.get(a.openid) ?? 0;
+}
+
 function countText(a: Account): string {
   if (a.openid === ALL_ACCOUNTS) {
-    const fc = filteredCounts.value.get(ALL_ACCOUNTS) ?? account.matches.length;
-    return hasActiveFilters.value ? `${fc} / ${account.matches.length}` : `${account.matches.length}`;
+    return hasActiveFilters.value
+      ? `${filteredCount(a)} / ${account.matches.length}`
+      : `${account.matches.length}`;
   }
   if (a.error) return '!';
-  const fc = filteredCounts.value.get(a.openid) ?? a.matchCount;
-  return hasActiveFilters.value ? `${fc} / ${a.matchCount}` : `${a.matchCount}`;
+  return hasActiveFilters.value ? `${filteredCount(a)} / ${a.matchCount}` : `${a.matchCount}`;
 }
 
 function rowTip(a: Account): string {
   if (a.openid === ALL_ACCOUNTS) {
-    const fc = filteredCounts.value.get(ALL_ACCOUNTS) ?? account.matches.length;
-    return hasActiveFilters.value ? `所有账户的高光\n${fc} / ${account.matches.length} 条命中` : `所有账户的高光\n${account.matches.length} 条高光`;
+    return hasActiveFilters.value
+      ? `所有账户的高光\n${filteredCount(a)} / ${account.matches.length} 条命中`
+      : `所有账户的高光\n${account.matches.length} 条高光`;
   }
-  if (a.error) return a.error;
+  if (a.error) return '账户读取失败\n请执行全量扫描重试，详细原因已写入本地日志';
   const label = accountLabel(a);
   const cnt = countText(a);
   return hasActiveFilters.value
@@ -196,19 +218,46 @@ function rowTip(a: Account): string {
 }
 
 function rowClass(a: Account): Record<string, boolean> {
-  const fc = filteredCounts.value.get(a.openid);
   return {
     'is-selected': a.openid === account.selectedAccountId,
     'is-error': !!a.error,
     'is-all': a.openid === ALL_ACCOUNTS,
     'is-editing': editingOpenid.value === a.openid,
-    'is-filter-empty': hasActiveFilters.value && (fc ?? 0) === 0 && a.openid !== account.selectedAccountId,
+    'is-filter-empty': hasActiveFilters.value && filteredCount(a) === 0 && a.openid !== account.selectedAccountId,
   };
 }
 
 function onSelect(openid: string) {
   if (editingOpenid.value) return;
   account.selectAccount(openid);
+}
+
+function rowTabIndex(openid: string): 0 | -1 {
+  const selected = account.selectedAccountId;
+  if (selected) return selected === openid ? 0 : -1;
+  return allRow.value[0]?.openid === openid ? 0 : -1;
+}
+
+function onAccountKeydown(event: KeyboardEvent, openid: string) {
+  if (event.target !== event.currentTarget || editingOpenid.value) return;
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    onSelect(openid);
+    return;
+  }
+  if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+  const rows = Array.from(
+    document.querySelectorAll<HTMLElement>('.pane.accounts .account[role="option"]'),
+  );
+  const current = rows.indexOf(event.currentTarget as HTMLElement);
+  if (current < 0 || rows.length === 0) return;
+  event.preventDefault();
+  let next = current;
+  if (event.key === 'ArrowUp') next = Math.max(0, current - 1);
+  else if (event.key === 'ArrowDown') next = Math.min(rows.length - 1, current + 1);
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = rows.length - 1;
+  rows[next]?.focus({ preventScroll: true });
 }
 
 function startRename(a: Account) {

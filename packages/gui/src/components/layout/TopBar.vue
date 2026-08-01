@@ -22,6 +22,7 @@
 </template>
 
 <script setup lang="ts">
+import { onUnmounted } from 'vue';
 import { useFilterStore } from '../../stores/filter.ts';
 
 const filter = useFilterStore();
@@ -51,6 +52,13 @@ function onQueryEscape(e: Event) {
   filter.setFilters({ query: '' });
   (e.target as HTMLInputElement).value = '';
 }
+
+onUnmounted(() => {
+  if (queryDebounceTimer !== null) {
+    clearTimeout(queryDebounceTimer);
+    queryDebounceTimer = null;
+  }
+});
 </script>
 
 <style scoped>

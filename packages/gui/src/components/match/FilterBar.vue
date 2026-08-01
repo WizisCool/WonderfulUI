@@ -9,6 +9,7 @@
           class="filter-chip"
           :class="{ 'is-active': entry.active }"
           type="button"
+          :aria-pressed="entry.active"
           :data-value="entry.value"
           :style="{ animationDelay: `${Math.min(i, 8) * 12}ms` }"
           @click="onChipClick(section.key, entry.value)"
@@ -26,6 +27,7 @@
         class="filter-chip"
         :class="{ 'is-active': preset.active }"
         type="button"
+        :aria-pressed="preset.active"
         @click="onDatePreset(preset)"
       >{{ preset.label }}</button>
     </div>
@@ -42,7 +44,8 @@
       class="filter-num-group-header"
       :class="{ 'is-active': advancedActiveCount > 0 }"
       type="button"
-      :aria-expanded="String(advancedExpanded)"
+      :aria-expanded="advancedExpanded"
+      aria-controls="advanced-performance-filters"
       @click="advancedExpanded = !advancedExpanded"
     >
       <span class="filter-num-group-chevron" aria-hidden="true">
@@ -51,50 +54,58 @@
       <span class="filter-num-group-title">表现筛选</span>
       <span class="filter-num-group-count">{{ advancedActiveCount > 0 ? advancedActiveCount : '' }}</span>
     </button>
-    <div class="filter-num-group-body" :class="{ 'is-collapsed': !advancedExpanded }">
-      <template v-for="row in advancedRows" :key="row.key">
-        <div class="filter-num-row" :data-filter-key="row.key" :class="{ 'is-active': row.active }">
-          <span class="filter-num-label">{{ row.label }}</span>
-          <input
-            class="filter-num-input"
-            :type="row.isFloat ? 'number' : (row.isSeconds || row.isBytes ? 'text' : 'number')"
-            :step="row.isFloat ? '0.1' : '1'"
-            :min="String(row.bounds[0])"
-            :max="String(row.bounds[1])"
-            :placeholder="row.placeholderLo"
-            aria-label="最小值"
-            :inputmode="row.isFloat ? 'decimal' : 'numeric'"
-            :value="row.loStr"
-            @input="onNumInput(row.key, 'lo', ($event.target as HTMLInputElement).value)"
-            @blur="onNumBlur(row.key, 'lo', ($event.target as HTMLInputElement).value)"
-            @keydown.enter="($event.target as HTMLInputElement).blur()"
-          />
-          <span class="filter-num-sep">–</span>
-          <input
-            class="filter-num-input"
-            :type="row.isFloat ? 'number' : (row.isSeconds || row.isBytes ? 'text' : 'number')"
-            :step="row.isFloat ? '0.1' : '1'"
-            :min="String(row.bounds[0])"
-            :max="String(row.bounds[1])"
-            :placeholder="row.placeholderHi"
-            aria-label="最大值"
-            :inputmode="row.isFloat ? 'decimal' : 'numeric'"
-            :value="row.hiStr"
-            @input="onNumInput(row.key, 'hi', ($event.target as HTMLInputElement).value)"
-            @blur="onNumBlur(row.key, 'hi', ($event.target as HTMLInputElement).value)"
-            @keydown.enter="($event.target as HTMLInputElement).blur()"
-          />
-          <button
-            class="filter-num-clear"
-            type="button"
-            aria-label="清除筛选"
-            title="清除"
-            @click="onNumClear(row.key)"
-          >
-            <WIcon icon="ph:x" :size="10" />
-          </button>
-        </div>
-      </template>
+    <div
+      id="advanced-performance-filters"
+      class="filter-num-group-body"
+      :class="{ 'is-collapsed': !advancedExpanded }"
+      :aria-hidden="!advancedExpanded"
+      :inert="!advancedExpanded"
+    >
+      <div class="filter-num-group-inner">
+        <template v-for="row in advancedRows" :key="row.key">
+          <div class="filter-num-row" :data-filter-key="row.key" :class="{ 'is-active': row.active }">
+            <span class="filter-num-label">{{ row.label }}</span>
+            <input
+              class="filter-num-input"
+              :type="row.isFloat ? 'number' : (row.isSeconds || row.isBytes ? 'text' : 'number')"
+              :step="row.isFloat ? '0.1' : '1'"
+              :min="String(row.bounds[0])"
+              :max="String(row.bounds[1])"
+              :placeholder="row.placeholderLo"
+              aria-label="最小值"
+              :inputmode="row.isFloat ? 'decimal' : 'numeric'"
+              :value="row.loStr"
+              @input="onNumInput(row.key, 'lo', ($event.target as HTMLInputElement).value)"
+              @blur="onNumBlur(row.key, 'lo', ($event.target as HTMLInputElement).value)"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span class="filter-num-sep">–</span>
+            <input
+              class="filter-num-input"
+              :type="row.isFloat ? 'number' : (row.isSeconds || row.isBytes ? 'text' : 'number')"
+              :step="row.isFloat ? '0.1' : '1'"
+              :min="String(row.bounds[0])"
+              :max="String(row.bounds[1])"
+              :placeholder="row.placeholderHi"
+              aria-label="最大值"
+              :inputmode="row.isFloat ? 'decimal' : 'numeric'"
+              :value="row.hiStr"
+              @input="onNumInput(row.key, 'hi', ($event.target as HTMLInputElement).value)"
+              @blur="onNumBlur(row.key, 'hi', ($event.target as HTMLInputElement).value)"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <button
+              class="filter-num-clear"
+              type="button"
+              aria-label="清除筛选"
+              title="清除"
+              @click="onNumClear(row.key)"
+            >
+              <WIcon icon="ph:x" :size="10" />
+            </button>
+          </div>
+        </template>
+      </div>
     </div>
   </section>
 </template>
@@ -259,7 +270,7 @@ const advancedRows = computed(() => {
       placeholderHi: fmtInputValue(kind, bounds[1]),
     };
   }).filter(Boolean) as Array<{
-    key: string;
+    key: RangeKey;
     label: string;
     bounds: [number, number];
     active: boolean;
@@ -530,17 +541,24 @@ function onNumClear(key: RangeKey) {
   background: var(--accent-soft);
 }
 .filter-num-group-body {
-  display: flex; flex-direction: column;
-  gap: 4px;
-  padding-top: 4px;
-  max-height: 160px;
-  overflow: hidden;
-  transition: max-height 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease-out;
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease-out;
   opacity: 1;
 }
+.filter-num-group-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 4px;
+}
 .filter-num-group-body.is-collapsed {
-  max-height: 0;
+  grid-template-rows: 0fr;
   opacity: 0;
+}
+.filter-num-group-body.is-collapsed .filter-num-group-inner {
   padding-top: 0;
 }
 

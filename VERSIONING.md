@@ -63,6 +63,8 @@ bun run version:patch
 
 并额外校验生产 updater 配置：
 
+- Release workflow 的触发 tag 必须严格等于 `v<tauri.conf.json version>`；
+  错误 tag 会在签名构建前失败，不能生成跨版本下载 URL。
 - `plugins.updater.endpoints` 含 GitHub `latest.json` HTTPS URL
 - 禁止 committed 的 `localhost` / `http://` endpoint
 - 禁止 `dangerousInsecureTransportProtocol: true`

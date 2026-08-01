@@ -69,13 +69,19 @@
           </div>
           <button
             class="stat-cell event-stat-cell"
+            :class="{ 'is-error': !!detail.roundsError }"
             type="button"
-            aria-label="打开本局事件列表"
+            :aria-label="eventButtonAriaLabel"
             :disabled="eventBtnDisabled"
-            :title="eventBtnDisabled ? (detail.roundsLoaded && eventCount === 0 ? '这场高光未携带事件数据' : '') : undefined"
-            @click="openEventList()"
+            :title="eventButtonTitle"
+            @click="onEventButtonClick"
           >
-            <template v-if="!detail.roundsLoaded">
+            <template v-if="detail.roundsError">
+              <div class="stat-icon"><WIcon icon="ph:arrows-clockwise" :size="14" /></div>
+              <div class="stat-value">重试</div>
+              <div class="stat-label">事件加载失败</div>
+            </template>
+            <template v-else-if="detail.roundsLoading || !detail.roundsLoaded">
               <div class="event-stat-spinner"><WIcon icon="ph:circle-notch" :size="14" class="spin" /></div>
               <div class="stat-value">—</div>
               <div class="stat-label">加载中…</div>
@@ -138,6 +144,7 @@
             class="moment-chip"
             :class="{ 'is-active': detail.momentFilter === type }"
             type="button"
+            :aria-pressed="detail.momentFilter === type"
             :data-type="type"
             @click="detail.setMomentFilter(type)"
           >{{ type }} × {{ momentsByType.get(type)!.length }}</button>
@@ -227,7 +234,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import WIcon from '../components/common/WIcon.vue';
 import { convertFileSrc, invoke } from '../tauri-adapter.ts';
 import { useAccountStore } from '../stores/account.ts';
@@ -251,6 +258,7 @@ const player = usePlayerStore();
 const ui = useUiStore();
 
 const route = useRoute();
+const router = useRouter();
 
 const heroFailed = ref(false);
 const modeIconFailed = ref(false);
@@ -293,8 +301,23 @@ const eventListLabel = ref('');
 
 const eventBtnDisabled = computed(() => {
   if (!match.value) return true;
+  if (detail.roundsLoading) return true;
+  if (detail.roundsError) return false;
   if (!detail.roundsLoaded) return true;
   return eventCount.value === 0;
+});
+
+const eventButtonAriaLabel = computed(() => {
+  if (detail.roundsError) return '事件数据加载失败，点击重试';
+  if (detail.roundsLoading || !detail.roundsLoaded) return '正在加载本局事件';
+  if (eventCount.value === 0) return '这场高光没有事件数据';
+  return '打开本局事件列表';
+});
+
+const eventButtonTitle = computed(() => {
+  if (detail.roundsError) return `加载事件失败：${detail.roundsError}；点击重试`;
+  if (detail.roundsLoaded && eventCount.value === 0) return '这场高光未携带事件数据';
+  return undefined;
 });
 
 const heroHue = computed(() => {
@@ -505,6 +528,14 @@ function openEventList() {
   eventListVisible.value = true;
 }
 
+function onEventButtonClick() {
+  if (detail.roundsError) {
+    void detail.fetchRounds();
+    return;
+  }
+  openEventList();
+}
+
 function onEventListClose() {
   eventListVisible.value = false;
 }
@@ -514,11 +545,19 @@ function onEventListPlay(video: VideoItem, seekMs: number) {
   player.open(video, match.value, seekMs);
 }
 
-watch(() => route.params.id, (id) => {
+watch([() => route.params.id, () => account.matches], ([id]) => {
   if (id && typeof id === 'string') {
     const m = account.matches.find(m => m.matches_id === id);
-    if (m && m.matches_id !== detail.selectedMatch?.matches_id) {
+    // Library refreshes replace match objects even when the stable match id is
+    // unchanged. Select the fresh object so detail data and round-request
+    // versions cannot remain attached to an obsolete library snapshot.
+    if (m && m !== detail.selectedMatch) {
       detail.selectMatch(m);
+    } else if (!m && detail.selectedMatch) {
+      // A full refresh can remove a match whose source video/account vanished.
+      // Do not leave an unreachable stale record visible behind an invalid URL.
+      detail.selectMatch(null);
+      void router.replace({ name: 'home' });
     }
   } else if (detail.selectedMatch) {
     // home / no id → clear selection (toggle-deselect navigates to home)
@@ -527,8 +566,14 @@ watch(() => route.params.id, (id) => {
 }, { immediate: true });
 
 watch(() => detail.selectedMatch, (m) => {
+  // Failure flags belong to one selected match. Reusing them across records
+  // hides valid bundled/local images after any earlier image failed to load.
+  heroFailed.value = false;
+  modeIconFailed.value = false;
+  videoPosterErrors.value = new Set();
+  eventListVisible.value = false;
   if (m && m.videos.length > 0 && !detail.roundsLoaded) {
-    detail.fetchRounds();
+    void detail.fetchRounds();
   }
 }, { immediate: true });
 
@@ -675,6 +720,8 @@ onUnmounted(() => {
 .event-stat-cell .stat-icon { color: var(--ink-3); }
 .event-stat-cell .stat-value { font-size: 18px; font-family: var(--font-mono); color: var(--ink); font-weight: var(--w-semibold); }
 .event-stat-cell .stat-label { font-size: 11px; color: var(--ink-3); }
+.event-stat-cell.is-error .stat-icon,
+.event-stat-cell.is-error .stat-value { color: var(--loss); }
 
 .event-stat-cell:not(:disabled)::after {
   content: '';

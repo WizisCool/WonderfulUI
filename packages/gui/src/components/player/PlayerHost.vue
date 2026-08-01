@@ -8,7 +8,7 @@
       aria-modal="true"
       aria-labelledby="player-modal-title"
       @mousemove="onModalMouseMove"
-      @keydown.tab.prevent="onTabKey"
+      @keydown.tab="onTabKey"
     >
       <h1 id="player-modal-title" class="sr-only">视频播放器</h1>
       <button class="ctrl-btn player-close-top" aria-label="关闭" @click.stop="doClose">
@@ -132,10 +132,7 @@
           :volume-muted="isMuted"
           :video="player.video"
           :match="player.matchContext"
-          :progress-fill-style="progressFillStyle"
-          :progress-thumb-style="progressThumbStyle"
           :buffered-style="bufferedStyle"
-          :progress-wrap-ref="progressWrapRef"
           @play-pause="togglePlay"
           @seek="onControlsSeek"
           @seek-start="onSeekStart"
@@ -287,11 +284,14 @@ import PlayerControls from './PlayerControls.vue';
 import ShareModal from '../share/ShareModal.vue';
 import { SHARE_ICON } from '../../share/icons.ts';
 import type { VideoItem } from '@wonderful-ui/parser';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { trapDialogTab } from '../../utils/dialog-focus.ts';
 
 const player = usePlayerStore();
 const ui = useUiStore();
 
 const closing = ref(false);
+let playerCloseTimer: ReturnType<typeof setTimeout> | null = null;
 const shareOpen = ref(false);
 const videoRef = ref<HTMLVideoElement | null>(null);
 const freezeCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -299,7 +299,6 @@ const freezeCanvasRef = ref<HTMLCanvasElement | null>(null);
 const freezeFrameActive = ref(false);
 const modalRef = ref<HTMLElement | null>(null);
 const controlsRef = ref<InstanceType<typeof PlayerControls> | null>(null);
-const progressWrapRef = ref<HTMLElement | null>(null);
 
 // Focus management for the player dialog.
 // restoreFocusEl remembers which element opened the player so we can return
@@ -315,18 +314,7 @@ function getModalFocusables(): HTMLElement[] {
 }
 
 function onTabKey(e: KeyboardEvent) {
-  const focusables = getModalFocusables();
-  if (focusables.length === 0) return;
-  const first = focusables[0]!;
-  const last = focusables[focusables.length - 1]!;
-  const active = document.activeElement as HTMLElement | null;
-  if (e.shiftKey && active === first) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && active === last) {
-    e.preventDefault();
-    first.focus();
-  }
+  trapDialogTab(e, modalRef.value);
 }
 
 const state = ref<PlayerState>('loading');
@@ -367,26 +355,19 @@ watch(() => player.isOpen, (open) => {
   if (open) {
     // Remember what had focus so we can restore it on close.
     restoreFocusEl = (document.activeElement as HTMLElement | null) ?? null;
-    state.value = 'loading';
-    bufferingMode.value = 'hidden';
-    stateBeforeSeek = null;
-    lastSeekTime = 0;
-    clearBufferingTimer();
-    currentTime.value = 0;
-    duration.value = 0;
-    lastBufferedPct.value = 0;
-    seeked = false;
-    framePanelOpen.value = false;
     // Move focus into the dialog once Vue has rendered it.
     nextTick(() => {
       const focusables = getModalFocusables();
       const target = focusables[0] ?? modalRef.value;
       target?.focus();
     });
-  } else if (restoreFocusEl && document.contains(restoreFocusEl)) {
-    // Restore focus to the element that opened the player.
-    restoreFocusEl.focus();
-    restoreFocusEl = null;
+  } else {
+    resetPlaybackSession(null);
+    if (restoreFocusEl && document.contains(restoreFocusEl)) {
+      // Restore focus to the element that opened the player.
+      restoreFocusEl.focus();
+      restoreFocusEl = null;
+    }
   }
 });
 
@@ -424,22 +405,10 @@ const posterSrc = computed(() => {
 });
 
 const videoPath = computed(() => player.video?.video_src ?? '');
+let activePlaybackPath = player.isOpen ? (player.video?.video_src?.trim() ?? '') : '';
 
 const currentTimeStr = computed(() => fmtTime(currentTime.value));
 const durationStr = computed(() => fmtTime(duration.value));
-
-const progressFillPct = computed(() =>
-  duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0
-);
-
-const progressFillStyle = computed(() => ({
-  transform: `scaleX(${progressFillPct.value / 100})`,
-}));
-
-const progressThumbStyle = computed(() => ({
-  left: `${progressFillPct.value}%`,
-  transform: 'translate(-50%, -50%)',
-}));
 
 const bufferedStyle = computed(() => ({
   transform: `scaleX(${lastBufferedPct.value / 100})`,
@@ -498,6 +467,8 @@ const submenuFlipLeft = ref(false);
 const frameReady = ref(false);
 /** Re-entry guard for copy/save screenshot jobs. */
 let screenshotBusy = false;
+/** Invalidates async screenshot continuations on close or replacement. */
+let screenshotJobGeneration = 0;
 /** While true: real pause + freeze; block autoplay/hotkeys; pin scrubber. */
 let screenshotHold = false;
 /** Progress overlay kind (null = hidden). */
@@ -505,6 +476,57 @@ const screenshotUi = ref<'copy' | 'save' | null>(null);
 const screenshotUiLabel = computed(() =>
   screenshotUi.value === 'save' ? '正在保存截图…' : '正在复制截图…',
 );
+
+interface ScreenshotJob {
+  generation: number;
+  playerSession: number;
+  video: VideoItem;
+  videoElement: HTMLVideoElement;
+  path: string;
+}
+
+function beginScreenshotJob(): ScreenshotJob | null {
+  if (screenshotBusy) return null;
+  const video = player.video;
+  const videoElement = videoRef.value;
+  const path = video?.video_src?.trim();
+  if (!video || !videoElement || !path || !player.isOpen) return null;
+  screenshotBusy = true;
+  return {
+    generation: ++screenshotJobGeneration,
+    playerSession: player.sessionSeq,
+    video,
+    videoElement,
+    path,
+  };
+}
+
+function isScreenshotJobCurrent(job: ScreenshotJob): boolean {
+  return (
+    job.generation === screenshotJobGeneration
+    && job.playerSession === player.sessionSeq
+    && player.isOpen
+    && player.video === job.video
+    && videoRef.value === job.videoElement
+    && videoPath.value.trim() === job.path
+  );
+}
+
+function invalidateScreenshotJob(): void {
+  screenshotJobGeneration += 1;
+  screenshotBusy = false;
+  screenshotHold = false;
+  screenshotUi.value = null;
+  clearDisplayFreeze();
+}
+
+function finishScreenshotJob(job: ScreenshotJob): void {
+  if (!isScreenshotJobCurrent(job)) return;
+  screenshotUi.value = null;
+  screenshotBusy = false;
+  screenshotHold = false;
+  clearDisplayFreeze();
+}
 
 function captureTimeMs(): number {
   const v = videoRef.value;
@@ -672,9 +694,7 @@ function updateSubmenuFlip() {
   submenuFlipLeft.value = pr.right + 2 + fw > window.innerWidth - 8;
 }
 
-async function captureFrameAt(timeMs: number): Promise<Blob> {
-  const path = videoPath.value?.trim();
-  if (!path) throw new Error('视频路径不可用');
+async function captureFrameAt(path: string, timeMs: number): Promise<Blob> {
   const b64 = await invoke<string>('capture_video_frame', { path, timeMs });
   if (!b64?.length) throw new Error('截图结果为空');
   return base64PngToBlob(b64);
@@ -693,10 +713,9 @@ function forceVideoPaused() {
   bufferingMode.value = 'hidden';
 }
 
-function applyDisplayFreeze() {
-  const v = videoRef.value;
+function applyDisplayFreeze(v: HTMLVideoElement) {
   const canvas = freezeCanvasRef.value;
-  if (v && canvas) paintVideoFrameToCanvas(v, canvas);
+  if (canvas) paintVideoFrameToCanvas(v, canvas);
   freezeFrameActive.value = true;
 }
 
@@ -706,9 +725,9 @@ function clearDisplayFreeze() {
 }
 
 /** Pause + pin scrubber + stage freeze. Returns whether to resume after. */
-async function holdPlaybackForScreenshot(timeSec: number): Promise<boolean> {
-  const v = videoRef.value;
-  if (!v) return false;
+async function holdPlaybackForScreenshot(job: ScreenshotJob, timeSec: number): Promise<boolean | null> {
+  if (!isScreenshotJobCurrent(job)) return null;
+  const v = job.videoElement;
 
   const wasPlaying =
     state.value === 'playing'
@@ -730,18 +749,22 @@ async function holdPlaybackForScreenshot(timeSec: number): Promise<boolean> {
     } catch {
       /* best-effort */
     }
+    if (!isScreenshotJobCurrent(job)) return null;
     forceVideoPaused();
     currentTime.value = target;
   }
 
-  applyDisplayFreeze();
+  if (!isScreenshotJobCurrent(job)) return null;
+  applyDisplayFreeze(v);
   await flushPlayerPaint();
+  if (!isScreenshotJobCurrent(job)) return null;
   forceVideoPaused();
   showControls();
   return wasPlaying;
 }
 
-function releaseScreenshotHold(resume: boolean) {
+function releaseScreenshotHold(job: ScreenshotJob, resume: boolean) {
+  if (!isScreenshotJobCurrent(job)) return;
   screenshotHold = false;
   clearDisplayFreeze();
   if (!resume) {
@@ -749,75 +772,84 @@ function releaseScreenshotHold(resume: boolean) {
     showControls();
     return;
   }
-  const v = videoRef.value;
+  const v = job.videoElement;
   if (!v || state.value === 'ended' || state.value === 'error') return;
   v.play().catch(() => {});
 }
 
 async function copyScreenshot() {
-  if (screenshotBusy) return;
-  screenshotBusy = true;
+  const job = beginScreenshotJob();
+  if (!job) return;
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
   closeCtxMenu({ swallowClickThrough: true });
   let resume = false;
   try {
-    resume = await holdPlaybackForScreenshot(timeSec);
+    const held = await holdPlaybackForScreenshot(job, timeSec);
+    if (held === null) return;
+    resume = held;
     screenshotUi.value = 'copy';
     await flushPlayerPaint();
-    const blob = await captureFrameAt(timeMs);
+    if (!isScreenshotJobCurrent(job)) return;
+    const blob = await captureFrameAt(job.path, timeMs);
+    if (!isScreenshotJobCurrent(job)) return;
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
       throw new Error('当前环境不支持复制图片');
     }
     await navigator.clipboard.write([
       new ClipboardItem({ 'image/png': Promise.resolve(blob) }),
     ]);
+    if (!isScreenshotJobCurrent(job)) return;
     ui.showToast('已复制截图');
-    releaseScreenshotHold(resume);
+    releaseScreenshotHold(job, resume);
   } catch (e) {
-    ui.showToast(formatCaptureError(e, 'copy'), 'error');
-    releaseScreenshotHold(false);
+    if (isScreenshotJobCurrent(job)) {
+      ui.showToast(formatCaptureError(e, 'copy'), 'error');
+      releaseScreenshotHold(job, false);
+    }
   } finally {
-    screenshotUi.value = null;
-    screenshotBusy = false;
-    screenshotHold = false;
-    clearDisplayFreeze();
+    finishScreenshotJob(job);
   }
 }
 
 async function saveScreenshot() {
-  if (screenshotBusy) return;
-  screenshotBusy = true;
+  const job = beginScreenshotJob();
+  if (!job) return;
   const timeMs = captureTimeMs();
   const timeSec = timeMs / 1000;
   closeCtxMenu({ swallowClickThrough: true });
   let resume = false;
   try {
-    resume = await holdPlaybackForScreenshot(timeSec);
+    const held = await holdPlaybackForScreenshot(job, timeSec);
+    if (held === null) return;
+    resume = held;
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const outPath = await save({
-      defaultPath: defaultScreenshotName(videoPath.value, timeSec),
+      defaultPath: defaultScreenshotName(job.path, timeSec),
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
+    if (!isScreenshotJobCurrent(job)) return;
     if (!outPath) {
-      releaseScreenshotHold(resume);
+      releaseScreenshotHold(job, resume);
       return;
     }
     screenshotUi.value = 'save';
     await flushPlayerPaint();
-    const blob = await captureFrameAt(timeMs);
+    if (!isScreenshotJobCurrent(job)) return;
+    const blob = await captureFrameAt(job.path, timeMs);
+    if (!isScreenshotJobCurrent(job)) return;
     await writeFile(outPath, await blobToUint8Array(blob));
+    if (!isScreenshotJobCurrent(job)) return;
     ui.showToast('已保存');
-    releaseScreenshotHold(resume);
+    releaseScreenshotHold(job, resume);
   } catch (e) {
-    ui.showToast(formatCaptureError(e, 'save'), 'error');
-    releaseScreenshotHold(false);
+    if (isScreenshotJobCurrent(job)) {
+      ui.showToast(formatCaptureError(e, 'save'), 'error');
+      releaseScreenshotHold(job, false);
+    }
   } finally {
-    screenshotUi.value = null;
-    screenshotBusy = false;
-    screenshotHold = false;
-    clearDisplayFreeze();
+    finishScreenshotJob(job);
   }
 }
 
@@ -1042,9 +1074,62 @@ function onCtxMenuKeydown(e: KeyboardEvent) {
   }
 }
 
-// Close menu when the open video changes (seek context / next clip).
-watch(() => player.video?.video_id, () => {
-  if (ctxMenu.value) closeCtxMenu();
+function resetPlaybackSession(video: VideoItem | null): void {
+  const nextPath = video?.video_src?.trim() ?? '';
+  const canReuseLoadedMedia = !!nextPath && nextPath === activePlaybackPath;
+  activePlaybackPath = nextPath;
+  invalidateScreenshotJob();
+  stopFrameHold();
+  clearHideTimer();
+  clearBufferingTimer();
+  state.value = 'loading';
+  bufferingMode.value = 'hidden';
+  stateBeforeSeek = null;
+  lastSeekTime = 0;
+  currentTime.value = 0;
+  duration.value = 0;
+  lastBufferedPct.value = 0;
+  isDragging.value = false;
+  seeked = false;
+  framePanelOpen.value = false;
+  frameReady.value = false;
+  shareOpen.value = false;
+  fpsMeasureGeneration += 1;
+  fpsMeasured = false;
+  const declaredFps = Number(video?.video_fps);
+  fps = Number.isFinite(declaredFps) && declaredFps > 0 ? declaredFps : 60;
+
+  if (playerCloseTimer) {
+    clearTimeout(playerCloseTimer);
+    playerCloseTimer = null;
+  }
+  closing.value = false;
+  unbindCtxMenuListeners();
+  if (ctxMenuCloseTimer) {
+    clearTimeout(ctxMenuCloseTimer);
+    ctxMenuCloseTimer = null;
+  }
+  ctxMenu.value = false;
+  ctxMenuClosing.value = false;
+  closeSubmenu();
+
+  if (!video || !canReuseLoadedMedia) return;
+  const session = player.sessionSeq;
+  nextTick(() => {
+    if (!player.isOpen || player.sessionSeq !== session) return;
+    const element = videoRef.value;
+    if (!element || element.readyState < 1) return;
+    duration.value = element.duration || 0;
+    refreshFrameReady();
+    applyPendingSeek(element);
+    onCanPlay();
+  });
+}
+
+// Every store open() is a new session, including re-opening the same video at
+// another event timestamp. The persistent host must reset all media state.
+watch(() => player.sessionSeq, () => {
+  if (player.isOpen) resetPlaybackSession(player.video);
 });
 
 function fmtTime(sec: number): string {
@@ -1058,9 +1143,10 @@ function fmtTime(sec: number): string {
 
 function loadVolume() {
   try {
-    const v = localStorage.getItem(LS_VOL);
+    const stored = localStorage.getItem(LS_VOL);
     const m = localStorage.getItem(LS_MUTED);
-    volLevel.value = Math.max(0, Math.min(100, Number(v) || 100));
+    const parsed = stored === null || stored.trim() === '' ? Number.NaN : Number(stored);
+    volLevel.value = normalizeVolumeLevel(parsed) ?? 100;
     isMuted.value = m === '1';
     preMuteVol = volLevel.value;
   } catch {
@@ -1068,6 +1154,11 @@ function loadVolume() {
     isMuted.value = false;
     preMuteVol = 100;
   }
+}
+
+function normalizeVolumeLevel(level: number): number | null {
+  if (!Number.isFinite(level)) return null;
+  return Math.max(0, Math.min(100, level));
 }
 
 function saveVolume() {
@@ -1088,9 +1179,11 @@ function applyVolumeToVideo() {
 }
 
 function setVolume(level: number) {
-  volLevel.value = level;
+  const normalized = normalizeVolumeLevel(level);
+  if (normalized === null) return;
+  volLevel.value = normalized;
   isMuted.value = false;
-  preMuteVol = level;
+  preMuteVol = normalized;
   applyVolumeToVideo();
   saveVolume();
 }
@@ -1149,6 +1242,7 @@ watch(showFrameStepper, (show) => {
 });
 
 function doClose() {
+  if (closing.value) return;
   stopFrameHold();
   if (ctxMenu.value) {
     // Force-hide without waiting for exit anim — the whole player is leaving.
@@ -1160,12 +1254,16 @@ function doClose() {
     ctxMenu.value = false;
     ctxMenuClosing.value = false;
   }
+  const closingSession = player.sessionSeq;
   closing.value = true;
-  setTimeout(() => {
+  playerCloseTimer = setTimeout(() => {
     clearHideTimer();
     clearBufferingTimer();
-    player.close();
+    // A new video may be opened programmatically while the exit animation is
+    // running. The old timer must never close that replacement session.
+    if (player.sessionSeq === closingSession) player.close();
     closing.value = false;
+    playerCloseTimer = null;
   }, 200);
 }
 
@@ -1326,9 +1424,13 @@ function onSeekEnd() {
   isDragging.value = false;
 }
 
-function measureFps(v: HTMLVideoElement) {
+let fpsMeasureGeneration = 0;
+
+function measureFps(v: HTMLVideoElement, generation: number) {
+  if (typeof v.requestVideoFrameCallback !== 'function') return;
   let lastMediaTime = -1;
   const cb = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+    if (generation !== fpsMeasureGeneration || v !== videoRef.value) return;
     if (lastMediaTime >= 0 && metadata.mediaTime > lastMediaTime) {
       const interval = metadata.mediaTime - lastMediaTime;
       if (interval > 0.001) {
@@ -1344,6 +1446,14 @@ function measureFps(v: HTMLVideoElement) {
 
 let fpsMeasured = false;
 
+function applyPendingSeek(v: HTMLVideoElement): void {
+  if (player.seekMs === undefined || seeked) return;
+  const clampedMs = clampSeekMsForDuration(player.seekMs, v.duration);
+  v.currentTime = clampedMs / 1000;
+  currentTime.value = v.currentTime;
+  seeked = true;
+}
+
 function onLoadedMeta() {
   const v = videoRef.value;
   if (!v) return;
@@ -1356,11 +1466,7 @@ function onLoadedMeta() {
   currentTime.value = 0;
   duration.value = v.duration || 0;
   refreshFrameReady();
-  if (player.seekMs !== undefined && !seeked) {
-    const clampedMs = clampSeekMsForDuration(player.seekMs, v.duration);
-    v.currentTime = clampedMs / 1000;
-    seeked = true;
-  }
+  applyPendingSeek(v);
 }
 
 function onCanPlay() {
@@ -1394,7 +1500,11 @@ function onPlay() {
   state.value = 'playing';
   bufferingMode.value = 'hidden';
   scheduleHide();
-  if (!fpsMeasured) { fpsMeasured = true; const v = videoRef.value; if (v) measureFps(v); }
+  if (!fpsMeasured) {
+    fpsMeasured = true;
+    const v = videoRef.value;
+    if (v) measureFps(v, fpsMeasureGeneration);
+  }
 }
 
 function onPause() {
@@ -1491,6 +1601,10 @@ function onKeydown(e: KeyboardEvent) {
   // AGENTS.md: only handle keys while the player is actually open; otherwise
   // a stale listener can swallow events from the underlying app.
   if (!player.isOpen) return;
+  // This listener is mounted before later settings/update/share dialogs.
+  // Registration order must not let hidden player hotkeys reach through a
+  // visually higher modal.
+  if (!ownsTopModalLayer('player')) return;
   // Context menu owns Escape / arrows while open (stopPropagation on its
   // capture listener). Still early-return here as a second guard.
   if (ctxMenu.value && !ctxMenuClosing.value) {
@@ -1504,21 +1618,22 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
   }
-  const tag = (e.target as HTMLElement)?.tagName;
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  const tag = target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   // The progress slider handles its own arrow / page / home / end keys
   // (WAI-ARIA slider pattern). Skip those here to avoid double-seek.
-  const target = e.target as HTMLElement | null;
   if (target?.closest('.player-progress-wrap')) {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') return;
   }
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   // Pointer hold owns continuous frame stepping. Any player hotkey yields
   // ownership so keyboard seeks / play do not race the seeked hold loop.
   if (frameHoldActive || frameHoldDelay != null) {
     stopFrameHold();
   }
   // J/K tips on ±1 must not stick after keyboard steps (cursor may still hover).
-  if (e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') {
+  if (key === 'j' || key === 'k') {
     document.dispatchEvent(new CustomEvent('wui:tooltip-hide'));
   }
   // Frame-step buttons are mouse-only (tabindex=-1). If focus somehow lands
@@ -1534,18 +1649,18 @@ function onKeydown(e: KeyboardEvent) {
   // Screenshot save hold: no play/seek hotkeys while frozen on the capture frame.
   if (screenshotHold || screenshotUi.value) {
     if (
-      e.key === ' '
-      || e.key === 'k' || e.key === 'K'
-      || e.key === 'j' || e.key === 'J'
-      || e.key === 'l' || e.key === 'L'
-      || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+      key === ' '
+      || key === 'k'
+      || key === 'j'
+      || key === 'l'
+      || key === 'ArrowLeft' || key === 'ArrowRight'
     ) {
       e.preventDefault();
     }
     return;
   }
 
-  switch (e.key) {
+  switch (key) {
     case ' ':
       e.preventDefault();
       togglePlay();
@@ -1585,7 +1700,6 @@ function onKeydown(e: KeyboardEvent) {
       e.preventDefault();
       toggleMute();
       break;
-    case 'F':
     case 'f':
       e.preventDefault();
       toggleFullscreen();
@@ -1635,11 +1749,14 @@ onUnmounted(() => {
     clearTimeout(ctxMenuCloseTimer);
     ctxMenuCloseTimer = null;
   }
+  if (playerCloseTimer) {
+    clearTimeout(playerCloseTimer);
+    playerCloseTimer = null;
+  }
   clearHideTimer();
   clearBufferingTimer();
   stopFrameHold();
-  screenshotHold = false;
-  clearDisplayFreeze();
+  invalidateScreenshotJob();
 });
 </script>
 

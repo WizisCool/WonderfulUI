@@ -2,7 +2,7 @@
 //!
 //! 启动时随机监听一个空闲端口、生成 256-bit token、起一个 tiny_http
 //! 实例在独立线程跑。每收到一个匹配 token 的 GET 请求：
-//! 1. 检查路径前缀是 `/w/<token>`；
+//! 1. 检查路径精确匹配 `/w/<token>`；
 //! 2. 检查 Host header 命中本机 IP（防 DNS rebinding）；
 //! 3. 阻塞 8KB 块流式读取视频文件 → HTTP 200 + Content-Disposition: attachment；
 //! 4. 通过 Tauri 事件 `wui://share_downloaded` 通知前端。
@@ -12,9 +12,10 @@
 //! 启动/停止通过 Tauri state 持有（`ShareServerHandle`），命令通过
 //! `app.state::<ShareServerState>()` 拿。
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -24,14 +25,21 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use rand::RngCore;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::lan_ip;
+
+const CANCELLED_SESSION_TTL: Duration = Duration::from_secs(60);
+const MAX_CANCELLED_SESSIONS: usize = 128;
 
 /// 启动 server 后返回给前端的"拨号盘"信息。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareServerInfo {
+    /// Frontend-generated UUID identity. Events and stop requests carry it so
+    /// an old server cannot mutate a replacement server's UI, including after
+    /// a WebView reload inside the same Tauri process.
+    pub session_id: String,
     pub port: u16,
     pub token: String,
     pub url: String,
@@ -70,6 +78,10 @@ struct Inner {
 
 pub struct ShareServerState {
     inner: Mutex<Option<Inner>>,
+    /// A stop can arrive before its start command publishes `inner`. Remember
+    /// that session so the late start closes only itself instead of replacing
+    /// a newer server.
+    cancelled_sessions: Mutex<HashMap<String, Instant>>,
     /// 空闲超时
     idle_timeout: Duration,
 }
@@ -78,6 +90,7 @@ impl ShareServerState {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(None),
+            cancelled_sessions: Mutex::new(HashMap::new()),
             idle_timeout: Duration::from_secs(3 * 60), // 3 分钟
         }
     }
@@ -89,17 +102,17 @@ impl Default for ShareServerState {
     }
 }
 
-/// 找一个空闲端口。
-fn pick_free_port() -> Result<u16, String> {
-    use std::net::TcpListener;
-    let listener = TcpListener::bind("0.0.0.0:0")
-        .map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("local_addr: {e}"))?
+/// Bind once to an OS-assigned port. Returning the live server avoids the
+/// check-then-bind race of probing a port and reopening it in another thread.
+fn bind_server() -> Result<(tiny_http::Server, u16), String> {
+    let server =
+        tiny_http::Server::http(("0.0.0.0", 0)).map_err(|e| format!("bind 0.0.0.0:0: {e}"))?;
+    let port = server
+        .server_addr()
+        .to_ip()
+        .ok_or_else(|| "share server did not bind an IP socket".to_string())?
         .port();
-    drop(listener);
-    Ok(port)
+    Ok((server, port))
 }
 
 /// 生成 256-bit base64url token（URL 安全，43 字符）。
@@ -172,25 +185,13 @@ pub fn start_server(
     app: &AppHandle,
     state: &ShareServerState,
     video_path: PathBuf,
+    session_id: String,
 ) -> Result<ShareServerInfo, String> {
     crate::app_log::write(
         crate::app_log::LogLevel::Info,
         "share",
         format!("start requested: path={}", video_path.display()),
     );
-    // 如果已经有 server 在跑，先停掉旧的（防止双 server 冲突）
-    {
-        let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
-        if let Some(old) = guard.take() {
-            crate::app_log::write(
-                crate::app_log::LogLevel::Info,
-                "share",
-                "replacing existing server",
-            );
-            let _ = old.stop_tx.send(());
-        }
-    }
-
     if !video_path.exists() {
         crate::app_log::write(
             crate::app_log::LogLevel::Error,
@@ -208,12 +209,20 @@ pub fn start_server(
         .unwrap_or("video.mp4")
         .to_string();
 
-    let port = pick_free_port().map_err(|e| {
-        crate::app_log::write(crate::app_log::LogLevel::Error, "share", format!("port pick: {e}"));
+    let (server, port) = bind_server().map_err(|e| {
+        crate::app_log::write(
+            crate::app_log::LogLevel::Error,
+            "share",
+            format!("server bind: {e}"),
+        );
         e
     })?;
     let token = make_token();
-    let lan_ip = lan_ip::detect_lan_ipv4().unwrap_or_else(|| "127.0.0.1".to_string());
+    let lan_ip = lan_ip::detect_lan_ipv4()
+        .ok_or_else(|| "未检测到可供其他设备访问的局域网 IPv4 地址".to_string())?;
+    let lan_ip_v4: Ipv4Addr = lan_ip
+        .parse()
+        .map_err(|_| "检测到的局域网 IPv4 地址无效".to_string())?;
     let url = format!("http://{}:{}/w/{}", lan_ip, port, token);
 
     let qr_svg = make_qr_svg(&url);
@@ -232,6 +241,7 @@ pub fn start_server(
     let app_for_thread = app.clone();
     let path_for_thread = video_path.clone();
     let token_for_thread = token.clone();
+    let session_for_thread = session_id.clone();
     let name_for_thread = video_name.clone();
     let downloads_for_thread = downloads.clone();
     let last_request_for_thread = last_request.clone();
@@ -244,8 +254,8 @@ pub fn start_server(
     thread::Builder::new()
         .name("wui-share-server".into())
         .spawn(move || {
-            if let Err(e) = run_server(
-                port,
+            let result = run_server(
+                server,
                 &path_for_thread,
                 &token_for_thread,
                 &name_for_thread,
@@ -254,26 +264,44 @@ pub fn start_server(
                 downloads_for_thread,
                 last_request_for_thread,
                 idle_timeout,
-            ) {
-                crate::app_log::write(
-                    crate::app_log::LogLevel::Error,
-                    "share",
-                    format!("server thread exited with error: {e}"),
-                );
-                let _ = app_for_thread.emit(
-                    "wui://share_server_stopped",
-                    serde_json::json!({ "reason": "error", "message": e }),
-                );
-            } else {
-                crate::app_log::write(
-                    crate::app_log::LogLevel::Info,
-                    "share",
-                    "server thread exited normally",
-                );
-                let _ = app_for_thread.emit(
-                    "wui://share_server_stopped",
-                    serde_json::json!({ "reason": "stopped" }),
-                );
+                lan_ip_v4,
+                port,
+                &session_for_thread,
+            );
+            clear_server_if_session(
+                &app_for_thread.state::<ShareServerState>(),
+                &session_for_thread,
+            );
+            match result {
+                Err(e) => {
+                    crate::app_log::write(
+                        crate::app_log::LogLevel::Error,
+                        "share",
+                        format!("server thread exited with error: {e}"),
+                    );
+                    let _ = app_for_thread.emit(
+                        "wui://share_server_stopped",
+                        serde_json::json!({
+                            "sessionId": session_for_thread,
+                            "reason": "error",
+                            "message": e,
+                        }),
+                    );
+                }
+                Ok(reason) => {
+                    crate::app_log::write(
+                        crate::app_log::LogLevel::Info,
+                        "share",
+                        format!("server thread exited: {}", reason.as_str()),
+                    );
+                    let _ = app_for_thread.emit(
+                        "wui://share_server_stopped",
+                        serde_json::json!({
+                            "sessionId": session_for_thread,
+                            "reason": reason.as_str(),
+                        }),
+                    );
+                }
             }
         })
         .map_err(|e| {
@@ -285,6 +313,7 @@ pub fn start_server(
             format!("spawn server thread: {e}")
         })?;
     let info = ShareServerInfo {
+        session_id: session_id.clone(),
         port,
         token,
         url,
@@ -297,7 +326,27 @@ pub fn start_server(
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
+    // Publication and cancellation share a lock order. stop(session_id) can
+    // arrive while bind/thread startup is in flight; if so, this new thread is
+    // stopped without ever replacing the current server.
+    let mut cancelled = state
+        .cancelled_sessions
+        .lock()
+        .map_err(|e| format!("lock cancelled sessions: {e}"))?;
+    prune_cancelled_sessions(&mut cancelled);
+    if cancelled.remove(&session_id).is_some() {
+        let _ = stop_tx.send(());
+        return Err("快传启动已取消".to_string());
+    }
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
+    if let Some(old) = guard.take() {
+        crate::app_log::write(
+            crate::app_log::LogLevel::Info,
+            "share",
+            "replacing existing server",
+        );
+        let _ = old.stop_tx.send(());
+    }
     *guard = Some(Inner {
         info: info.clone(),
         stop_tx,
@@ -307,9 +356,24 @@ pub fn start_server(
     Ok(info)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ServerStopReason {
+    Stopped,
+    IdleTimeout,
+}
+
+impl ServerStopReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Stopped => "stopped",
+            Self::IdleTimeout => "idle_timeout",
+        }
+    }
+}
+
 fn run_server(
-    port: u16,
-    video_path: &PathBuf,
+    server: tiny_http::Server,
+    video_path: &Path,
     token: &str,
     video_name: &str,
     app: &AppHandle,
@@ -317,45 +381,12 @@ fn run_server(
     downloads: Arc<AtomicU64>,
     last_request: Arc<Mutex<Instant>>,
     idle_timeout: Duration,
-) -> Result<(), String> {
-    let server = tiny_http::Server::http(("0.0.0.0", port))
-        .map_err(|e| format!("bind 0.0.0.0:{port}: {e}"))?;
-
-    // 鉴权辅助：检查 Host header 是不是本机
-    let lan_ip_v4: Option<Ipv4Addr> = lan_ip::detect_lan_ipv4()
-        .and_then(|s| s.parse().ok());
-
-    // 期望的 path 前缀
+    lan_ip_v4: Ipv4Addr,
+    port: u16,
+    session_id: &str,
+) -> Result<ServerStopReason, String> {
+    // 期望的精确 path
     let expected_prefix = format!("/w/{token}");
-
-    // tiny_http 0.12 的 Server 阻塞在 recv() 上，且没有 try_recv(timeout)。
-    // 把 recv 放到一个独立线程，主循环靠 stop_rx 的 try_recv
-    // 1ms 轮询 + 空闲超时检查。请求通过 crossbeam-style 通道传过来。
-    let (req_tx, req_rx) = channel::<tiny_http::Request>();
-    let server_path = expected_prefix.clone();
-    let server_lan_ip = lan_ip_v4;
-    let server_app = app.clone();
-    let server_downloads = downloads.clone();
-    let server_last_request = last_request.clone();
-    let server_video_path = video_path.clone();
-    let server_video_name = video_name.to_string();
-
-    let accept_thread = thread::Builder::new()
-        .name("wui-share-accept".into())
-        .spawn(move || {
-            loop {
-                let req = match server.recv() {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-                if req_tx.send(req).is_err() {
-                    return;
-                }
-            }
-        })
-        .map_err(|e| format!("spawn accept thread: {e}"))?;
-
-    let server_stop_rx = stop_rx;
 
     loop {
         // 空闲超时检查
@@ -370,61 +401,78 @@ fn run_server(
                         last.elapsed().as_secs()
                     ),
                 );
-                break; // 优雅退出
+                return Ok(ServerStopReason::IdleTimeout);
             }
         }
 
         // 短轮询：看用户是否手动关
-        match server_stop_rx.try_recv() {
-            Ok(()) => break,
+        match stop_rx.try_recv() {
+            Ok(()) => return Ok(ServerStopReason::Stopped),
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Ok(ServerStopReason::Stopped);
+            }
         }
 
-        // 看 accept 线程是否送来新请求
-        match req_rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(req) => {
+        // tiny_http 0.12 supports a bounded receive directly. This keeps stop
+        // latency below 200 ms without a second thread blocked forever in recv().
+        match server.recv_timeout(Duration::from_millis(200)) {
+            Ok(Some(req)) => {
                 handle_request(
                     req,
-                    &server_path,
-                    server_lan_ip,
-                    &server_video_path,
-                    &server_video_name,
-                    &server_app,
-                    &server_downloads,
-                    &server_last_request,
+                    &expected_prefix,
+                    lan_ip_v4,
+                    port,
+                    video_path,
+                    video_name,
+                    app,
+                    &downloads,
+                    &last_request,
+                    session_id,
                 );
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                continue;
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(None) => continue,
+            Err(e) => return Err(format!("receive request: {e}")),
         }
     }
+}
 
-    // 让 accept 线程自然退出（recv 失败时它就 return）
-    drop(req_rx);
-    let _ = accept_thread.join();
-    Ok(())
+fn request_path_matches(url: &str, expected_path: &str) -> bool {
+    url.split_once('?').map_or(url, |(path, _)| path) == expected_path
+}
+
+fn host_header_matches(value: &str, lan_ip: Ipv4Addr, port: u16) -> bool {
+    let authority = value.trim();
+    if authority.is_empty() || authority.contains(['/', '@']) || authority.contains("://") {
+        return false;
+    }
+    let mut parts = authority.split(':');
+    let host = parts.next().unwrap_or_default();
+    let header_port = match parts.next() {
+        Some(raw) => match raw.parse::<u16>() {
+            Ok(value) => Some(value),
+            Err(_) => return false,
+        },
+        None => None,
+    };
+    if parts.next().is_some() || header_port.is_some_and(|value| value != port) {
+        return false;
+    }
+    host == "localhost" || host == "127.0.0.1" || host == lan_ip.to_string()
 }
 
 fn handle_request(
     req: tiny_http::Request,
     expected_prefix: &str,
-    lan_ip_v4: Option<Ipv4Addr>,
-    video_path: &PathBuf,
+    lan_ip_v4: Ipv4Addr,
+    port: u16,
+    video_path: &Path,
     video_name: &str,
     app: &AppHandle,
     downloads: &Arc<AtomicU64>,
     last_request: &Arc<Mutex<Instant>>,
+    session_id: &str,
 ) {
-    // 更新 last_request
-    {
-        if let Ok(mut last) = last_request.lock() {
-            *last = Instant::now();
-        }
-    }
-
     // 非 GET 方法 → 405
     if *req.method() != tiny_http::Method::Get {
         crate::app_log::write(
@@ -432,24 +480,19 @@ fn handle_request(
             "share",
             format!("method not allowed: {} {}", req.method(), req.url()),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("method not allowed")
-                .with_status_code(405),
-        );
+        let _ = req
+            .respond(tiny_http::Response::from_string("method not allowed").with_status_code(405));
         return;
     }
 
     // 路径检查
-    if !req.url().starts_with(expected_prefix) {
+    if !request_path_matches(req.url(), expected_prefix) {
         crate::app_log::write(
             crate::app_log::LogLevel::Warn,
             "share",
             format!("path mismatch: {}", req.url()),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("not found")
-                .with_status_code(404),
-        );
+        let _ = req.respond(tiny_http::Response::from_string("not found").with_status_code(404));
         return;
     }
 
@@ -458,13 +501,7 @@ fn handle_request(
         .headers()
         .iter()
         .find(|h| h.field.equiv("Host"))
-        .map(|h| {
-            let host = h.value.as_str().trim_start_matches("http://");
-            let host = host.split(':').next().unwrap_or("");
-            host == "localhost"
-                || host == "127.0.0.1"
-                || lan_ip_v4.map(|ip| host == ip.to_string()).unwrap_or(false)
-        })
+        .map(|h| host_header_matches(h.value.as_str(), lan_ip_v4, port))
         .unwrap_or(false);
     if !host_ok {
         let host = req
@@ -481,11 +518,14 @@ fn handle_request(
             "share",
             format!("host rejected ({detail})"),
         );
-        let _ = req.respond(
-            tiny_http::Response::from_string("forbidden")
-                .with_status_code(403),
-        );
+        let _ = req.respond(tiny_http::Response::from_string("forbidden").with_status_code(403));
         return;
+    }
+
+    // Only authenticated requests keep the server alive. LAN port scans and
+    // bad-token probes must not extend the three-minute idle window.
+    if let Ok(mut last) = last_request.lock() {
+        *last = Instant::now();
     }
 
     // 用 Response::from_file 直接 serve 文件（tiny_http 0.12 提供的
@@ -494,8 +534,7 @@ fn handle_request(
         Ok(f) => f,
         Err(e) => {
             let _ = req.respond(
-                tiny_http::Response::from_string(format!("open file: {e}"))
-                    .with_status_code(500),
+                tiny_http::Response::from_string(format!("open file: {e}")).with_status_code(500),
             );
             return;
         }
@@ -505,18 +544,12 @@ fn handle_request(
 
     let response = tiny_http::Response::from_file(file)
         .with_header(
-            tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                mime.as_bytes(),
-            )
-            .expect("static header"),
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                .expect("static header"),
         )
         .with_header(
-            tiny_http::Header::from_bytes(
-                &b"Content-Disposition"[..],
-                disposition.as_bytes(),
-            )
-            .expect("static header"),
+            tiny_http::Header::from_bytes(&b"Content-Disposition"[..], disposition.as_bytes())
+                .expect("static header"),
         );
     // **真正把文件流式发出去**。tiny_http 的 `respond()` 同步等文件
     // 读完 + 写到 socket 才返回。**只有成功返回才算"下载完成"**。
@@ -551,6 +584,7 @@ fn handle_request(
     let _ = app.emit(
         "wui://share_downloaded",
         serde_json::json!({
+            "sessionId": session_id,
             "count": count,
             "filename": video_name,
             "sizeBytes": size,
@@ -560,10 +594,15 @@ fn handle_request(
 
 fn guess_mime(name: &str) -> &'static str {
     let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".mp4") { "video/mp4" }
-    else if lower.ends_with(".webm") { "video/webm" }
-    else if lower.ends_with(".mkv") { "video/x-matroska" }
-    else { "application/octet-stream" }
+    if lower.ends_with(".mp4") {
+        "video/mp4"
+    } else if lower.ends_with(".webm") {
+        "video/webm"
+    } else if lower.ends_with(".mkv") {
+        "video/x-matroska"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 /// RFC 6266 / 5987 attachment header. ASCII `filename=` fallback + UTF-8
@@ -601,12 +640,52 @@ fn percent_encode_rfc5987(s: &str) -> String {
     out
 }
 
-pub fn stop_server(state: &ShareServerState) -> Result<(), String> {
+pub fn stop_server(state: &ShareServerState, session_id: Option<String>) -> Result<(), String> {
+    let mut cancelled = state
+        .cancelled_sessions
+        .lock()
+        .map_err(|e| format!("lock cancelled sessions: {e}"))?;
+    prune_cancelled_sessions(&mut cancelled);
     let mut guard = state.inner.lock().map_err(|e| format!("lock: {e}"))?;
+    if let Some(expected) = session_id.as_ref() {
+        if guard
+            .as_ref()
+            .is_some_and(|inner| inner.info.session_id == *expected)
+        {
+            cancelled.remove(expected);
+            if let Some(inner) = guard.take() {
+                let _ = inner.stop_tx.send(());
+            }
+            return Ok(());
+        }
+
+        if !cancelled.contains_key(expected) && cancelled.len() >= MAX_CANCELLED_SESSIONS {
+            return Err("待处理的快传取消请求过多".to_string());
+        }
+        cancelled.insert(expected.clone(), Instant::now());
+        return Ok(());
+    }
     if let Some(inner) = guard.take() {
+        cancelled.remove(&inner.info.session_id);
         let _ = inner.stop_tx.send(());
     }
     Ok(())
+}
+
+fn prune_cancelled_sessions(cancelled: &mut HashMap<String, Instant>) {
+    cancelled.retain(|_, recorded_at| recorded_at.elapsed() <= CANCELLED_SESSION_TTL);
+}
+
+fn clear_server_if_session(state: &ShareServerState, session_id: &str) {
+    let Ok(mut guard) = state.inner.lock() else {
+        return;
+    };
+    if guard
+        .as_ref()
+        .is_some_and(|inner| inner.info.session_id == session_id)
+    {
+        guard.take();
+    }
 }
 
 pub fn status(state: &ShareServerState) -> ShareServerStatus {
@@ -641,6 +720,20 @@ pub fn status(state: &ShareServerState) -> ShareServerStatus {
 mod tests {
     use super::*;
 
+    fn test_info(session_id: &str) -> ShareServerInfo {
+        ShareServerInfo {
+            session_id: session_id.into(),
+            port: 53124,
+            token: format!("token-{session_id}"),
+            url: format!("http://192.168.1.42:53124/w/token-{session_id}"),
+            lan_ip: "192.168.1.42".into(),
+            qr_svg: "<svg/>".into(),
+            video_name: "clip.mp4".into(),
+            video_size: 1,
+            started_at_unix: 1,
+        }
+    }
+
     #[test]
     fn make_token_is_unique_and_url_safe() {
         let t1 = make_token();
@@ -669,14 +762,89 @@ mod tests {
     }
 
     #[test]
-    fn pick_free_port_returns_unused_port() {
-        // 先占一个端口
-        let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
-        let taken = listener.local_addr().unwrap().port();
-        // pick_free_port 应该拿一个不同的（系统会自动跳过已占的）
-        let free = pick_free_port().unwrap();
-        assert_ne!(free, taken, "expected different port");
-        drop(listener);
+    fn bind_server_reports_its_live_ephemeral_port() {
+        let (server, port) = bind_server().expect("ephemeral bind succeeds");
+        assert_ne!(port, 0);
+        assert_eq!(
+            server.server_addr().to_ip().map(|addr| addr.port()),
+            Some(port)
+        );
+    }
+
+    #[test]
+    fn session_scoped_stop_cannot_stop_a_replacement_server() {
+        let state = ShareServerState::new();
+        let (stop_tx, stop_rx) = channel();
+        *state.inner.lock().unwrap() = Some(Inner {
+            info: test_info("session-22"),
+            stop_tx,
+            downloads: Arc::new(AtomicU64::new(0)),
+            last_request: Arc::new(Mutex::new(Instant::now())),
+        });
+
+        stop_server(&state, Some("session-21".into())).expect("stale stop is harmless");
+        assert!(status(&state).running);
+        assert!(matches!(
+            stop_rx.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+
+        stop_server(&state, Some("session-22".into())).expect("current session stops");
+        assert!(!status(&state).running);
+        assert_eq!(stop_rx.recv_timeout(Duration::from_millis(50)), Ok(()));
+    }
+
+    #[test]
+    fn stop_before_publish_records_the_pending_session_cancellation() {
+        let state = ShareServerState::new();
+        stop_server(&state, Some("session-31".into())).expect("pending stop is recorded");
+        assert!(state
+            .cancelled_sessions
+            .lock()
+            .unwrap()
+            .contains_key("session-31"));
+        assert!(!status(&state).running);
+    }
+
+    #[test]
+    fn pending_session_cancellations_are_memory_bounded() {
+        let state = ShareServerState::new();
+        for index in 0..MAX_CANCELLED_SESSIONS {
+            stop_server(&state, Some(format!("pending-{index}")))
+                .expect("bounded cancellation accepted");
+        }
+
+        assert!(stop_server(&state, Some("one-too-many".into())).is_err());
+        assert_eq!(
+            state.cancelled_sessions.lock().unwrap().len(),
+            MAX_CANCELLED_SESSIONS
+        );
+
+        let (stop_tx, stop_rx) = channel();
+        *state.inner.lock().unwrap() = Some(Inner {
+            info: test_info("current-session"),
+            stop_tx,
+            downloads: Arc::new(AtomicU64::new(0)),
+            last_request: Arc::new(Mutex::new(Instant::now())),
+        });
+        stop_server(&state, Some("current-session".into()))
+            .expect("the current server always remains stoppable");
+        assert_eq!(stop_rx.recv_timeout(Duration::from_millis(50)), Ok(()));
+    }
+
+    #[test]
+    fn stop_reasons_preserve_idle_timeout_semantics() {
+        assert_eq!(ServerStopReason::Stopped.as_str(), "stopped");
+        assert_eq!(ServerStopReason::IdleTimeout.as_str(), "idle_timeout");
+    }
+
+    #[test]
+    fn token_path_match_is_exact_but_allows_query_strings() {
+        let expected = "/w/abc123";
+        assert!(request_path_matches("/w/abc123", expected));
+        assert!(request_path_matches("/w/abc123?download=1", expected));
+        assert!(!request_path_matches("/w/abc123-extra", expected));
+        assert!(!request_path_matches("/w/abc123/child", expected));
     }
 
     #[test]
@@ -710,16 +878,20 @@ mod tests {
     }
 
     #[test]
-    fn is_lan_ipv4_classifies_correctly() {
-        use crate::lan_ip::is_lan_ipv4;
-        // 私有网段
-        assert!(is_lan_ipv4(&"10.0.0.1".parse().unwrap()));
-        assert!(is_lan_ipv4(&"172.16.5.5".parse().unwrap()));
-        assert!(is_lan_ipv4(&"172.31.255.254".parse().unwrap()));
-        assert!(is_lan_ipv4(&"192.168.1.1".parse().unwrap()));
-        // 非私有
-        assert!(!is_lan_ipv4(&"127.0.0.1".parse().unwrap()));
-        assert!(!is_lan_ipv4(&"8.8.8.8".parse().unwrap()));
-        assert!(!is_lan_ipv4(&"172.32.0.1".parse().unwrap())); // 172.16/12 之外
+    fn host_header_requires_the_started_address_and_port() {
+        let lan_ip = "192.168.1.42".parse().unwrap();
+        for accepted in ["192.168.1.42:53124", "localhost:53124", "127.0.0.1:53124"] {
+            assert!(host_header_matches(accepted, lan_ip, 53124), "{accepted}");
+        }
+        for rejected in [
+            "192.168.1.99:53124",
+            "192.168.1.42:80",
+            "192.168.1.42:invalid",
+            "192.168.1.42:53124:extra",
+            "http://192.168.1.42:53124",
+            "user@192.168.1.42:53124",
+        ] {
+            assert!(!host_header_matches(rejected, lan_ip, 53124), "{rejected}");
+        }
     }
 }

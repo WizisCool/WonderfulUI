@@ -7,8 +7,8 @@
     tabindex="0"
     aria-label="视频进度"
     :aria-valuemin="0"
-    :aria-valuemax="duration > 0 ? Math.round(duration) : 0"
-    :aria-valuenow="duration > 0 ? Math.round(currentTime) : 0"
+    :aria-valuemax="Math.round(safeDuration)"
+    :aria-valuenow="Math.round(safeCurrentTime)"
     :aria-valuetext="`${currentTimeStr} / ${durationStr}`"
     @mousedown.prevent="onMouseDown"
     @keydown="onSliderKeydown"
@@ -70,6 +70,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   seek: [pct: number];
+  seekStart: [];
+  seekEnd: [];
   markerClick: [timeMs: number];
 }>();
 
@@ -78,6 +80,14 @@ const trackRef = ref<HTMLElement | null>(null);
 const markersEl = ref<HTMLElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const isDragging = ref(false);
+
+const safeDuration = computed(() =>
+  Number.isFinite(props.duration) && props.duration > 0 ? props.duration : 0
+);
+const safeCurrentTime = computed(() => {
+  if (safeDuration.value <= 0 || !Number.isFinite(props.currentTime)) return 0;
+  return Math.max(0, Math.min(safeDuration.value, props.currentTime));
+});
 
 const videoRef = computed(() => props.video);
 const matchRef = computed(() => props.match);
@@ -93,7 +103,7 @@ const canvasLayoutsJson = computed(() => JSON.stringify(layouts.value));
 const domLayouts = computed(() => useCanvas.value ? [] : layouts.value);
 
 const fillPct = computed(() =>
-  props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0
+  safeDuration.value > 0 ? (safeCurrentTime.value / safeDuration.value) * 100 : 0
 );
 const fillStyle = computed(() => ({ transform: `scaleX(${fillPct.value / 100})` }));
 // left % is relative to the track; transform % is relative to the 8px thumb
@@ -104,9 +114,9 @@ const thumbStyle = computed(() => ({
 }));
 
 function layoutForTrack() {
-  if (props.duration <= 0) return;
+  if (safeDuration.value <= 0) return;
   const w = trackRef.value?.getBoundingClientRect().width;
-  renderLayouts(props.duration * 1000, w && w > 0 ? w : undefined);
+  renderLayouts(safeDuration.value * 1000, w && w > 0 ? w : undefined);
 }
 
 watch(() => props.duration, () => {
@@ -121,43 +131,60 @@ watch(() => props.video, () => {
   nextTick(() => drawCanvas());
 });
 
-function clientToPct(clientX: number): number {
+function clientToPct(clientX: number): number | null {
   const track = trackRef.value;
-  if (!track) return 0;
+  if (!track || !Number.isFinite(clientX)) return null;
   const rect = track.getBoundingClientRect();
+  if (!Number.isFinite(rect.left) || !Number.isFinite(rect.width) || rect.width <= 0) return null;
   return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
 }
 
 function onMouseDown(e: MouseEvent) {
   if (e.button !== 0) return;
-  if ((e.target as HTMLElement).closest('.player-event-marker, .player-event-markers.is-canvas')) return;
+  if (
+    e.target instanceof Element
+    && e.target.closest('.player-event-marker, .player-event-markers.is-canvas')
+  ) return;
+  const pct = clientToPct(e.clientX);
+  if (pct === null) return;
+  finishDrag();
   isDragging.value = true;
-  emit('seek', clientToPct(e.clientX));
+  emit('seekStart');
+  emit('seek', pct);
+  document.addEventListener('mousemove', onDragMove);
+  document.addEventListener('mouseup', onDragEnd);
+  window.addEventListener('blur', onDragEnd);
+}
 
-  const onMove = (ev: MouseEvent) => {
-    if (!isDragging.value) return;
-    emit('seek', clientToPct(ev.clientX));
-  };
-  const onUp = () => {
-    if (!isDragging.value) return;
-    isDragging.value = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  };
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
+function onDragMove(e: MouseEvent) {
+  if (!isDragging.value) return;
+  const pct = clientToPct(e.clientX);
+  if (pct !== null) emit('seek', pct);
+}
+
+function onDragEnd() {
+  const wasDragging = isDragging.value;
+  isDragging.value = false;
+  document.removeEventListener('mousemove', onDragMove);
+  document.removeEventListener('mouseup', onDragEnd);
+  window.removeEventListener('blur', onDragEnd);
+  if (wasDragging) emit('seekEnd');
+}
+
+function finishDrag() {
+  onDragEnd();
 }
 
 // Slider keyboard semantics (WAI-ARIA slider pattern).
 // Stop propagation so the player-level global keyboard shortcuts (in
 // PlayerHost.onKeydown) don't double-handle the same arrow / space.
 function onSliderKeydown(e: KeyboardEvent) {
-  if (props.duration <= 0) {
+  if (safeDuration.value <= 0) {
     if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
     return;
   }
-  const t = props.currentTime;
-  const d = props.duration;
+  const t = safeCurrentTime.value;
+  const d = safeDuration.value;
   let next = t;
   switch (e.key) {
     case 'ArrowLeft':  next = Math.max(0, t - 5); break;
@@ -245,10 +272,12 @@ function onMarkerDomKeydown(e: KeyboardEvent) {
 onMounted(() => {
   recompute();
   nextTick(() => {
-    if (props.duration > 0) renderLayouts(props.duration * 1000);
+    if (safeDuration.value > 0) renderLayouts(safeDuration.value * 1000);
     drawCanvas();
   });
 });
+
+onUnmounted(finishDrag);
 
 defineExpose({
   markersEl,
@@ -345,7 +374,7 @@ defineExpose({
   cursor: pointer;
   color: var(--event-marker-color);
   opacity: 0.92;
-  transition: opacity 100ms ease, transform 120ms ease, width 120ms ease;
+  transition: opacity 100ms ease, transform 120ms ease;
 }
 .player-event-marker::before {
   content: "";
@@ -428,12 +457,10 @@ defineExpose({
 }
 .player-event-marker.lane-upper:hover,
 .player-event-marker.lane-upper:focus-visible {
-  width: 22px;
   transform: translateX(-50%) translateY(-2px) scale(1.05);
 }
 .player-event-marker.lane-lower:hover,
 .player-event-marker.lane-lower:focus-visible {
-  width: 22px;
   transform: translateX(-50%) translateY(-2px) scale(1.05);
 }
 .player-event-marker:hover::after,

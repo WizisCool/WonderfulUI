@@ -1,16 +1,21 @@
 <template>
-  <button
+  <div
     ref="triggerRef"
-    class="dr-trigger"
-    :class="{ 'is-active': hasRange, 'is-expanded': isOpen }"
-    type="button"
-    aria-label="选择日期范围"
-    aria-haspopup="dialog"
-    :aria-expanded="String(isOpen)"
-    @click.stop="toggle"
+    class="dr-trigger-wrap"
+    :class="{ 'has-clear': hasRange }"
   >
-    <WIcon icon="ph:calendar" :size="12" />
-    <span class="dr-trigger-text">{{ triggerText }}</span>
+    <button
+      class="dr-trigger"
+      :class="{ 'is-active': hasRange, 'is-expanded': isOpen }"
+      type="button"
+      aria-label="选择日期范围"
+      aria-haspopup="dialog"
+      :aria-expanded="isOpen"
+      @click.stop="toggle"
+    >
+      <WIcon icon="ph:calendar" :size="12" />
+      <span class="dr-trigger-text">{{ triggerText }}</span>
+    </button>
     <button
       v-if="hasRange"
       class="dr-trigger-clear"
@@ -21,12 +26,13 @@
     >
       <WIcon icon="ph:x" :size="10" />
     </button>
-  </button>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
 import WIcon from '../common/WIcon.vue';
+import { trapDialogTab } from '../../utils/dialog-focus.ts';
 
 const props = defineProps<{
   modelValue: [number | null, number | null];
@@ -36,11 +42,14 @@ const emit = defineEmits<{
   'update:modelValue': [range: [number | null, number | null]];
 }>();
 
-const triggerRef = ref<HTMLButtonElement | null>(null);
+const triggerRef = ref<HTMLDivElement | null>(null);
 const isOpen = ref(false);
 const viewDate = ref(new Date());
 let draftRange: { start: Date | null; end: Date | null } = { start: null, end: null };
+let draftDirty = false;
+let focusedDay = startOfDay(new Date());
 let popover: HTMLElement | null = null;
+let outsideListenerTimer: ReturnType<typeof setTimeout> | null = null;
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
@@ -50,6 +59,8 @@ const hasRange = computed(() => props.modelValue[0] !== null || props.modelValue
 const triggerText = computed(() => {
   const [lo, hi] = props.modelValue;
   if (lo != null && hi != null) return `${fmtDate(new Date(lo))}  —  ${fmtDate(new Date(hi))}`;
+  if (lo != null) return `从 ${fmtDate(new Date(lo))}`;
+  if (hi != null) return `至 ${fmtDate(new Date(hi))}`;
   return '选择日期范围';
 });
 
@@ -97,12 +108,20 @@ function monthGrid(year: number, month: number): Date[][] {
   return weeks;
 }
 
+function shiftMonthClamped(date: Date, delta: number): Date {
+  const target = new Date(date.getFullYear(), date.getMonth() + delta, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(date.getDate(), lastDay));
+  return startOfDay(target);
+}
+
 function initDraft() {
   const [lo, hi] = props.modelValue;
   draftRange = {
     start: lo != null ? startOfDay(new Date(lo)) : null,
     end: hi != null ? startOfDay(new Date(hi)) : null,
   };
+  draftDirty = false;
 }
 
 function toggle() {
@@ -113,8 +132,9 @@ function toggle() {
 function openPopover() {
   if (popover) return;
   initDraft();
-  const seed = draftRange.start ?? new Date();
+  const seed = draftRange.start ?? draftRange.end ?? new Date();
   viewDate.value = new Date(seed);
+  focusedDay = startOfDay(seed);
 
   popover = document.createElement('div');
   popover.className = 'dr-popover';
@@ -128,7 +148,9 @@ function openPopover() {
   popover.style.visibility = '';
   isOpen.value = true;
 
-  setTimeout(() => {
+  outsideListenerTimer = setTimeout(() => {
+    outsideListenerTimer = null;
+    if (!popover) return;
     document.addEventListener('mousedown', onDocDown, true);
   }, 0);
   document.addEventListener('keydown', onKey, true);
@@ -136,10 +158,15 @@ function openPopover() {
 
   requestAnimationFrame(() => {
     popover?.classList.add('is-open');
+    focusCalendarDay(focusedDay);
   });
 }
 
-function closePopover() {
+function closePopover(restoreFocus = false) {
+  if (outsideListenerTimer !== null) {
+    clearTimeout(outsideListenerTimer);
+    outsideListenerTimer = null;
+  }
   document.removeEventListener('keydown', onKey, true);
   document.removeEventListener('mousedown', onDocDown, true);
   window.removeEventListener('resize', onResize);
@@ -152,9 +179,14 @@ function closePopover() {
     node.addEventListener('transitionend', cleanup, { once: true });
     setTimeout(cleanup, 240);
   }
+  if (restoreFocus) triggerRef.value?.querySelector<HTMLButtonElement>('.dr-trigger')?.focus();
 }
 
 function applyDraft() {
+  if (!draftDirty) {
+    closePopover(true);
+    return;
+  }
   if (!draftRange.start && !draftRange.end) {
     emit('update:modelValue', [null, null]);
   } else {
@@ -167,17 +199,73 @@ function applyDraft() {
     ]);
   }
   initDraft();
-  closePopover();
+  closePopover(true);
 }
 
 function clearRange() {
   draftRange = { start: null, end: null };
+  draftDirty = true;
   emit('update:modelValue', [null, null]);
-  closePopover();
+  closePopover(true);
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') { e.stopPropagation(); closePopover(); }
+  if (!popover) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closePopover(true);
+    return;
+  }
+  if (e.key === 'Tab') {
+    trapDialogTab(e, popover);
+    return;
+  }
+
+  const target = e.target instanceof HTMLElement ? e.target.closest<HTMLButtonElement>('.dr-day') : null;
+  if (!target) return;
+  const current = Number(target.dataset.time);
+  if (!Number.isFinite(current)) return;
+  let next = startOfDay(new Date(current));
+  let handled = true;
+  switch (e.key) {
+    case 'ArrowLeft': next.setDate(next.getDate() - 1); break;
+    case 'ArrowRight': next.setDate(next.getDate() + 1); break;
+    case 'ArrowUp': next.setDate(next.getDate() - 7); break;
+    case 'ArrowDown': next.setDate(next.getDate() + 7); break;
+    case 'Home': next.setDate(next.getDate() - next.getDay()); break;
+    case 'End': next.setDate(next.getDate() + (6 - next.getDay())); break;
+    case 'PageUp': next = shiftMonthClamped(next, e.shiftKey ? -12 : -1); break;
+    case 'PageDown': next = shiftMonthClamped(next, e.shiftKey ? 12 : 1); break;
+    default: handled = false;
+  }
+  if (!handled) return;
+  e.preventDefault();
+  e.stopPropagation();
+  focusedDay = next;
+  viewDate.value = new Date(next);
+  render();
+  focusCalendarDay(next);
+}
+
+function focusCalendarDay(day: Date) {
+  const target = popover?.querySelector<HTMLButtonElement>(`.dr-day[data-time="${day.getTime()}"]`);
+  target?.focus({ preventScroll: true });
+}
+
+function focusAfterRender(selector: string) {
+  requestAnimationFrame(() => {
+    popover?.querySelector<HTMLButtonElement>(selector)?.focus({ preventScroll: true });
+  });
+}
+
+function dayAriaLabel(day: Date): string {
+  const labels = [`${day.getFullYear()}年${day.getMonth() + 1}月${day.getDate()}日`];
+  if (isSameDay(day, new Date())) labels.push('今天');
+  if (draftRange.start && isSameDay(day, draftRange.start)) labels.push('范围开始');
+  if (draftRange.end && isSameDay(day, draftRange.end)) labels.push('范围结束');
+  else if (draftRange.start && draftRange.end && inRange(day, draftRange.start, draftRange.end)) labels.push('范围内');
+  return labels.join('，');
 }
 
 function onDocDown(e: MouseEvent) {
@@ -254,16 +342,16 @@ function render() {
   popover.appendChild(header);
 
   prevBtn.addEventListener('click', () => {
-    const d = new Date(viewDate.value);
-    d.setMonth(d.getMonth() - 1);
-    viewDate.value = d;
+    focusedDay = shiftMonthClamped(focusedDay, -1);
+    viewDate.value = new Date(focusedDay);
     render();
+    focusCalendarDay(focusedDay);
   });
   nextBtn.addEventListener('click', () => {
-    const d = new Date(viewDate.value);
-    d.setMonth(d.getMonth() + 1);
-    viewDate.value = d;
+    focusedDay = shiftMonthClamped(focusedDay, 1);
+    viewDate.value = new Date(focusedDay);
     render();
+    focusCalendarDay(focusedDay);
   });
   prevBtn.appendChild(createNavIcon('left', 14));
   nextBtn.appendChild(createNavIcon('right', 14));
@@ -289,6 +377,8 @@ function render() {
       cell.className = 'dr-day';
       cell.type = 'button';
       cell.dataset.time = String(day.getTime());
+      cell.tabIndex = isSameDay(day, focusedDay) ? 0 : -1;
+      cell.setAttribute('aria-label', dayAriaLabel(day));
 
       const num = document.createElement('span');
       num.className = 'dr-day-num';
@@ -309,7 +399,15 @@ function render() {
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
         const d = startOfDay(day);
-        if (!draftRange.start || (draftRange.start && draftRange.end)) {
+        focusedDay = d;
+        draftDirty = true;
+        if (!draftRange.start && draftRange.end) {
+          const existingEnd = draftRange.end;
+          draftRange = d <= existingEnd
+            ? { start: d, end: existingEnd }
+            : { start: existingEnd, end: d };
+          render();
+        } else if (!draftRange.start || (draftRange.start && draftRange.end)) {
           draftRange = { start: d, end: null };
           render();
         } else {
@@ -320,6 +418,7 @@ function render() {
           }
           render();
         }
+        focusCalendarDay(d);
       });
 
       grid.appendChild(cell);
@@ -338,7 +437,9 @@ function render() {
     reset.textContent = '清除';
     reset.addEventListener('click', () => {
       draftRange = { start: null, end: null };
+      draftDirty = true;
       render();
+      focusAfterRender('.dr-footer-close');
     });
     footer.appendChild(reset);
   }
@@ -368,7 +469,7 @@ function createNavIcon(direction: 'left' | 'right', size: number): SVGSVGElement
 }
 
 onUnmounted(() => {
-  closePopover();
+  closePopover(false);
 });
 </script>
 

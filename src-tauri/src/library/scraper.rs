@@ -6,7 +6,8 @@ use crate::library::{now_ms, sha256_hex};
 use crate::parser;
 use crate::parser::model::{MatchRecord, SnapshotAchievement};
 use rayon::prelude::*;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
@@ -88,15 +89,6 @@ pub enum ScrapeMode {
     Full,
 }
 
-impl ScrapeMode {
-    pub fn from_arg(value: Option<&str>) -> Self {
-        match value.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
-            "full" | "full_scan" | "full-scan" | "full_rescan" | "full-rescan" => Self::Full,
-            _ => Self::Incremental,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SourceFileMeta {
     size_bytes: i64,
@@ -117,6 +109,10 @@ fn source_file_meta(path: &Path) -> Option<SourceFileMeta> {
     })
 }
 
+fn progress_after_file(current: i64, source_meta: Option<SourceFileMeta>) -> i64 {
+    current.saturating_add(source_meta.map_or(0, |meta| meta.size_bytes))
+}
+
 fn snapshot_file_meta(dir: &Path, openid: &str) -> Option<SourceFileMeta> {
     source_file_meta(&dir.join(format!("snapshot{}", openid)))
 }
@@ -127,11 +123,11 @@ fn read_snapshot_for_account(
     identity: &AclosIdentityIndex,
 ) -> (Option<String>, Option<String>, Vec<SnapshotAchievement>) {
     let snapshot_path = dir.join(format!("snapshot{}", openid));
-    let (snap_nick, snap_tag, achievements) = match parser::parse_snapshot_db(&snapshot_path, openid)
-    {
-        Ok(data) => (data.nick, data.tag, data.achievements),
-        Err(_) => (None, None, Vec::new()),
-    };
+    let (snap_nick, snap_tag, achievements) =
+        match parser::parse_snapshot_db(&snapshot_path, openid) {
+            Ok(data) => (data.nick, data.tag, data.achievements),
+            Err(_) => (None, None, Vec::new()),
+        };
     // Nick/tag: prefer ACLOS Local Storage LevelDB role cache
     // (`ACLOS_USER_ROLES_INFO` / `acloshighlight_user_<openid>`), then snapshot.
     // Achievements stay snapshot-only.
@@ -170,6 +166,41 @@ fn purge_empty_account(conn: &Connection, openid: &str) -> rusqlite::Result<()> 
     )?;
     conn.execute("DELETE FROM accounts WHERE openid = ?1", params![openid])?;
     Ok(())
+}
+
+/// Remove matches no longer present in the latest successful payload for an
+/// account. Parse failures intentionally skip this path so the last known-good
+/// library remains available.
+fn purge_stale_matches(
+    conn: &Connection,
+    openid: &str,
+    current_ids: &HashSet<&str>,
+) -> rusqlite::Result<usize> {
+    let mut stmt = conn.prepare("SELECT id FROM matches WHERE openid = ?1")?;
+    let existing = stmt
+        .query_map(params![openid], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let stale: Vec<String> = existing
+        .into_iter()
+        .filter(|id| !current_ids.contains(id.as_str()))
+        .collect();
+    for match_id in &stale {
+        conn.execute("DELETE FROM events WHERE match_id = ?1", params![match_id])?;
+        conn.execute("DELETE FROM videos WHERE match_id = ?1", params![match_id])?;
+        conn.execute("DELETE FROM matches WHERE id = ?1", params![match_id])?;
+    }
+    Ok(stale.len())
+}
+
+fn mark_scrape_job_failed(conn: &Connection, job_id: &str, message: &str) {
+    let _ = conn.execute(
+        "UPDATE scrape_jobs
+         SET finished_at = ?1, status = 'failed', message = ?2
+         WHERE id = ?3",
+        params![now_ms(), message, job_id],
+    );
 }
 
 /// Update nick/tag only (incremental skip path). LevelDB identity preferred
@@ -348,7 +379,8 @@ fn account_is_fresh(
         )
         .optional()?;
 
-    let Some((parse_error, source_size, source_mtime, snapshot_size, snapshot_mtime)) = stored else {
+    let Some((parse_error, source_size, source_mtime, snapshot_size, snapshot_mtime)) = stored
+    else {
         return Ok(false);
     };
     if parse_error.as_deref().is_some_and(|e| !e.is_empty()) {
@@ -376,7 +408,11 @@ fn upsert_videos(conn: &Connection, m: &MatchRecord, now: i64) -> rusqlite::Resu
     let mut count = 0;
     for v in &m.videos {
         let exists = std::path::Path::new(&v.video_src).exists();
-        let mtime = if exists { file_mtime_ms(&v.video_src) } else { None };
+        let mtime = if exists {
+            file_mtime_ms(&v.video_src)
+        } else {
+            None
+        };
         conn.execute(
             "INSERT INTO videos(
                 id, match_id, source_id, source_video_id, video_type, name, path,
@@ -478,11 +514,14 @@ pub fn scrape_wonderful_dir_with_mode(
     let now = start_ms;
 
     if let Some(a) = app {
-        let _ = a.emit("wui://phase", ScrapePhaseEvent {
-            phase: "opening".into(),
-            label: "打开资料库".into(),
-            sub: None,
-        });
+        let _ = a.emit(
+            "wui://phase",
+            ScrapePhaseEvent {
+                phase: "opening".into(),
+                label: "打开资料库".into(),
+                sub: None,
+            },
+        );
     }
 
     upsert_source(conn, dir, now).map_err(|e| e.to_string())?;
@@ -503,13 +542,7 @@ pub fn scrape_wonderful_dir_with_mode(
         Ok(entries) => entries,
         Err(e) => {
             let message = format!("read_dir({}): {}", dir.display(), e);
-            conn.execute(
-                "UPDATE scrape_jobs
-                 SET finished_at = ?1, status = 'failed', message = ?2
-                 WHERE id = ?3",
-                params![now_ms(), message, job_id],
-            )
-            .map_err(|e| e.to_string())?;
+            mark_scrape_job_failed(conn, &job_id, &message);
             return Err(message);
         }
     };
@@ -517,35 +550,53 @@ pub fn scrape_wonderful_dir_with_mode(
     // Pre-enumerate account files for progress reporting.
     let mut account_files: Vec<(String, std::path::PathBuf, Option<SourceFileMeta>)> = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.is_empty() || !name_str.chars().all(|c| c.is_ascii_digit()) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                let message = format!("enumerate {}: {e}", dir.display());
+                mark_scrape_job_failed(conn, &job_id, &message);
+                return Err(message);
+            }
+        };
+        if !is_account_file(&entry) {
             continue;
         }
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
         let path = entry.path();
         let meta = source_file_meta(&path);
         account_files.push((name_str.into_owned(), path, meta));
     }
 
     let total_accounts = account_files.len();
-    let total_size: i64 = account_files.iter().filter_map(|(_, _, m)| m.map(|x| x.size_bytes)).sum();
+    let total_size: i64 = account_files
+        .iter()
+        .filter_map(|(_, _, m)| m.map(|x| x.size_bytes))
+        .sum();
     let mut size_done: i64 = 0;
 
     if let Some(a) = app {
-        let _ = a.emit("wui://phase", ScrapePhaseEvent {
-            phase: "scanning".into(),
-            label: "扫描账户".into(),
-            sub: if total_accounts > 0 {
-                Some(format!("{} 个账户 · {} MB", total_accounts, total_size / 1_048_576))
-            } else {
-                Some("未发现账户数据".into())
+        let _ = a.emit(
+            "wui://phase",
+            ScrapePhaseEvent {
+                phase: "scanning".into(),
+                label: "扫描账户".into(),
+                sub: if total_accounts > 0 {
+                    Some(format!(
+                        "{} 个账户 · {} MB",
+                        total_accounts,
+                        total_size / 1_048_576
+                    ))
+                } else {
+                    Some("未发现账户数据".into())
+                },
             },
-        });
+        );
     }
 
     // Phase A: identify accounts to parse vs skip
-    let mut to_parse: Vec<(usize, &(String, std::path::PathBuf, Option<SourceFileMeta>))> = Vec::new();
+    let mut to_parse: Vec<(usize, &(String, std::path::PathBuf, Option<SourceFileMeta>))> =
+        Vec::new();
     for (idx, item) in account_files.iter().enumerate() {
         let (openid, _path, source_meta) = item;
         let snapshot_meta = snapshot_file_meta(dir, openid);
@@ -606,15 +657,14 @@ pub fn scrape_wonderful_dir_with_mode(
     let mut pi = 0;
     for (idx, (openid, _path, source_meta)) in account_files.iter().enumerate() {
         let current = idx + 1;
+        let processed_size_done = progress_after_file(size_done, *source_meta);
 
         if pi >= parsed.len() || parsed[pi].idx != idx {
             // Account was skipped (incremental freshness) — still refresh
             // nick/tag from LevelDB identity (no WonderfulDb re-parse).
             summary.skipped_accounts += 1;
             // Count skipped files toward progress so size_done reaches total.
-            if let Some(m) = source_meta {
-                size_done += m.size_bytes;
-            }
+            size_done = processed_size_done;
             let hint = identity.lookup(openid);
             if hint.nick.is_some() || hint.tag.is_some() {
                 let _ = refresh_account_identity(
@@ -626,15 +676,18 @@ pub fn scrape_wonderful_dir_with_mode(
                 );
             }
             if let Some(a) = app {
-                let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                    openid: openid.clone(),
-                    status: "skipped".into(),
-                    current,
-                    total: total_accounts,
-                    size_bytes_done: size_done,
-                    size_bytes_total: total_size,
-                    error: None,
-                });
+                let _ = a.emit(
+                    "wui://account_finished",
+                    AccountFinishedEvent {
+                        openid: openid.clone(),
+                        status: "skipped".into(),
+                        current,
+                        total: total_accounts,
+                        size_bytes_done: size_done,
+                        size_bytes_total: total_size,
+                        error: None,
+                    },
+                );
             }
             continue;
         }
@@ -643,54 +696,36 @@ pub fn scrape_wonderful_dir_with_mode(
         pi += 1;
 
         if let Some(a) = app {
-            let _ = a.emit("wui://account_started", AccountStartedEvent {
-                openid: pa.openid.clone(),
-                current,
-                total: total_accounts,
-                size_bytes_done: size_done,
-                size_bytes_total: total_size,
-            });
+            let _ = a.emit(
+                "wui://account_started",
+                AccountStartedEvent {
+                    openid: pa.openid.clone(),
+                    current,
+                    total: total_accounts,
+                    size_bytes_done: size_done,
+                    size_bytes_total: total_size,
+                },
+            );
         }
         let account_start = now_ms();
 
-        let mut acc_matches = 0usize;
-        let mut acc_videos = 0usize;
-        let mut acc_events = 0usize;
         match &pa.result {
             Ok(file) => {
-                conn.execute("BEGIN IMMEDIATE", []).map_err(|e| e.to_string())?;
-                // Empty highlight shells (common 96-byte WonderfulDb files): do not
-                // keep them in the library — this app only surfaces accounts with
-                // at least one match/video payload.
-                if file.matches.is_empty() {
-                    purge_empty_account(conn, &pa.openid).map_err(|e| e.to_string())?;
-                    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
-                    let acc_duration = now_ms() - account_start;
-                    if let Some(a) = app {
-                        let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                            openid: pa.openid.clone(),
-                            status: "empty".into(),
-                            current,
-                            total: total_accounts,
-                            size_bytes_done: size_done,
-                            size_bytes_total: total_size,
-                            error: None,
-                        });
-                        let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                            openid: pa.openid.clone(),
-                            matches_count: 0,
-                            videos_count: 0,
-                            events_count: 0,
-                            status: "empty".into(),
-                            error: None,
-                            duration_ms: acc_duration,
-                            current,
-                            total: total_accounts,
-                        });
+                let persisted = (|| -> Result<(usize, usize, usize), String> {
+                    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
+                        .map_err(|e| e.to_string())?;
+
+                    // Empty highlight shells (common 96-byte WonderfulDb files): do not
+                    // keep them in the library — this app only surfaces accounts with
+                    // at least one match/video payload.
+                    if file.matches.is_empty() {
+                        purge_empty_account(&tx, &pa.openid).map_err(|e| e.to_string())?;
+                        tx.commit().map_err(|e| e.to_string())?;
+                        return Ok((0, 0, 0));
                     }
-                } else {
+
                     upsert_account(
-                        conn,
+                        &tx,
                         &pa.openid,
                         &pa.path,
                         pa.source_meta,
@@ -702,86 +737,161 @@ pub fn scrape_wonderful_dir_with_mode(
                         now,
                     )
                     .map_err(|e| e.to_string())?;
+
+                    let mut videos = 0usize;
+                    let mut events = 0usize;
                     for m in &file.matches {
-                        upsert_match(conn, m, now).map_err(|e| e.to_string())?;
-                        acc_videos +=
-                            upsert_videos(conn, m, now).map_err(|e| e.to_string())?;
-                        acc_events += upsert_events(conn, m).map_err(|e| e.to_string())?;
-                        acc_matches += 1;
-                        summary.matches_seen += 1;
+                        upsert_match(&tx, m, now).map_err(|e| e.to_string())?;
+                        videos += upsert_videos(&tx, m, now).map_err(|e| e.to_string())?;
+                        events += upsert_events(&tx, m).map_err(|e| e.to_string())?;
                     }
-                    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+                    let current_ids: HashSet<&str> =
+                        file.matches.iter().map(|m| m.matches_id.as_str()).collect();
+                    purge_stale_matches(&tx, &pa.openid, &current_ids)
+                        .map_err(|e| e.to_string())?;
+                    tx.commit().map_err(|e| e.to_string())?;
+                    Ok((file.matches.len(), videos, events))
+                })();
+
+                let (acc_matches, acc_videos, acc_events) = match persisted {
+                    Ok(counts) => counts,
+                    Err(e) => {
+                        let message = format!("persist account {}: {e}", pa.openid);
+                        mark_scrape_job_failed(conn, &job_id, &message);
+                        if let Some(a) = app {
+                            let _ = a.emit(
+                                "wui://phase",
+                                ScrapePhaseEvent {
+                                    phase: "error".into(),
+                                    label: "资料库写入失败".into(),
+                                    sub: Some(message.clone()),
+                                },
+                            );
+                        }
+                        return Err(message);
+                    }
+                };
+
+                if acc_matches == 0 {
+                    let acc_duration = now_ms() - account_start;
+                    if let Some(a) = app {
+                        let _ = a.emit(
+                            "wui://account_finished",
+                            AccountFinishedEvent {
+                                openid: pa.openid.clone(),
+                                status: "empty".into(),
+                                current,
+                                total: total_accounts,
+                                size_bytes_done: processed_size_done,
+                                size_bytes_total: total_size,
+                                error: None,
+                            },
+                        );
+                        let _ = a.emit(
+                            "wui://account_loaded",
+                            AccountLoadedEvent {
+                                openid: pa.openid.clone(),
+                                matches_count: 0,
+                                videos_count: 0,
+                                events_count: 0,
+                                status: "empty".into(),
+                                error: None,
+                                duration_ms: acc_duration,
+                                current,
+                                total: total_accounts,
+                            },
+                        );
+                    }
+                } else {
+                    summary.matches_seen += acc_matches;
                     summary.videos_seen += acc_videos;
                     summary.events_seen += acc_events;
                     let acc_duration = now_ms() - account_start;
                     if let Some(a) = app {
-                        let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                            openid: pa.openid.clone(),
-                            status: "ok".into(),
-                            current,
-                            total: total_accounts,
-                            size_bytes_done: size_done,
-                            size_bytes_total: total_size,
-                            error: None,
-                        });
-                        let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                            openid: pa.openid.clone(),
-                            matches_count: acc_matches,
-                            videos_count: acc_videos,
-                            events_count: acc_events,
-                            status: "ok".into(),
-                            error: None,
-                            duration_ms: acc_duration,
-                            current,
-                            total: total_accounts,
-                        });
+                        let _ = a.emit(
+                            "wui://account_finished",
+                            AccountFinishedEvent {
+                                openid: pa.openid.clone(),
+                                status: "ok".into(),
+                                current,
+                                total: total_accounts,
+                                size_bytes_done: processed_size_done,
+                                size_bytes_total: total_size,
+                                error: None,
+                            },
+                        );
+                        let _ = a.emit(
+                            "wui://account_loaded",
+                            AccountLoadedEvent {
+                                openid: pa.openid.clone(),
+                                matches_count: acc_matches,
+                                videos_count: acc_videos,
+                                events_count: acc_events,
+                                status: "ok".into(),
+                                error: None,
+                                duration_ms: acc_duration,
+                                current,
+                                total: total_accounts,
+                            },
+                        );
                     }
                 }
             }
             Err(e) => {
-                let _ = conn.execute("ROLLBACK", []);
-                upsert_account(
-                    conn,
-                    &pa.openid,
-                    &pa.path,
-                    pa.source_meta,
-                    pa.snapshot_meta,
-                    pa.nick.clone(),
-                    pa.tag.clone(),
-                    &pa.achievements,
-                    Some(e.as_str()),
-                    now,
-                )
-                .map_err(|e| e.to_string())?;
+                let persisted_error = (|| -> rusqlite::Result<()> {
+                    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+                    upsert_account(
+                        &tx,
+                        &pa.openid,
+                        &pa.path,
+                        pa.source_meta,
+                        pa.snapshot_meta,
+                        pa.nick.clone(),
+                        pa.tag.clone(),
+                        &pa.achievements,
+                        Some(e.as_str()),
+                        now,
+                    )?;
+                    tx.commit()
+                })();
+                if let Err(db_error) = persisted_error {
+                    let message = format!("persist parse error for {}: {db_error}", pa.openid);
+                    mark_scrape_job_failed(conn, &job_id, &message);
+                    return Err(message);
+                }
                 summary.errors_seen += 1;
                 let acc_duration = now_ms() - account_start;
                 if let Some(a) = app {
-                    let _ = a.emit("wui://account_finished", AccountFinishedEvent {
-                        openid: pa.openid.clone(),
-                        status: "error".into(),
-                        current,
-                        total: total_accounts,
-                        size_bytes_done: size_done,
-                        size_bytes_total: total_size,
-                        error: Some(e.clone()),
-                    });
-                    let _ = a.emit("wui://account_loaded", AccountLoadedEvent {
-                        openid: pa.openid.clone(),
-                        matches_count: 0,
-                        videos_count: 0,
-                        events_count: 0,
-                        status: "error".into(),
-                        error: Some(e.clone()),
-                        duration_ms: acc_duration,
-                        current,
-                        total: total_accounts,
-                    });
+                    let _ = a.emit(
+                        "wui://account_finished",
+                        AccountFinishedEvent {
+                            openid: pa.openid.clone(),
+                            status: "error".into(),
+                            current,
+                            total: total_accounts,
+                            size_bytes_done: processed_size_done,
+                            size_bytes_total: total_size,
+                            error: Some(e.clone()),
+                        },
+                    );
+                    let _ = a.emit(
+                        "wui://account_loaded",
+                        AccountLoadedEvent {
+                            openid: pa.openid.clone(),
+                            matches_count: 0,
+                            videos_count: 0,
+                            events_count: 0,
+                            status: "error".into(),
+                            error: Some(e.clone()),
+                            duration_ms: acc_duration,
+                            current,
+                            total: total_accounts,
+                        },
+                    );
                 }
             }
         }
-        if let Some(m) = pa.source_meta {
-            size_done += m.size_bytes;
-        }
+        size_done = processed_size_done;
     }
 
     let duration_ms = now_ms() - start_ms;
@@ -789,14 +899,17 @@ pub fn scrape_wonderful_dir_with_mode(
     summary.size_bytes_total = total_size;
 
     if let Some(a) = app {
-        let _ = a.emit("wui://scrape_summary", ScrapeSummaryEventData {
-            matches_seen: summary.matches_seen,
-            videos_seen: summary.videos_seen,
-            events_seen: summary.events_seen,
-            errors_seen: summary.errors_seen,
-            skipped_accounts: summary.skipped_accounts,
-            duration_ms,
-        });
+        let _ = a.emit(
+            "wui://scrape_summary",
+            ScrapeSummaryEventData {
+                matches_seen: summary.matches_seen,
+                videos_seen: summary.videos_seen,
+                events_seen: summary.events_seen,
+                errors_seen: summary.errors_seen,
+                skipped_accounts: summary.skipped_accounts,
+                duration_ms,
+            },
+        );
     }
 
     let status = if summary.errors_seen > 0 {
@@ -824,6 +937,19 @@ pub fn scrape_wonderful_dir_with_mode(
     Ok(summary)
 }
 
+/// ACLOS account payloads are regular files whose entire basename is a
+/// decimal openid. Keep this predicate shared with the lightweight boot probe
+/// so onboarding and the real scraper cannot disagree about whether data is
+/// present. Symlinks and numeric directory names are intentionally rejected.
+pub(crate) fn is_account_file(entry: &std::fs::DirEntry) -> bool {
+    entry.file_type().is_ok_and(|kind| kind.is_file()) && is_account_filename(&entry.file_name())
+}
+
+fn is_account_filename(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -839,6 +965,17 @@ mod tests {
                 .unwrap_or_default();
             PathBuf::from(base).join(r"AppData\Roaming\ACLOS\WonderfulDb")
         }
+    }
+
+    #[test]
+    fn completed_file_progress_includes_the_current_account_bytes() {
+        let meta = SourceFileMeta {
+            size_bytes: 3_753_199,
+            mtime_ms: Some(1),
+        };
+        assert_eq!(progress_after_file(1024, Some(meta)), 3_754_223);
+        assert_eq!(progress_after_file(1024, None), 1024);
+        assert_eq!(progress_after_file(i64::MAX - 2, Some(meta)), i64::MAX);
     }
 
     #[test]
@@ -862,7 +999,9 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM matches", [], |row| row.get(0))
             .expect("count matches");
         let distinct_matches: i64 = conn
-            .query_row("SELECT COUNT(DISTINCT id) FROM matches", [], |row| row.get(0))
+            .query_row("SELECT COUNT(DISTINCT id) FROM matches", [], |row| {
+                row.get(0)
+            })
             .expect("count distinct matches");
         assert_eq!(match_rows, distinct_matches);
     }
@@ -887,10 +1026,7 @@ mod tests {
             .matches
             .iter()
             .all(|m| m.videos.iter().all(|v| v.rounds.is_empty())));
-        assert!(view
-            .accounts
-            .iter()
-            .any(|a| !a.achievements.is_empty()));
+        assert!(view.accounts.iter().any(|a| !a.achievements.is_empty()));
     }
 
     #[test]
@@ -967,10 +1103,7 @@ mod tests {
 
     #[test]
     fn scrape_records_account_error_when_account_file_fails_to_parse() {
-        let dir = std::env::temp_dir().join(format!(
-            "wonderful-ui-bad-aclos-{}",
-            Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("wonderful-ui-bad-aclos-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir created");
         let account_path = dir.join("1234567890");
         std::fs::write(&account_path, b"not hex").expect("bad fixture written");
@@ -989,15 +1122,16 @@ mod tests {
         assert_eq!(view.accounts.len(), 1);
         assert_eq!(view.accounts[0].openid, "1234567890");
         assert_eq!(view.accounts[0].match_count, 0);
-        assert!(view.accounts[0].error.as_deref().is_some_and(|e| e.contains("parse")));
+        assert!(view.accounts[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("parse")));
     }
 
     #[test]
     fn incremental_scrape_skips_unchanged_account_without_reparsing() {
-        let dir = std::env::temp_dir().join(format!(
-            "wonderful-ui-incremental-skip-{}",
-            Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("wonderful-ui-incremental-skip-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir created");
         let account_path = dir.join("1234567890");
         std::fs::write(&account_path, b"not hex").expect("bad fixture written");
@@ -1026,16 +1160,15 @@ mod tests {
         )
         .expect("seed unchanged account");
 
-        let summary = scrape_wonderful_dir_with_mode(
-            &conn,
-            &dir,
-            "manual",
-            ScrapeMode::Incremental,
-            None,
-        )
-        .expect("incremental scrape succeeds");
+        let summary =
+            scrape_wonderful_dir_with_mode(&conn, &dir, "manual", ScrapeMode::Incremental, None)
+                .expect("incremental scrape succeeds");
         let status: String = conn
-            .query_row("SELECT status FROM scrape_jobs ORDER BY started_at DESC LIMIT 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT status FROM scrape_jobs ORDER BY started_at DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
             .expect("job status exists");
 
         std::fs::remove_dir_all(&dir).expect("temp dir removed");
@@ -1054,10 +1187,7 @@ mod tests {
 
     #[test]
     fn full_scrape_reparses_unchanged_account() {
-        let dir = std::env::temp_dir().join(format!(
-            "wonderful-ui-full-rescan-{}",
-            Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("wonderful-ui-full-rescan-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir created");
         let account_path = dir.join("1234567890");
         std::fs::write(&account_path, b"not hex").expect("bad fixture written");
@@ -1168,5 +1298,57 @@ mod tests {
             )
             .expect("kept id");
         assert_eq!(kept, "new-v");
+    }
+
+    #[test]
+    fn purge_stale_matches_removes_dependent_rows_only_for_target_account() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO matches(id, source_id, source_match_id, openid, matches_time, stats_json, raw_json, last_seen_at)
+             VALUES
+             ('keep', ?1, 'keep', 'account-a', 2, '{}', '{}', 2),
+             ('stale', ?1, 'stale', 'account-a', 1, '{}', '{}', 1),
+             ('other', ?1, 'other', 'account-b', 1, '{}', '{}', 1)",
+            params![ACLOS_SOURCE_ID],
+        )
+        .expect("seed matches");
+        conn.execute(
+            "INSERT INTO videos(id, match_id, source_id, source_video_id, last_seen_at)
+             VALUES('stale-video', 'stale', ?1, 'stale-video', 1)",
+            params![ACLOS_SOURCE_ID],
+        )
+        .expect("seed stale video");
+        conn.execute(
+            "INSERT INTO events(id, match_id, video_id, event_type, time_ms, seek_ms, playback_seek_ms, round_idx, dedup_key)
+             VALUES('stale-event', 'stale', 'stale-video', 'kill', 1, 1, 1, 0, 'stale')",
+            [],
+        )
+        .expect("seed stale event");
+
+        let current = HashSet::from(["keep"]);
+        let removed =
+            purge_stale_matches(&conn, "account-a", &current).expect("stale rows are removed");
+        assert_eq!(removed, 1);
+
+        let remaining: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT id FROM matches ORDER BY id")
+                .expect("prepare");
+            stmt.query_map([], |row| row.get(0))
+                .expect("query")
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .expect("collect")
+        };
+        assert_eq!(remaining, vec!["keep", "other"]);
+        let dependent_rows: i64 = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM videos WHERE match_id = 'stale') +
+                        (SELECT COUNT(*) FROM events WHERE match_id = 'stale')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count dependents");
+        assert_eq!(dependent_rows, 0);
     }
 }

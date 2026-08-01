@@ -3,8 +3,10 @@ use crate::library::now_ms;
 use crate::parser::model::{strip_match_rounds, Account, MatchRecord, SnapshotAchievement};
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+const LIBRARY_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn library_dir() -> std::result::Result<PathBuf, String> {
     let base = std::env::var("LOCALAPPDATA")
@@ -18,10 +20,23 @@ pub fn open_library() -> std::result::Result<Connection, String> {
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
     let path = dir.join("library.db");
     let conn = Connection::open(&path).map_err(|e| format!("open {}: {}", path.display(), e))?;
+    configure_library_connection(&conn, &path)?;
+    Ok(conn)
+}
+
+fn configure_library_connection(
+    conn: &Connection,
+    path: &std::path::Path,
+) -> std::result::Result<(), String> {
+    // Every command opens its own connection. Migrations, scrape transactions,
+    // preferences, and legacy asset writes can briefly overlap; wait for a
+    // normal writer handoff instead of failing immediately with SQLITE_BUSY.
+    conn.busy_timeout(LIBRARY_BUSY_TIMEOUT)
+        .map_err(|e| format!("busy timeout {}: {}", path.display(), e))?;
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
         .map_err(|e| format!("pragma {}: {}", path.display(), e))?;
-    migrate(&conn).map_err(|e| format!("migrate {}: {}", path.display(), e))?;
-    Ok(conn)
+    migrate(conn).map_err(|e| format!("migrate {}: {}", path.display(), e))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -184,16 +199,28 @@ pub fn migrate(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE accounts ADD COLUMN parse_error TEXT", [])?;
     }
     if !column_exists(conn, "accounts", "source_size_bytes")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN source_size_bytes INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN source_size_bytes INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "source_mtime_ms")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN source_mtime_ms INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN source_mtime_ms INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "snapshot_size_bytes")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN snapshot_size_bytes INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN snapshot_size_bytes INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "accounts", "snapshot_mtime_ms")? {
-        conn.execute("ALTER TABLE accounts ADD COLUMN snapshot_mtime_ms INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN snapshot_mtime_ms INTEGER",
+            [],
+        )?;
     }
     if !column_exists(conn, "scrape_jobs", "skipped_accounts")? {
         conn.execute(
@@ -281,18 +308,37 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
         })?
         .collect::<Result<Vec<_>>>()?;
 
-    let mut match_stmt = conn.prepare("SELECT raw_json FROM matches ORDER BY matches_time DESC")?;
+    let mut match_stmt =
+        conn.prepare("SELECT id, openid, raw_json FROM matches ORDER BY matches_time DESC")?;
     let mut matches = Vec::new();
-    let rows = match_stmt.query_map([], |row| row.get::<_, String>(0))?;
-    for raw in rows {
-        let raw = raw?;
-        if let Ok(m) = serde_json::from_str::<MatchRecord>(&raw) {
-            matches.push(m);
+    let mut corrupt_matches = 0i64;
+    let rows = match_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (match_id, openid, raw) = row?;
+        match serde_json::from_str::<MatchRecord>(&raw) {
+            Ok(m) => matches.push(m),
+            Err(error) => {
+                corrupt_matches += 1;
+                crate::app_log::write(
+                    crate::app_log::LogLevel::Error,
+                    "library",
+                    format!(
+                        "skipping corrupt match row id={match_id} openid={} error={error}",
+                        openid.as_deref().unwrap_or("unknown"),
+                    ),
+                );
+            }
         }
     }
     // Strip rounds once after deserialize (bulk list must stay rounds-free for IPC size).
     strip_match_rounds(&mut matches);
-    let total_errors: i64 = conn.query_row(
+    let account_errors: i64 = conn.query_row(
         "SELECT COUNT(*) FROM accounts WHERE parse_error IS NOT NULL AND parse_error <> ''",
         [],
         |row| row.get(0),
@@ -302,14 +348,15 @@ pub fn load_library_view(conn: &Connection, dir: impl Into<String>) -> Result<Li
         dir: dir.into(),
         accounts,
         matches,
-        total_errors: total_errors as usize,
+        total_errors: (account_errors + corrupt_matches) as usize,
     })
 }
 
 pub fn save_account_order(conn: &Connection, openids: &[String]) -> Result<()> {
     let now = now_ms();
+    let transaction = conn.unchecked_transaction()?;
     for (idx, openid) in openids.iter().enumerate() {
-        conn.execute(
+        transaction.execute(
             "INSERT INTO account_preferences(openid, custom_name, sort_order, updated_at)
              VALUES(?1, NULL, ?2, ?3)
              ON CONFLICT(openid) DO UPDATE SET
@@ -318,7 +365,7 @@ pub fn save_account_order(conn: &Connection, openids: &[String]) -> Result<()> {
             rusqlite::params![openid, idx as i64, now],
         )?;
     }
-    Ok(())
+    transaction.commit()
 }
 
 pub fn set_account_custom_name(
@@ -379,6 +426,26 @@ pub fn load_match_rounds(
         .map_err(|e| format!("decode match {} from library: {}", match_id, e))
 }
 
+/// IPC commands that open, decode, or share a local file must only accept
+/// paths that came from the persisted ACLOS video index. This keeps an
+/// injected WebView script from turning a path-taking command into arbitrary
+/// file execution or exfiltration.
+pub fn is_library_video_path(conn: &Connection, path: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM videos WHERE path = ?1)",
+        [path],
+        |row| row.get(0),
+    )
+}
+
+pub fn is_known_account(conn: &Connection, openid: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM accounts WHERE openid = ?1)",
+        [openid],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,6 +484,65 @@ mod tests {
                 .expect("table lookup works");
             assert_eq!(count, 1, "missing table {table}");
         }
+    }
+
+    #[test]
+    fn configured_connections_wait_for_short_sqlite_writer_handoffs() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        configure_library_connection(&conn, std::path::Path::new(":memory:"))
+            .expect("connection config succeeds");
+
+        let timeout_ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .expect("busy timeout reads");
+        assert_eq!(timeout_ms, LIBRARY_BUSY_TIMEOUT.as_millis() as i64);
+    }
+
+    #[test]
+    fn video_path_authorization_requires_an_exact_persisted_path() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO videos(
+                id, match_id, source_id, source_video_id, path,
+                duration_ms, fps, size_bytes, exists_on_disk, last_seen_at
+             ) VALUES('video-1', 'match-1', 'aclos_wonderfuldb', 'source-video-1',
+                      'D:\\Highlights\\clip.mp4', 1000, 60, 1234, 1, 1)",
+            [],
+        )
+        .expect("video inserted");
+
+        assert!(is_library_video_path(&conn, "D:\\Highlights\\clip.mp4").unwrap());
+        assert!(!is_library_video_path(&conn, "D:\\Highlights\\other.mp4").unwrap());
+        assert!(!is_library_video_path(&conn, "D:\\Highlights\\clip.mp4.exe").unwrap());
+    }
+
+    #[test]
+    fn load_library_view_counts_corrupt_match_rows_instead_of_silently_hiding_them() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO accounts(openid, source_id, source_path, last_seen_at)
+             VALUES('account-a', 'aclos_wonderfuldb', 'fixture', 1)",
+            [],
+        )
+        .expect("account inserted");
+        conn.execute(
+            "INSERT INTO matches(
+                id, source_id, source_match_id, openid, matches_time,
+                stats_json, raw_json, last_seen_at
+             ) VALUES(
+                'broken-match', 'aclos_wonderfuldb', 'broken-match',
+                'account-a', 1, '{}', 'not-json', 1
+             )",
+            [],
+        )
+        .expect("corrupt match inserted");
+
+        let view = load_library_view(&conn, "fixture").expect("view still loads");
+
+        assert!(view.matches.is_empty());
+        assert_eq!(view.total_errors, 1);
     }
 
     #[test]
@@ -485,5 +611,41 @@ mod tests {
             .find(|a| a.openid == "b")
             .expect("b exists");
         assert_eq!(renamed.custom_name, None);
+    }
+
+    #[test]
+    fn account_order_rolls_back_if_any_row_fails() {
+        let conn = open_memory_for_test().expect("memory db opens");
+        migrate(&conn).expect("migration succeeds");
+        conn.execute(
+            "INSERT INTO account_preferences(openid, sort_order, updated_at)
+             VALUES('a', 7, 1), ('b', 8, 1)",
+            [],
+        )
+        .expect("preferences seeded");
+        conn.execute_batch(
+            "CREATE TRIGGER reject_b_order
+             BEFORE UPDATE OF sort_order ON account_preferences
+             WHEN OLD.openid = 'b'
+             BEGIN
+               SELECT RAISE(ABORT, 'injected order failure');
+             END;",
+        )
+        .expect("failure trigger installed");
+
+        let error =
+            save_account_order(&conn, &["a".into(), "b".into()]).expect_err("second row must fail");
+        assert!(error.to_string().contains("injected order failure"));
+
+        let orders = conn
+            .prepare("SELECT openid, sort_order FROM account_preferences ORDER BY openid")
+            .expect("query prepared")
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .expect("query runs")
+            .collect::<Result<Vec<_>>>()
+            .expect("rows collected");
+        assert_eq!(orders, vec![("a".into(), 7), ("b".into(), 8)]);
     }
 }

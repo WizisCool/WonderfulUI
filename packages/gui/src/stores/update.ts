@@ -1,4 +1,4 @@
-// 应用内自更新 Pinia store（第 7 个）。
+// 应用内自更新 Pinia store。
 //
 // 封装 tauri-plugin-updater（check / downloadAndInstall）+ tauri-plugin-process
 // （relaunch），组件不直接 invoke。
@@ -96,6 +96,7 @@ export type UpdateStatus =
 
 /** error 态的来源：决定「重试」走检查还是走下载安装。 */
 export type UpdateErrorKind = 'check' | 'download';
+type CheckOutcome = 'available' | 'uptodate' | 'failed';
 
 export interface UpdateInfo {
   version: string;
@@ -107,6 +108,27 @@ export interface UpdateProgress {
   downloaded: number;
   total: number;
   pct: number;
+}
+
+function nonNegativeFiniteBytes(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, value)
+    : 0;
+}
+
+/** Keep plugin events and browser-debug inputs inside one render-safe shape. */
+export function normalizeUpdateProgress(
+  downloadedInput: number | undefined,
+  totalInput: number | undefined,
+): UpdateProgress {
+  const total = nonNegativeFiniteBytes(totalInput);
+  const rawDownloaded = nonNegativeFiniteBytes(downloadedInput);
+  const downloaded = total > 0 ? Math.min(rawDownloaded, total) : rawDownloaded;
+  return {
+    downloaded,
+    total,
+    pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
+  };
 }
 
 export interface DebugAvailableOpts {
@@ -142,7 +164,8 @@ export const useUpdateStore = defineStore('update', () => {
   const debugSimulate = ref(false);
 
   /** 并发 check 去重：手动连点 / 启动+手动重叠时共用一个 promise。 */
-  let checkInflight: Promise<void> | null = null;
+  let checkInflight: Promise<CheckOutcome> | null = null;
+  let checkInflightSilent = false;
 
   /** null → playFakeDownload 用 FAKE_DEFAULT_TOTAL；0 → indeterminate */
   let fakeTotalOverride: number | null = null;
@@ -256,19 +279,17 @@ export const useUpdateStore = defineStore('update', () => {
     stopFakeDownload();
     debugSimulate.value = true;
     ensureDebugPackage();
-    const total = opts.total ?? FAKE_DEFAULT_TOTAL;
-    fakeTotalOverride = total;
-    const downloaded = opts.downloaded ?? 0;
+    const nextProgress = normalizeUpdateProgress(
+      opts.downloaded ?? 0,
+      opts.total ?? FAKE_DEFAULT_TOTAL,
+    );
+    fakeTotalOverride = nextProgress.total;
     status.value = 'downloading';
     badge.value = true;
     error.value = null;
     errorKind.value = null;
     modalOpen.value = true;
-    progress.value = {
-      downloaded,
-      total,
-      pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-    };
+    progress.value = nextProgress;
   }
 
   function debugInstalling() {
@@ -284,12 +305,9 @@ export const useUpdateStore = defineStore('update', () => {
 
   function debugProgress(downloaded: number, total: number) {
     debugSimulate.value = true;
-    fakeTotalOverride = total;
-    progress.value = {
-      downloaded,
-      total,
-      pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-    };
+    const nextProgress = normalizeUpdateProgress(downloaded, total);
+    fakeTotalOverride = nextProgress.total;
+    progress.value = nextProgress;
     if (status.value !== 'downloading') {
       status.value = 'downloading';
       ensureDebugPackage();
@@ -376,10 +394,23 @@ export const useUpdateStore = defineStore('update', () => {
 
     // 已有进行中的检查：等待同一 promise，避免并发 check()
     if (checkInflight) {
-      await checkInflight;
+      const inflight = checkInflight;
+      const joinedSilentCheck = checkInflightSilent;
+      const outcome = await inflight;
       // 若静默等待期间已有可用更新，手动调用方仍应打开弹窗
-      if (!silent && status.value === 'available') {
-        modalOpen.value = true;
+      if (!silent) {
+        if (outcome === 'available' && status.value === 'available') {
+          modalOpen.value = true;
+        } else if (joinedSilentCheck && outcome === 'failed') {
+          // A manual click must not inherit the silent boot check's error
+          // suppression. Once the shared silent transport fails, retry as a
+          // real manual check so the caller gets visible error/success state.
+          if (checkInflight === inflight) {
+            checkInflight = null;
+            checkInflightSilent = false;
+          }
+          await checkForUpdate(false);
+        }
       }
       return;
     }
@@ -391,7 +422,7 @@ export const useUpdateStore = defineStore('update', () => {
       errorKind.value = null;
     }
 
-    checkInflight = (async () => {
+    const request = (async (): Promise<CheckOutcome> => {
       try {
         const result = await check();
         if (!result) {
@@ -400,11 +431,12 @@ export const useUpdateStore = defineStore('update', () => {
           update.value = null;
           error.value = null;
           errorKind.value = null;
+          modalOpen.value = false;
           clearSkippedVersion();
           if (!silent) {
             useUiStore().showToast('已是最新版本', 'ok');
           }
-          return;
+          return 'uptodate';
         }
         const alreadyKnown =
           badge.value && update.value?.version === result.version;
@@ -423,26 +455,33 @@ export const useUpdateStore = defineStore('update', () => {
         } else {
           modalOpen.value = shouldAutoOpenOnSilent(result.version, alreadyKnown);
         }
+        return 'available';
       } catch (e) {
         const raw = e instanceof Error ? e.message : String(e);
         clientLog('error', SCOPE, `checkForUpdate failed: ${raw}`);
         if (silent) {
           // 启动静默：恢复原 status，仅记日志，不打扰用户
           status.value = prevStatus;
-          return;
+          return 'failed';
         }
         status.value = 'error';
         error.value = FRIENDLY_CHECK_ERROR;
         errorKind.value = 'check';
         modalOpen.value = true;
         useUiStore().showToast('检查更新失败', 'error');
+        return 'failed';
       }
     })();
+    checkInflight = request;
+    checkInflightSilent = silent;
 
     try {
-      await checkInflight;
+      await request;
     } finally {
-      checkInflight = null;
+      if (checkInflight === request) {
+        checkInflight = null;
+        checkInflightSilent = false;
+      }
     }
   }
 
@@ -480,6 +519,7 @@ export const useUpdateStore = defineStore('update', () => {
         status.value = 'uptodate';
         badge.value = false;
         update.value = null;
+        modalOpen.value = false;
         clearSkippedVersion();
         useUiStore().showToast('已是最新版本', 'ok');
         return;
@@ -493,23 +533,14 @@ export const useUpdateStore = defineStore('update', () => {
       await fresh.downloadAndInstall((event) => {
         switch (event.event) {
           case 'Started': {
-            const total = event.data?.contentLength ?? 0;
-            progress.value = {
-              downloaded: 0,
-              total,
-              pct: 0,
-            };
+            progress.value = normalizeUpdateProgress(0, event.data?.contentLength);
             break;
           }
           case 'Progress': {
-            const chunk = event.data?.chunkLength ?? 0;
+            const chunk = nonNegativeFiniteBytes(event.data?.chunkLength);
             const downloaded = progress.value.downloaded + chunk;
             const total = progress.value.total;
-            progress.value = {
-              downloaded,
-              total,
-              pct: total > 0 ? Math.min(100, (downloaded / total) * 100) : 0,
-            };
+            progress.value = normalizeUpdateProgress(downloaded, total);
             break;
           }
           case 'Finished': {

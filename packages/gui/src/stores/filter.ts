@@ -14,12 +14,42 @@ export type ScrapeMode = 'incremental' | 'full';
 
 const REFRESH_SCAN_MODE_KEY = 'wui:library.refreshScanMode';
 
+type ReadableStorage = Pick<Storage, 'getItem'>;
+type WritableStorage = Pick<Storage, 'setItem'>;
+
+function browserStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function loadRefreshScanMode(
+  storage: ReadableStorage | null = browserStorage(),
+): ScrapeMode {
+  try {
+    return storage?.getItem(REFRESH_SCAN_MODE_KEY) === 'full' ? 'full' : 'incremental';
+  } catch {
+    return 'incremental';
+  }
+}
+
+export function saveRefreshScanMode(
+  mode: ScrapeMode,
+  storage: WritableStorage | null = browserStorage(),
+): void {
+  try {
+    storage?.setItem(REFRESH_SCAN_MODE_KEY, mode);
+  } catch {
+    // Keep the in-memory choice when WebView storage is unavailable.
+  }
+}
+
 export const useFilterStore = defineStore('filter', () => {
   const filters = ref<FilterState>(normalizeVisibleFilters(loadFilters()));
   const filterBarOpen = ref(loadOpen());
-  const refreshScanMode = ref<ScrapeMode>(
-    localStorage.getItem(REFRESH_SCAN_MODE_KEY) === 'full' ? 'full' : 'incremental'
-  );
+  const refreshScanMode = ref<ScrapeMode>(loadRefreshScanMode());
   const scrollToKey = ref<string | null>(null);
 
   const activeCount = computed(() => activeFilterCount(filters.value));
@@ -76,7 +106,7 @@ export const useFilterStore = defineStore('filter', () => {
 
   function setScanMode(mode: ScrapeMode) {
     refreshScanMode.value = mode;
-    localStorage.setItem(REFRESH_SCAN_MODE_KEY, mode);
+    saveRefreshScanMode(mode);
   }
 
   function focusSection(key: string) {
@@ -95,8 +125,9 @@ export const useFilterStore = defineStore('filter', () => {
   // Previously called applyFilters once for ALL_ACCOUNTS and once per real
   // account (O((N+1) * M), with each applyFilters rebuilding a full TanStack
   // table). Now: one applyFilters pass, then group by openID in a single
-  // linear walk. The map omits accounts with zero matches after filtering;
-  // AccountSidebar's consumer falls back to a.matchCount in that case.
+  // linear walk. The map intentionally omits non-error accounts with zero
+  // matches after filtering; consumers must interpret a missing real-account
+  // key as zero while filters are active, never as the unfiltered total.
   function filteredAccountCounts(matches: MatchRecord[], realAccounts: Array<{ openid: string; error?: string }>) {
     const counts = new Map<string, number>();
     const filtered = applyFilters(matches, filters.value);

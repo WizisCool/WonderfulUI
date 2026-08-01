@@ -20,6 +20,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     target: 'esnext',
-    sourcemap: true,
+    // Dev server already provides mapped source. Shipping .map files only
+    // enlarges the offline Tauri payload and exposes application source.
+    sourcemap: false,
   },
 });

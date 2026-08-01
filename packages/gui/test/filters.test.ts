@@ -2,10 +2,13 @@ import { describe, test, expect } from 'bun:test';
 import {
   EMPTY_FILTERS, activeFilterCount,
   FilterState, kdaOf, kdOf, matchDurationSec, normalizeVisibleFilters, videoTotalDuration,
+  sanitizePersistedFilters,
   agentCn, mapCn, mapImageUrl, heroImageUrl, fmtMap, fmtMatchDuration,
 } from '../src/utils/filters.ts';
 import { applyFilters, facetValueCounts, pruneUnavailableCategories } from '../src/utils/filter-engine.ts';
 import { endOfSelectedDayForFilter } from '../src/utils/date-picker.ts';
+import { lookupAgentAsset, lookupMapAsset } from '../src/utils/valorant-assets.ts';
+import { loadRefreshScanMode, saveRefreshScanMode } from '../src/stores/filter.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 
 function mkVideo(overrides: Partial<VideoItem> = {}): VideoItem {
@@ -77,6 +80,25 @@ describe('EMPTY_FILTERS', () => {
   test('returns all matches when no filters active', () => {
     const result = applyFilters(all, EMPTY_FILTERS);
     expect(result.length).toBe(3);
+  });
+});
+
+describe('refresh scan mode persistence', () => {
+  test('loads only the known full value and otherwise defaults to incremental', () => {
+    expect(loadRefreshScanMode({ getItem: () => 'full' })).toBe('full');
+    expect(loadRefreshScanMode({ getItem: () => 'incremental' })).toBe('incremental');
+    expect(loadRefreshScanMode({ getItem: () => 'corrupt' })).toBe('incremental');
+    expect(loadRefreshScanMode(null)).toBe('incremental');
+  });
+
+  test('storage failures never break store initialization or an in-memory mode change', () => {
+    const storage = {
+      getItem(): string | null { throw new Error('storage disabled'); },
+      setItem(): void { throw new Error('storage disabled'); },
+    };
+
+    expect(loadRefreshScanMode(storage)).toBe('incremental');
+    expect(() => saveRefreshScanMode('full', storage)).not.toThrow();
   });
 });
 
@@ -290,6 +312,33 @@ describe('visible filter normalization', () => {
     expect(normalized.score).toEqual([null, null]);
     expect(normalized.kills).toEqual([20, null]);
   });
+
+  test('sanitizes malformed persisted categories and ranges', () => {
+    const normalized = sanitizePersistedFilters({
+      heroes: [' 捷风 ', null, '', '捷风', 42],
+      maps: { bad: true },
+      results: ['win', 'bogus', 1],
+      achievements: ['svp', 'other'],
+      kills: ['20', 'not-a-number'],
+      kda: [5, 2],
+      dateRange: [Number.NaN, Number.POSITIVE_INFINITY],
+      query: 42,
+    });
+
+    expect(normalized.heroes).toEqual(['捷风']);
+    expect(normalized.maps).toEqual([]);
+    expect(normalized.results).toEqual(['win']);
+    expect(normalized.achievements).toEqual(['svp']);
+    expect(normalized.kills).toEqual([20, null]);
+    expect(normalized.kda).toEqual([2, 5]);
+    expect(normalized.dateRange).toEqual([null, null]);
+    expect(normalized.query).toBe('');
+    expect(activeFilterCount(normalized)).toBe(5);
+
+    normalized.heroes.push('贤者');
+    expect(sanitizePersistedFilters({}).heroes).toEqual([]);
+    expect(EMPTY_FILTERS.heroes).toEqual([]);
+  });
 });
 
 describe('fuse.js text search', () => {
@@ -343,7 +392,7 @@ describe('career-missing map/agent fallbacks', () => {
   test('mapCn/fmtMap resolve Skirmish_A and RangeV2', () => {
     expect(fmtMap('/Game/Maps/Duel/Duel_1/Skirmish_A')).toBe('斗牛 1');
     expect(fmtMap('/Game/Maps/Duel/Duel_Heady/Skirmish_E')).toBe('斗牛 5');
-    expect(fmtMap('/Game/Maps/PovegliaV2/RangeV2')).toBe('训练场');
+    expect(fmtMap('/Game/Maps/PovegliaV2/RangeV2')).toBe('靶场');
     expect(fmtMap('/Game/Maps/HURM/HURM_Helix/HURM_Helix')).toBe('渔市');
     expect(fmtMap('/Game/Maps/HURM/HURM_Alley/HURM_Alley')).toBe('商街');
     expect(fmtMap('/Game/Maps/HURM/HURM_Bowl/HURM_Bowl')).toBe('古城');
@@ -359,11 +408,11 @@ describe('career-missing map/agent fallbacks', () => {
     });
     expect(agentCn(m)).toBe('捷风');
     expect(mapCn(m)).toBe('斗牛 1');
-    expect(heroImageUrl(m)).toContain('headicon');
-    expect(mapImageUrl(m)).toContain('skirmish_a');
+    expect(heroImageUrl(m)).toBe(lookupAgentAsset('Jett')?.image);
+    expect(mapImageUrl(m)).toBe(lookupMapAsset('/Game/Maps/Duel/Duel_1/Skirmish_A')?.image);
   });
 
-  test('career values win for text and images when present', () => {
+  test('canonical values win over inconsistent career values for known entities', () => {
     const m = mkMatch({
       agent: { agent_id: 'x', agent_name: 'Jett' },
       career: {
@@ -374,9 +423,9 @@ describe('career-missing map/agent fallbacks', () => {
       },
       map: { map_id: '/Game/Maps/Ascent/Ascent' },
     });
-    expect(agentCn(m)).toBe('自定义');
-    expect(mapCn(m)).toBe('自定义图');
-    expect(mapImageUrl(m)).toBe('https://example.com/m.png');
-    expect(heroImageUrl(m)).toBe('https://example.com/h.png');
+    expect(agentCn(m)).toBe('捷风');
+    expect(mapCn(m)).toBe('亚海悬城');
+    expect(mapImageUrl(m)).toBe(lookupMapAsset('/Game/Maps/Ascent/Ascent')?.image);
+    expect(heroImageUrl(m)).toBe(lookupAgentAsset('Jett')?.image);
   });
 });

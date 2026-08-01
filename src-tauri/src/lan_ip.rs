@@ -3,8 +3,8 @@
 //! 策略：
 //! 1. 用 `UdpSocket::connect("8.8.8.8:80")`（不发包，只让内核选路由接口）
 //!    然后读 `local_addr()`。这是最可靠的"我的局域网 IP"获取方式。
-//! 2. 如果失败（断网/无默认路由），回退到枚举所有 IPv4 接口，
-//!    过滤掉 loopback + 链路本地 + 公网，挑选"看起来像内网"的（RFC 1918）。
+//! 2. 如果失败（断网/无默认路由），回退到枚举所有工作中的 IPv4 接口，
+//!    过滤掉 loopback + 链路本地 + 公网，选第一个 RFC 1918 地址。
 //!
 //! **不主动发包**：`UdpSocket::connect` 不会真发 UDP 数据（直到你 `send`）。
 //! 不会触发 ACLOS / Riot / Vanguard 任何网络行为。
@@ -24,46 +24,68 @@ fn detect_via_connect() -> Option<String> {
     // connect 不会真发包；只是让 OS 选出口接口
     sock.connect(("8.8.8.8", 80)).ok()?;
     match sock.local_addr().ok() {
-        Some(SocketAddr::V4(v4)) if is_lan_ipv4(v4.ip()) => {
-            Some(v4.ip().to_string())
-        }
+        Some(SocketAddr::V4(v4)) if is_lan_ipv4(v4.ip()) => Some(v4.ip().to_string()),
         _ => None,
     }
 }
 
-/// `getifaddrs` 在 Windows 上是 IPHLPAPI，在 Unix 上是 libc getifaddrs。
-/// 跨平台抽到 `cfg` 块。
-#[cfg(unix)]
 fn detect_via_interface_enum() -> Option<String> {
-    use std::net::Ipv4Addr;
-    // 简化：libc getifaddrs 实现比较繁；用 std::process::Command
-    // 调 `ipconfig` / `ifconfig` 也不可靠。
-    // 实际场景：UdpSocket::connect 几乎总能成功（99% 桌面有默认路由）。
-    None
+    let interfaces = if_addrs::get_if_addrs().ok()?;
+    first_lan_ipv4(interfaces.into_iter().filter_map(|interface| {
+        if !interface.is_oper_up() || interface.is_loopback() || interface.is_link_local() {
+            return None;
+        }
+        match interface.ip() {
+            IpAddr::V4(ip) => Some(ip),
+            IpAddr::V6(_) => None,
+        }
+    }))
+    .map(|ip| ip.to_string())
 }
 
-#[cfg(windows)]
-fn detect_via_interface_enum() -> Option<String> {
-    // Windows 上同理 —— 简单实现：UdpSocket::connect 已经处理 99% 场景。
-    // 真要枚举 IPHLPAPI 的 GetAdaptersAddresses 是个大工程，先不做。
-    None
+fn first_lan_ipv4(candidates: impl IntoIterator<Item = Ipv4Addr>) -> Option<Ipv4Addr> {
+    candidates.into_iter().find(is_lan_ipv4)
 }
 
 pub fn is_lan_ipv4(ip: &Ipv4Addr) -> bool {
     let octets = ip.octets();
     // 10.0.0.0/8
-    if octets[0] == 10 { return true; }
+    if octets[0] == 10 {
+        return true;
+    }
     // 172.16.0.0/12
-    if octets[0] == 172 && (16..=31).contains(&octets[1]) { return true; }
+    if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+        return true;
+    }
     // 192.168.0.0/16
-    if octets[0] == 192 && octets[1] == 168 { return true; }
+    if octets[0] == 192 && octets[1] == 168 {
+        return true;
+    }
     false
 }
 
-#[allow(dead_code)]
-fn format_addr(addr: IpAddr) -> String {
-    match addr {
-        IpAddr::V4(v4) => v4.to_string(),
-        IpAddr::V6(v6) => format!("[{}]", v6),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_ipv4_classification_covers_all_rfc1918_ranges() {
+        for accepted in ["10.0.0.1", "172.16.5.5", "172.31.255.254", "192.168.1.1"] {
+            assert!(is_lan_ipv4(&accepted.parse().unwrap()), "{accepted}");
+        }
+        for rejected in ["127.0.0.1", "169.254.1.2", "8.8.8.8", "172.32.0.1"] {
+            assert!(!is_lan_ipv4(&rejected.parse().unwrap()), "{rejected}");
+        }
+    }
+
+    #[test]
+    fn interface_fallback_skips_non_lan_addresses_without_reordering() {
+        let selected = first_lan_ipv4([
+            "127.0.0.1".parse().unwrap(),
+            "8.8.8.8".parse().unwrap(),
+            "10.42.0.7".parse().unwrap(),
+            "192.168.1.5".parse().unwrap(),
+        ]);
+        assert_eq!(selected, Some("10.42.0.7".parse().unwrap()));
     }
 }

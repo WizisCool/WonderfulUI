@@ -15,8 +15,8 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
   `packages/gui/src/tauri-adapter.ts`, so UI surfaces can be inspected with
   browser tooling without reading ACLOS or launching the Tauri shell.
 - Parser: Rust in-process inside the Tauri shell.
-- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**.
-- App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction.
+- Library store: bundled SQLite via `rusqlite` at `%LOCALAPPDATA%\wonderful-ui\library.db` in **WAL mode**. Every connection installs a 5-second busy timeout before PRAGMAs/migration, so normal overlap between scan transactions, preferences, stats, and cache metadata waits for a writer handoff instead of immediately returning `SQLITE_BUSY`.
+- App logs: `%LOCALAPPDATA%\wonderful-ui\logs\wonderful-ui.log`, a single Tauri-managed file with automatic compaction. Status reads, tail compaction, and appends share one process-wide lock so scraper/share/cache/IPC threads cannot rewrite and append concurrently.
 - TS parser: retained for CLI and Bun unit tests.
 - **Test infrastructure**: two runners.
   - `bun:test` for pure-logic utility tests (118 cases, `packages/gui/test/*.test.ts` and `packages/parser/tests/*.test.ts`).
@@ -25,6 +25,11 @@ WonderfulUI is an offline parser and desktop GUI for ACLOS Tencent "无畏时刻
 - Git: single repository, main branch, no pre-commit hook.
 - **Scraper parallelism**: account files are parsed in parallel via `rayon`, then written to SQLite sequentially in per-account `BEGIN IMMEDIATE` / `COMMIT` transactions.
 - **Frontend virtual scrolling**: match list renders only visible + buffer rows (~12 DOM nodes instead of hundreds), using `position: absolute` + `transform: translateY()` with a `.vlist-spacer` for scrollable height and rAF-batched scroll handler.
+- **Frontend code splitting**: the low-frequency settings center is loaded by
+  async component/router imports only when `settings.isOpen`. Its ECharts
+  registry includes only the current donut modules. The audited production
+  build reduced startup JS from 1,112.12 kB / 384.62 kB gzip to 498.39 kB /
+  175.39 kB gzip; the separate settings chunk is 468.94 kB / 160.98 kB gzip.
 - **In-app updater** (since v0.1.5): `tauri-plugin-updater` + `tauri-plugin-process` are default features. The GUI calls `check()` / `downloadAndInstall()` / `relaunch()` only through `packages/gui/src/stores/update.ts`. Manifest is GitHub Releases `latest.json` (signed NSIS setup). Details: `docs/UPDATER.md`.
 - **Screenshot** (player context menu, Windows only): Tauri `capture_video_frame` (`src-tauri/src/frame_capture.rs`) uses Media Foundation `IMFSourceReader` (seek + RGB32 sample), caches one reader per path, returns PNG base64 (fast filter). No frontend canvas path.
 - **In-app player media:** playback uses Tauri **asset** protocol (`convertFileSrc`) for progressive Range streaming.
@@ -57,47 +62,70 @@ Account display overrides and drag order live in SQLite `account_preferences`. T
 
 Defined in `src-tauri/src/lib.rs`:
 
-- `aclos_status(dir?: string) -> AclosStatusPayload`
+- `aclos_status() -> AclosStatusPayload`
   - **Read-only** probe of the ACLOS WonderfulDb directory. Returns
     `{ dir, dirExists, hasAccounts }` so the GUI can route the user to the
     first-run / onboarding screen without paying the cost of `scan_shell`.
   - `dirExists` is true when the directory is on disk.
-  - `hasAccounts` is true when the directory contains at least one
-    non-hidden, non-snapshot, non-index file (mirrors the rule ACLOS
-    uses to enumerate account files).
+  - `hasAccounts` is true only when the directory contains at least one
+    regular file whose full basename is an ASCII-decimal openid. The probe
+    calls the same predicate as the scraper, so snapshots, index/README files,
+    hidden files, symlinks, and numeric directory names cannot create a false
+    positive onboarding state.
   - Does not create, modify, or touch the directory.
   - The frontend calls this at boot, before `scan_shell`, in
     `App.vue -> runBoot()`.
-- `scan_shell(dir?: string) -> ScanShellPayload`
+- `scan_shell() -> ScanShellPayload`
   - Opens the local SQLite library and returns the existing account shell
     immediately so startup can render without waiting for a full source scan.
   - Spawns the WonderfulDb source refresh in the background and streams
     `wui://phase` / per-account progress events to the boot progress UI.
+  - Always emits `wui://startup_refresh_finished` with `finished`, `degraded`,
+    or `error`, including when opening SQLite or reading WonderfulDb fails.
+    Degraded means the existing SQLite view remains usable; the failure is
+    logged and surfaced without trapping the UI behind the boot overlay.
+    A completed scrape with one or more per-account parse failures is also
+    `degraded`; do not report it as an unconditional success.
   - The frontend follows with `load_library()` after startup progress to read
     the current rounds-stripped library view from SQLite.
-- `scan_all(dir?: string) -> LoadResult`
+- `scan_all() -> LoadResult`
   - Opens the local SQLite library.
-  - Runs the WonderfulDb source adapter in **incremental** mode against `dir` (default `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb`).
+  - Runs the WonderfulDb source adapter in **incremental** mode against the fixed `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb` source.
   - Loads the library view from SQLite.
   - Per-account source failures are persisted on `accounts[].error`.
   - If startup source refresh fails but SQLite already has accounts or matches, returns the existing library view. If the library is empty, the source error is returned.
   - **Strips `rounds` from every match before sending** (via
     `strip_match_rounds`) so the bulk payload stays at ~50 KB / account
     instead of ~6 MB. Use `get_match_rounds` to fetch the rest on demand.
-- `scrape_library(dir?: string, trigger?: string, mode?: "incremental" | "full") -> LoadResult`
+- `scrape_library(mode?: "incremental" | "full") -> LoadResult`
   - Manually refreshes the local SQLite library from the configured WonderfulDb source, then returns the same library view as `scan_all`.
-  - Missing or unknown `mode` defaults to `incremental`. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
+  - Missing `mode` defaults to `incremental`; any other value is rejected. The backend derives the persisted scan trigger (`manual` / `full_manual`) instead of trusting renderer audit text. The GUI stores a refresh-button scan mode (`incremental` or `full`) and passes it from the match-list header refresh button. The settings modal's direct full scan action passes `mode: "full"`.
   - Manual source failures return an error so the user gets explicit feedback.
+- Source-directory and scan-trigger IPC are intentionally absent. The product has no custom
+  directory picker, so renderer input cannot redirect any probe or scan to an
+  arbitrary filesystem path. Missing or non-absolute user-profile state fails
+  closed rather than degrading to a relative directory.
 - `load_library() -> LoadResult`
   - Returns the current SQLite library view without reading WonderfulDb.
+  - Malformed `matches.raw_json` rows are omitted from the visible match list,
+    counted in `totalErrors`, and logged by match id/openid without logging the
+    raw payload. This keeps the rest of the library usable while making a full
+    scan an explicit recovery path instead of silently losing rows.
 - `get_match_rounds(openid: String, match_id: String) -> MatchRecord`
   - Reads `matches.raw_json` from SQLite and returns the single match
     identified by `match_id`, with the full `rounds` tree attached. Called
     by the GUI when the user opens a match detail (lazy load).
 - `save_account_order(openids: string[])`
   - Persists the left account pane's user-defined order in SQLite `account_preferences`.
+  - Writes the complete order in one SQLite transaction; a failed row must
+    roll back earlier positions so a frontend optimistic rollback and the
+    persisted order cannot diverge.
   - The synthetic `__all__` account is not stored; it always renders at the top.
+  - IPC rejects unknown or duplicate account IDs and caps the request before
+    starting the preference transaction.
 - `rename_account(openid: string, customName?: string)`
+  - Only an existing SQLite account may be renamed. A non-empty custom name is
+    bounded to 64 Unicode characters and must be single-line text.
   - Persists a WonderfulUI-local account display name override.
   - Empty/null clears the override and falls back to snapshot nickname/tag.
 - `play_video(path)`
@@ -106,8 +134,12 @@ Defined in `src-tauri/src/lib.rs`:
     the taskbar "Open" button use internally, so the call returns in
     milliseconds after handing the file off to the shell.
   - Wrapped in `src-tauri/src/os_shell.rs` behind `#[cfg(windows)]`; the
-    non-Windows stub returns an error. Pre-call `Path::exists()` guards
-    both the user-friendly Chinese error and the unit test.
+    non-Windows stub returns an error.
+  - The path must exactly match a row in SQLite `videos.path`, use a supported
+    video extension, and still be a non-symlink regular file. The same gate is
+    shared by `reveal_in_explorer`, `start_share_server`, and
+    `capture_video_frame`; WebView callers cannot substitute an arbitrary
+    local path.
   - The previous `cmd /c start "" <path>` path added a process layer
     (cmd parsing + conhost + `start` builtin lookup) that took ~300–800 ms
     per click, which surfaced as right-click menu close lag. `ShellExecuteW`
@@ -121,40 +153,124 @@ Defined in `src-tauri/src/lib.rs`:
   - Kept separate from playback for player context-menu actions.
   - `explorer.exe` exit code after `/select` is unreliable (it forks a new
     process and returns immediately with code 0 or 1). Success is judged by
-    spawn success + file existence, not exit code. See `lib.rs` for details.
+    spawn success after the shared SQLite/video-file authorization gate, not
+    exit code. See `lib.rs` for details.
 - `get_log_status() -> LogStatus`
   - Returns the WonderfulUI log directory, current log file metadata, and a bounded tail preview from `wonderful-ui.log` for the settings `日志` tab.
 - `reveal_logs_dir()`
   - Opens `%LOCALAPPDATA%\wonderful-ui\logs` in Explorer so users can attach logs to future bug reports.
 - `start_share_server(path) -> ShareServerInfo`
+  - Accepts only a current SQLite-registered video path through the same gate
+    as playback and frame capture; an injected WebView cannot turn the LAN
+    server into an arbitrary-file endpoint.
   - Starts a 1-shot HTTP server on a free local port (49152-65535), generates a
-    256-bit URL-safe token, returns `{ port, token, url, lanIp, qrSvg, videoName, videoSize, startedAtUnix }`.
+    256-bit URL-safe token, returns `{ sessionId, port, token, url, lanIp,
+    qrSvg, videoName, videoSize, startedAtUnix }`.
   - The QR SVG is generated Rust-side using **circle modules** (not rectangles)
     with `EcLevel::H` (30% recovery) and a 4-module quiet zone for iPhone
     / Android native scanner compatibility.
   - Token is the only auth — request path MUST start with `/w/<token>` and the
     `Host` header MUST match `localhost` / `127.0.0.1` / the detected LAN IP
     (DNS-rebinding guard).
+  - LAN IPv4 selection first asks the kernel which interface owns the default
+    route without sending a packet. If no default route exists, it enumerates
+    operational interfaces cross-platform and selects the first RFC 1918 IPv4.
+    The chosen address is captured once and reused for both the QR URL and Host
+    validation; a route change cannot make the server reject its own URL. If
+    no reachable LAN address exists, startup fails explicitly instead of
+    generating an unusable `127.0.0.1` QR code.
   - Server lifetime is **driven by the frontend** (modal mounted → up, modal
     unmounted → down). Rust holds the running server state in a
     `tauri::State<ShareServerState>` registered via `.manage()` on the
     builder. A **3-minute idle timeout** is the only auto-shutdown path —
     covers "user opened modal then forgot about it" without a port leak.
-- `stop_share_server()` — explicit shutdown; sends stop signal to the server
-  thread which exits cleanly. Frontend calls this on modal close.
+- `stop_share_server(sessionId?)` — explicit shutdown. Normal frontend calls
+  always include the current UUID share session ID, so a late stop
+  from an old modal cannot terminate its replacement server.
+  - Start/stop IPC accepts only canonical UUID v4 session IDs. Stop-before-
+    publish cancellations expire after 60 seconds, are pruned on the next
+    access, and the table is capped at 128 entries. Stale stops therefore
+    cannot grow process memory without weakening the normal async race.
 - `share_server_status() -> ShareServerStatus` — `{ running, info, downloadCount, lastError }`
+- `wui://share_downloaded` and `wui://share_server_stopped` include the same
+  `sessionId`. The frontend ignores events from replaced sessions. Normal
+  manual shutdown emits `stopped`; the three-minute server timeout emits the
+  distinct `idle_timeout` reason; thread errors emit `error` plus a message.
 - `log_event(level, scope, message)` — generic log forwarder so the frontend
   can write structured logs that end up in `wonderful-ui.log` next to Rust
   logs. Browser / test environments fall back to `console.*` without
-  throwing on `invoke`.
+  throwing on `invoke`. The shared logger flattens newlines and bounds every
+  scope/message to 64/8192 Unicode characters before disk append; truncation is
+  marked explicitly.
 - `get_library_stats() -> LibraryStats`
   - Reads the local SQLite library and app-owned cache/log metadata to feed the settings `资料库概览`.
   - The GUI currently visualizes per-account video counts from this payload; storage byte fields remain backend diagnostics, not primary UI.
-- `cache_hero_image(url)` (legacy thin wrapper around `cache_asset`)
-- `cache_asset(kind, url)` — unified asset cache supporting `hero_image`, `map_image`, `game_mode_icon`
-- `cache_assets(entries)` — batch variant, returns `url → local_path` map for bulk pre-warm
-  - Caches remote assets into `%LOCALAPPDATA%\wonderful-ui\assets\{kind}\`.
-  - First scan may download played-agent icons, map covers, and mode icons; later scans should hit cache.
+- `cache_hero_image(url)` / `cache_asset(kind, url)` / `cache_assets(entries)`
+  are retained legacy IPC boundaries. Current canonical match visuals resolve
+  to Vite-bundled `/valorant/...` paths, so `collectMatchAssetEntries` yields no
+  download work and normal scans do not contact an image CDN.
+  - Defense in depth: only the three known asset kinds, HTTPS on the two legacy
+    source hosts, raster PNG/JPEG/WebP responses matching the URL extension,
+    and files up to 16 MiB are accepted. Redirects and custom ports are blocked.
+    Batch IPC is rejected before worker creation above 256 entries; URL and
+    kind strings are bounded to 4096 and 32 bytes respectively.
+  - Downloads use bounded timeouts plus a temporary file and atomic publish;
+    declared or streamed empty responses are rejected before publish, and the
+    final regular-file size is revalidated. Interrupted zero-byte/oversized
+    cache files from older versions are discarded on the next use.
+- Canonical metadata and content-addressed source PNGs are generated together by
+  the networked maintenance command `bun run update:valorant-metadata`. Map
+  sources are canonical 16:9 `splash` images; exact duplicates share one hash.
+  The maintenance update is transactional: every asset kind downloads and
+  validates inside a temporary staging tree, new hash paths publish additively,
+  metadata is replaced through a same-directory temporary file, and stale PNGs
+  are pruned only after that replacement succeeds. A later-kind download,
+  metadata render, or metadata publish failure therefore leaves every source
+  referenced by the previous registry intact.
+- Every `packages/gui` dev/build first runs the offline `bun run assets:build`
+  pipeline. Sharp produces 256x256 agent, 640x360 map and 128x128 mode WebPs in
+  ignored `packages/gui/public/valorant/`; only these outputs reach Vite `dist`
+  and the Tauri bundle. CI validate runs the same compiler explicitly.
+- `bun run assets:check` verifies source checksums/aspect ratios, output format,
+  dimensions, byte ceilings, exact registry parity and physical deduplication;
+  production build also verifies the copied `dist/valorant` tree.
+- Vite production builds do not emit JavaScript source maps. The dev server
+  retains normal source debugging, while packaged Tauri frontend assets avoid
+  several MiB of non-runtime `.map` files and do not disclose application source.
+
+## Tauri Security Boundary
+
+- Production uses an explicit Content Security Policy. Scripts, styles, fonts,
+  images, media, and IPC are restricted to the packaged app plus the Tauri
+  asset/IPC protocols; object embedding, base URLs, forms, and framing are
+  disabled. `devCsp: null` is explicit so the existing Vite browser/Tauri dev
+  loop remains usable and is not mistaken for the production policy.
+- The asset protocol has no `"**"` filesystem scope. App-owned legacy cache
+  files under `$LOCALDATA/wonderful-ui/assets/**` are statically allowed.
+  Library video/poster paths are added dynamically only after they came from a
+  SQLite library result, have a supported media extension, and are current
+  non-symlink regular files.
+- Windows screenshot decoding treats Media Foundation buffers as untrusted
+  lengths. `IMF2DBuffer2::Lock2DSize` supplies the allocation bounds for every
+  pitched/negative-stride row copy; older 2D buffers use bounded contiguous
+  copy, and plain media buffers use `cur_len`. Width/height arithmetic is
+  checked and decoded RGBA output is capped at 512 MiB before allocation.
+  Renderer `timeMs` is checked before conversion to signed 100 ns units, so a
+  large `u64` cannot wrap into a negative seek and silently capture frame zero.
+- ACLOS Chromium Local Storage LevelDB is never opened in place. Because
+  `rusty-leveldb` has no read-only mode and can create `LOCK`/log files, the
+  identity index copies regular database files (excluding live `LOCK`) into a
+  WonderfulUI temporary directory, opens only that copy, and then removes it.
+- IPC commands that open, reveal, decode, or share a video independently
+  re-authorize the exact path against SQLite `videos.path`. Asset-protocol
+  visibility is not treated as command authorization.
+- Screenshot Save As keeps `dialog:allow-save` and `fs:allow-write-file`, but
+  has no global filesystem scope or read permission. The dialog plugin grants
+  the single user-selected output path dynamically.
+- `open_external_url` accepts only HTTPS URLs on the product's explicit
+  `github.com` and `choosealicense.com` allowlist, with no userinfo or custom
+  port. Adding a new About-page destination requires updating the backend
+  allowlist and its tests; never weaken this to prefix matching.
 
 ## IPC Shape
 
@@ -176,12 +292,6 @@ WebView (packages/gui)
     invoke scrape_library
         -> Tauri (src-tauri/src/lib.rs)
             -> library::scraper refreshes SQLite from WonderfulDb
-            -> library::db loads the library view
-    <- library matches JSON (rounds stripped)
-
-WebView (packages/gui)
-    invoke load_library
-        -> Tauri (src-tauri/src/lib.rs)
             -> library::db loads the library view
     <- library matches JSON (rounds stripped)
 
@@ -220,6 +330,11 @@ metadata are unchanged and the previous parse completed without an account
 error. Accounts with `parse_error` are retried even if the file metadata is
 unchanged, because ACLOS can produce torn reads while writing. Full mode
 ignores freshness metadata and reparses every account file.
+
+Every `wui://account_finished` event reports `sizeBytesDone` after including
+the account that just finished (parsed, empty, failed, or skipped). The final
+account therefore reaches `sizeBytesTotal`; consumers must not compensate for
+the former one-account lag.
 
 ## Diagnostics Logs
 
@@ -398,7 +513,7 @@ WonderfulUI/
 │           │   └── settings/  # SettingsModal
 │           ├── composables/   # useVirtualScroll, useFloating
 │           ├── router/
-│           ├── stores/        # 6 Pinia stores: account, filter, detail, player, settings, ui
+│           ├── stores/        # 8 Pinia stores: account, filter, detail, player, settings, share, update, ui
 │           ├── utils/         # Pure logic: filters, event-state-machine, weapons, etc.
 │           └── views/         # HomeView, DetailView, SettingsView
 ├── docs/

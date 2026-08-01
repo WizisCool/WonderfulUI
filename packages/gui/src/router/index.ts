@@ -1,7 +1,6 @@
 import { createRouter, createMemoryHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 import HomeView from '../views/HomeView.vue';
-import SettingsView from '../views/SettingsView.vue';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -18,7 +17,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/settings',
     name: 'settings',
-    component: SettingsView,
+    component: () => import('../views/SettingsView.vue'),
   },
 ];
 

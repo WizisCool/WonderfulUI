@@ -10,6 +10,7 @@ import {
   FAKE_DOWNLOAD_MS,
   DEV_FAKE_DONE_TOAST,
   SKIPPED_VERSION_KEY,
+  normalizeUpdateProgress,
 } from '../src/stores/update.ts';
 import { useUiStore } from '../src/stores/ui.ts';
 
@@ -101,6 +102,10 @@ describe('UpdateModal', () => {
     });
     expect(document.body.querySelector('.update-modal-progress-shimmer')).not.toBeNull();
     expect(document.body.querySelector('.update-modal-progress-fill')).toBeNull();
+    const progress = document.body.querySelector('.update-modal-progress');
+    expect(progress?.getAttribute('role')).toBe('progressbar');
+    expect(progress?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(progress?.getAttribute('aria-valuetext')).toContain('已下载');
     expect(document.body.textContent).toContain('已下载');
     w.unmount();
   });
@@ -111,6 +116,7 @@ describe('UpdateModal', () => {
       progress: { downloaded: 50, total: 100, pct: 50 },
     });
     expect(document.body.querySelector('.update-modal-progress-fill')).not.toBeNull();
+    expect(document.body.querySelector('.update-modal-progress')?.getAttribute('aria-valuenow')).toBe('50');
     expect(document.body.textContent).toContain('50%');
     w.unmount();
   });
@@ -179,6 +185,28 @@ describe('useUpdateStore', () => {
     await flushPromises();
     expect(checkMock).toHaveBeenCalledTimes(2);
     expect(store.status).toBe('uptodate');
+    expect(store.modalOpen).toBe(false);
+    w.unmount();
+  });
+
+  test('closes the modal if a fresh install check no longer finds an update', async () => {
+    checkMock.mockResolvedValueOnce(null);
+    const w = mountModal({
+      status: 'available',
+      update: { version: '0.1.6', date: '', body: '' },
+      badge: true,
+      modalOpen: true,
+    });
+    const store = useUpdateStore();
+
+    await store.startUpdate();
+    await flushPromises();
+
+    expect(store.status).toBe('uptodate');
+    expect(store.update).toBeNull();
+    expect(store.modalOpen).toBe(false);
+    expect(downloadAndInstallMock).not.toHaveBeenCalled();
+    expect(relaunchMock).not.toHaveBeenCalled();
     w.unmount();
   });
 
@@ -279,6 +307,35 @@ describe('useUpdateStore', () => {
     w.unmount();
   });
 
+  test('manual check retries visibly after an overlapping silent failure', async () => {
+    let rejectSilent: (reason?: unknown) => void = () => {};
+    checkMock
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => { rejectSilent = reject; }),
+      )
+      .mockResolvedValueOnce(null);
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+
+    const silent = store.checkForUpdate(true);
+    const manual = store.checkForUpdate(false);
+    expect(checkMock).toHaveBeenCalledTimes(1);
+
+    rejectSilent(new Error('boot network failure'));
+    await Promise.all([silent, manual]);
+    await flushPromises();
+
+    expect(checkMock).toHaveBeenCalledTimes(2);
+    expect(store.status).toBe('uptodate');
+    expect(store.errorKind).toBeNull();
+    w.unmount();
+  });
+
   test('debug playFakeDownload reaches installing without plugin calls', async () => {
     vi.useFakeTimers();
     const w = mountModal({
@@ -324,6 +381,36 @@ describe('useUpdateStore', () => {
     expect(store.status).toBe('available');
     expect(store.update?.version).toBe('9.9.9');
     expect(checkMock).not.toHaveBeenCalled();
+    store.debugReset();
+    w.unmount();
+  });
+
+  test('normalizes malformed and overflowing progress inputs', () => {
+    expect(normalizeUpdateProgress(-1, -10)).toEqual({
+      downloaded: 0,
+      total: 0,
+      pct: 0,
+    });
+    expect(normalizeUpdateProgress(Number.NaN, Number.POSITIVE_INFINITY)).toEqual({
+      downloaded: 0,
+      total: 0,
+      pct: 0,
+    });
+    expect(normalizeUpdateProgress(250, 100)).toEqual({
+      downloaded: 100,
+      total: 100,
+      pct: 100,
+    });
+
+    const w = mountModal({
+      status: 'idle',
+      update: null,
+      badge: false,
+      modalOpen: false,
+    });
+    const store = useUpdateStore();
+    store.debugDownloading({ total: -1, downloaded: Number.POSITIVE_INFINITY });
+    expect(store.progress).toEqual({ downloaded: 0, total: 0, pct: 0 });
     store.debugReset();
     w.unmount();
   });

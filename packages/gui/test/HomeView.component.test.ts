@@ -1,8 +1,10 @@
 import { describe, test, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createTestingPinia } from '@pinia/testing';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import HomeView from '../src/views/HomeView.vue';
+import { useAccountStore } from '../src/stores/account.ts';
+import { useUiStore } from '../src/stores/ui.ts';
 import { matchOptionId } from '../src/utils/match-listbox.ts';
 import type { MatchRecord, VideoItem } from '@wonderful-ui/parser';
 
@@ -23,7 +25,11 @@ function mkMatch(openid = 'test-1', overrides: Partial<MatchRecord> = {}): Match
   } as MatchRecord;
 }
 
-async function mountHome(matches: MatchRecord[] = [], selectedAccountId = '__all__') {
+async function mountHome(
+  matches: MatchRecord[] = [],
+  selectedAccountId = '__all__',
+  accountOverrides: Record<string, unknown> = {},
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -47,9 +53,11 @@ async function mountHome(matches: MatchRecord[] = [], selectedAccountId = '__all
               accounts: [{ openid: 'test-1', path: '', matchCount: matches.length }],
               selectedAccountId,
               matches,
+              totalErrors: 0,
               accountLabels: new Map([['test-1', '测试号']]),
               assetPathCache: new Map(),
               matchAchievements: new Map(),
+              ...accountOverrides,
             },
             filter: {
               filters: {
@@ -84,6 +92,29 @@ describe('HomeView', () => {
     wrapper.unmount();
   });
 
+  test('clamps stale scroll position when the visible list becomes shorter', async () => {
+    const matches = Array.from({ length: 20 }, (_, index) => mkMatch('test-1', {
+      matches_id: `match-${index}`,
+      matches_time: 20 - index,
+    }));
+    const { wrapper } = await mountHome(matches);
+    const list = wrapper.get('.match-list');
+    const listEl = list.element as HTMLElement;
+    listEl.scrollTop = 1_600;
+    await list.trigger('scroll');
+
+    const account = useAccountStore();
+    account.matches = [mkMatch('test-1', {
+      matches_id: 'only-match',
+      matches_time: 1,
+    })];
+    await wrapper.vm.$nextTick();
+
+    expect(listEl.scrollTop).toBe(0);
+    expect(wrapper.find(`#${matchOptionId('only-match')}`).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   test('renders match count text', async () => {
     const { wrapper } = await mountHome([mkMatch(), mkMatch()]);
     expect(wrapper.text()).toContain('2 条');
@@ -105,6 +136,38 @@ describe('HomeView', () => {
   test('has filter toggle button', async () => {
     const { wrapper } = await mountHome([]);
     expect(wrapper.find('.scope-filter-toggle').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  test('shows a generic recoverable error instead of a false empty state', async () => {
+    const { wrapper } = await mountHome([], 'broken', {
+      totalErrors: 1,
+      accounts: [{
+        openid: 'broken',
+        path: 'D:\\WonderfulDb\\broken',
+        matchCount: 0,
+        error: 'parse D:\\private\\broken: invalid payload',
+      }],
+    });
+
+    expect(wrapper.get('.library-error-banner').text()).toContain('1 个账户或记录');
+    expect(wrapper.get('.match-list .empty.error').text()).toContain('账户读取失败');
+    expect(wrapper.text()).not.toContain('D:\\private');
+    wrapper.unmount();
+  });
+
+  test('turns a rejected manual scan into recoverable user feedback', async () => {
+    const { wrapper } = await mountHome([]);
+    const account = useAccountStore();
+    const ui = useUiStore();
+    vi.spyOn(account, 'scrapeLibrary').mockRejectedValue(new Error('private backend path'));
+
+    await wrapper.get('.pane-head-action').trigger('click');
+    await flushPromises();
+
+    expect(ui.toastKind).toBe('error');
+    expect(ui.toastMessage).toBe('扫描失败，请检查 ACLOS 数据目录后重试');
+    expect(ui.toastMessage).not.toContain('private backend path');
     wrapper.unmount();
   });
 });

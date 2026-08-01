@@ -15,6 +15,8 @@ import {
   matchAppShortcut,
   nextCloseableLayer,
 } from '../utils/app-shortcuts.ts';
+import { clientLog } from '../utils/client-log.ts';
+import { SCAN_FAILURE_MESSAGE, scanCompletionFeedback } from '../utils/scan-feedback.ts';
 
 function hasTauri(): boolean {
   return typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
@@ -67,6 +69,7 @@ export function useAppShortcuts(): void {
       shareOpen: isShareOpen(),
       settingsOpen: settings.isOpen,
       playerOpen: player.isOpen,
+      eventOpen: document.querySelector('.event-list-modal-backdrop') !== null,
     });
     if (!layer) return false;
     // Prefer the real close button so leave animations match a user click.
@@ -85,6 +88,9 @@ export function useAppShortcuts(): void {
       case 'player':
         player.requestClose();
         break;
+      case 'event':
+        document.querySelector<HTMLElement>('.event-list-modal-backdrop')?.click();
+        break;
     }
     return true;
   }
@@ -94,13 +100,12 @@ export function useAppShortcuts(): void {
     const mode = filter.refreshScanMode;
     if (mode === 'full') ui.showScanOverlay();
     try {
-      await account.scrapeLibrary(mode);
-      ui.showToast(mode === 'full' ? '资料库已全量扫描' : '资料库已增量扫描', 'ok');
+      const result = await account.scrapeLibrary(mode);
+      const feedback = scanCompletionFeedback(mode, result.totalErrors);
+      ui.showToast(feedback.message, feedback.tone);
     } catch (e) {
-      ui.showToast(
-        `扫描失败: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      clientLog('error', 'library-scan', e instanceof Error ? e.message : String(e));
+      ui.showToast(SCAN_FAILURE_MESSAGE, 'error');
     } finally {
       if (mode === 'full') ui.hideScanOverlay();
     }

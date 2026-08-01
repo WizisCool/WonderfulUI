@@ -31,12 +31,12 @@ export function mapCn(m: MatchRecord): string {
   return resolveMatchMapLabel(m);
 }
 
-/** Remote map cover URL (career → table). Prefer resolveMatchMapImage in new code. */
+/** Bundled map cover path (canonical registry → local unknown fallback). */
 export function mapImageUrl(m: MatchRecord): string | undefined {
   return resolveMatchMapImage(m);
 }
 
-/** Remote hero portrait URL (career → table). Prefer resolveMatchHeroImage in new code. */
+/** Bundled hero portrait path (canonical registry → local unknown fallback). */
 export function heroImageUrl(m: MatchRecord): string | undefined {
   return resolveMatchHeroImage(m);
 }
@@ -337,28 +337,67 @@ export function normalizeVisibleFilters(fs: FilterState): FilterState {
 const LS_KEY = 'wui:filters.v1';
 const LS_OPEN = 'wui:filters.open';
 
+function freshEmptyFilters(): FilterState {
+  const filters = { ...EMPTY_FILTERS };
+  for (const key of CATEGORY_KEYS) filters[key] = [];
+  for (const key of RANGE_KEYS) filters[key] = emptyRange();
+  return filters;
+}
+
+function persistedFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function sanitizePersistedFilters(value: unknown): FilterState {
+  const filters = freshEmptyFilters();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return filters;
+  const source = value as Record<string, unknown>;
+  for (const key of CATEGORY_KEYS) {
+    const raw = source[key];
+    if (!Array.isArray(raw)) continue;
+    const values = [...new Set(raw
+      .filter((item): item is string => typeof item === 'string')
+      .map(item => item.trim())
+      .filter(Boolean))];
+    switch (key) {
+      case 'heroes': filters.heroes = values; break;
+      case 'maps': filters.maps = values; break;
+      case 'modes': filters.modes = values; break;
+      case 'videoTypes': filters.videoTypes = values; break;
+      case 'results':
+        filters.results = values.filter((item): item is 'win' | 'loss' =>
+          item === 'win' || item === 'loss'
+        );
+        break;
+      case 'achievements':
+        filters.achievements = values.filter((item): item is 'mvp' | 'svp' =>
+          item === 'mvp' || item === 'svp'
+        );
+        break;
+    }
+  }
+  for (const key of RANGE_KEYS) {
+    const raw = source[key];
+    if (!Array.isArray(raw) || raw.length !== 2) continue;
+    let lo = persistedFiniteNumber(raw[0]);
+    let hi = persistedFiniteNumber(raw[1]);
+    if (lo !== null && hi !== null && lo > hi) [lo, hi] = [hi, lo];
+    filters[key] = [lo, hi];
+  }
+  if (typeof source.query === 'string') filters.query = source.query;
+  return filters;
+}
+
 export function loadFilters(): FilterState {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { ...EMPTY_FILTERS };
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return { ...EMPTY_FILTERS };
-    const fs: FilterState = { ...EMPTY_FILTERS };
-    for (const key of CATEGORY_KEYS) {
-      if (Array.isArray(parsed[key])) fs[key] = parsed[key];
-    }
-    for (const key of RANGE_KEYS) {
-      if (Array.isArray(parsed[key]) && parsed[key].length === 2) {
-        fs[key] = [
-          parsed[key][0] != null ? Number(parsed[key][0]) : null,
-          parsed[key][1] != null ? Number(parsed[key][1]) : null,
-        ];
-      }
-    }
-    if (typeof parsed.query === 'string') fs.query = parsed.query;
-    return fs;
+    return raw ? sanitizePersistedFilters(JSON.parse(raw)) : freshEmptyFilters();
   } catch {
-    return { ...EMPTY_FILTERS };
+    return freshEmptyFilters();
   }
 }
 

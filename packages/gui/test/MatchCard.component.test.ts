@@ -12,7 +12,7 @@ function mkMatch(overrides: Partial<MatchRecord> = {}): MatchRecord {
     map: { map_id: '/Game/Maps/Ascent/Ascent' },
     mode: 'competitive',
     agent: { agent_name: 'Cypher', agent_id: 'cypher-id' },
-    career: { hero_name: '黑梦', map_name: '亚海悬城' },
+    career: { hero_name: '零', map_name: '亚海悬城' },
     stats: { kills: 14, deaths: 12, assists: 5, score: 3200, has_won: true, rounds_won: 13, rounds_lost: 10, mode_name: '', game_level: '' },
     minRoundId: 0,
     gameStartTime: '2026-06-08 18:00:00',
@@ -47,9 +47,9 @@ function mountCard(
 }
 
 describe('MatchCard', () => {
-  test('renders agent name from career', () => {
+  test('renders canonical agent name', () => {
     const wrapper = mountCard(mkMatch());
-    expect(wrapper.text()).toContain('黑梦');
+    expect(wrapper.text()).toContain('零');
   });
 
   test('renders KDA text', () => {
@@ -147,5 +147,48 @@ describe('MatchCard', () => {
   test('is-focused paints keyboard active class', () => {
     const wrapper = mountCard(mkMatch(), 'test', false, true);
     expect(wrapper.find('.match-row').classes()).toContain('is-focused');
+  });
+
+  test('resets image failures when a refresh replaces the same keyed match', async () => {
+    const first = mkMatch({
+      agent: { agent_name: 'UnknownOne', agent_id: 'unknown-one' },
+      map: { map_id: '/Game/Maps/UnknownOne/UnknownOne' },
+      career: {
+        hero_name: '未知一',
+        hero_image: 'data:image/png;base64,first-hero',
+        map_name: '未知地图一',
+        map_image: 'data:image/png;base64,first-map',
+        game_mode: '未知模式一',
+        game_mode_icon: 'data:image/png;base64,first-mode',
+      },
+    });
+    const wrapper = mountCard(first);
+    await wrapper.get('.cover-bg').trigger('error');
+    await wrapper.get('.hero-img').trigger('error');
+    await wrapper.get('.mode-icon').trigger('error');
+    expect(wrapper.find('.cover-bg').exists()).toBe(false);
+    expect(wrapper.find('.hero-img').exists()).toBe(false);
+    expect(wrapper.find('.mode-icon').exists()).toBe(false);
+
+    await wrapper.setProps({
+      match: mkMatch({
+        matches_id: first.matches_id,
+        agent: { agent_name: 'UnknownTwo', agent_id: 'unknown-two' },
+        map: { map_id: '/Game/Maps/UnknownTwo/UnknownTwo' },
+        career: {
+          hero_name: '未知二',
+          hero_image: 'data:image/png;base64,second-hero',
+          map_name: '未知地图二',
+          map_image: 'data:image/png;base64,second-map',
+          game_mode: '未知模式二',
+          game_mode_icon: 'data:image/png;base64,second-mode',
+        },
+      }),
+    });
+
+    expect(wrapper.get('.cover-bg').attributes('src')).toContain('second-map');
+    expect(wrapper.get('.hero-img').attributes('src')).toContain('second-hero');
+    expect(wrapper.get('.mode-icon').attributes('src')).toContain('second-mode');
+    wrapper.unmount();
   });
 });

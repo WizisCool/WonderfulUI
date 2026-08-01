@@ -4,6 +4,18 @@ import type { MatchRecord } from '@wonderful-ui/parser';
 export const ROW_HEIGHT = 104;
 export const ROW_BUFFER = 5;
 
+export function clampVirtualScrollTop(
+  value: number,
+  itemCount: number,
+  viewportHeight: number,
+): number {
+  const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
+  const safeCount = Number.isFinite(itemCount) ? Math.max(0, Math.floor(itemCount)) : 0;
+  const safeViewport = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+  const maxScrollTop = Math.max(0, safeCount * ROW_HEIGHT - safeViewport);
+  return Math.min(safeValue, maxScrollTop);
+}
+
 export function useVirtualScroll(
   matches: Ref<MatchRecord[]>,
   containerRef: Ref<HTMLElement | null>,
@@ -55,11 +67,27 @@ export function useVirtualScroll(
 
   const totalHeight = computed(() => matches.value.length * ROW_HEIGHT);
 
+  // A filter/account switch can replace a long list with a short one while
+  // the reactive scrollTop still points near the old bottom. Clamp both the
+  // model and DOM immediately so the next visible slice cannot be empty just
+  // because the browser's native scroll correction has not fired yet.
+  watch([() => matches.value.length, containerHeight], ([length, height]) => {
+    const next = clampVirtualScrollTop(scrollTop.value, length, height);
+    if (next !== scrollTop.value) scrollTop.value = next;
+    const el = containerRef.value;
+    if (el && el.scrollTop !== next) el.scrollTop = next;
+  }, { flush: 'sync' });
+
   const visibleRange = computed(() => {
-    const start = Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - ROW_BUFFER);
+    const effectiveTop = clampVirtualScrollTop(
+      scrollTop.value,
+      matches.value.length,
+      containerHeight.value,
+    );
+    const start = Math.max(0, Math.floor(effectiveTop / ROW_HEIGHT) - ROW_BUFFER);
     const end = Math.min(
       matches.value.length,
-      Math.ceil((scrollTop.value + containerHeight.value) / ROW_HEIGHT) + ROW_BUFFER,
+      Math.ceil((effectiveTop + containerHeight.value) / ROW_HEIGHT) + ROW_BUFFER,
     );
     return { start, end };
   });
@@ -81,7 +109,14 @@ export function useVirtualScroll(
 
   function scrollToIndex(index: number) {
     const el = containerRef.value;
-    if (el) el.scrollTop = index * ROW_HEIGHT;
+    if (!el) return;
+    const next = clampVirtualScrollTop(
+      index * ROW_HEIGHT,
+      matches.value.length,
+      containerHeight.value,
+    );
+    scrollTop.value = next;
+    el.scrollTop = next;
   }
 
   return {

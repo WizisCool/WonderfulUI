@@ -4,8 +4,21 @@
 //! Caches one reader per path so repeat screenshots of the open clip stay fast.
 //! COM objects are only used under a mutex (MTA + single accessor).
 
+#[cfg(windows)]
 use base64::Engine;
+#[cfg(windows)]
 use std::sync::Mutex;
+
+#[cfg(any(windows, test))]
+const MAX_FRAME_BYTES: usize = 512 * 1024 * 1024;
+
+#[cfg(any(windows, test))]
+fn time_ms_to_hns(time_ms: u64) -> Result<i64, String> {
+    let hns = time_ms
+        .checked_mul(10_000)
+        .ok_or_else(|| "截图时间超出支持范围".to_string())?;
+    i64::try_from(hns).map_err(|_| "截图时间超出支持范围".to_string())
+}
 
 /// Capture one frame as PNG (base64) at `time_ms`.
 #[cfg(windows)]
@@ -32,7 +45,7 @@ fn capture_frame_png(path: &str, time_ms: u64) -> Result<Vec<u8>, String> {
     }
 
     ensure_mf_started()?;
-    let target_hns = (time_ms as i64).saturating_mul(10_000);
+    let target_hns = time_ms_to_hns(time_ms)?;
     let bgra = with_reader(path, |reader| read_frame_bgra(reader, target_hns))?;
     encode_bgra_png_fast(&bgra.pixels, bgra.width, bgra.height)
 }
@@ -80,9 +93,7 @@ fn with_reader<T>(
     path: &str,
     f: impl FnOnce(&windows::Win32::Media::MediaFoundation::IMFSourceReader) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut guard = SESSION
-        .lock()
-        .map_err(|_| "截图会话锁失败".to_string())?;
+    let mut guard = SESSION.lock().map_err(|_| "截图会话锁失败".to_string())?;
 
     let need_new = match guard.as_ref() {
         Some(s) => s.path != path,
@@ -308,57 +319,167 @@ fn sample_to_bgra(
             .ConvertToContiguousBuffer()
             .map_err(win_err("锁定帧缓冲"))?;
 
-        if let Ok(buf2d) = buffer.cast::<IMF2DBuffer>() {
+        if let Ok(buf2d) = buffer.cast::<IMF2DBuffer2>() {
             let mut scan0 = std::ptr::null_mut();
             let mut pitch = 0i32;
+            let mut buffer_start = std::ptr::null_mut();
+            let mut buffer_len = 0u32;
             buf2d
-                .Lock2D(&mut scan0, &mut pitch)
-                .map_err(win_err("Lock2D"))?;
-            let result = copy_scanlines(scan0, pitch, width, height);
-            let _ = buf2d.Unlock2D();
-            return result;
+                .Lock2DSize(
+                    MF2DBuffer_LockFlags_Read,
+                    &mut scan0,
+                    &mut pitch,
+                    &mut buffer_start,
+                    &mut buffer_len,
+                )
+                .map_err(win_err("Lock2DSize"))?;
+            let result = copy_scanlines_bounded(
+                scan0,
+                pitch,
+                width,
+                height,
+                buffer_start,
+                buffer_len as usize,
+            );
+            let unlock = buf2d.Unlock2D().map_err(win_err("Unlock2D"));
+            return match result {
+                Ok(frame) => {
+                    unlock?;
+                    Ok(frame)
+                }
+                Err(error) => {
+                    let _ = unlock;
+                    Err(error)
+                }
+            };
         }
 
+        if let Ok(buf2d) = buffer.cast::<IMF2DBuffer>() {
+            let contiguous_len = buf2d
+                .GetContiguousLength()
+                .map_err(win_err("读取连续帧长度"))? as usize;
+            if contiguous_len > MAX_FRAME_BYTES {
+                return Err("连续帧缓冲超过安全限制".into());
+            }
+            let (_, required_len) = validate_frame_layout(width, height, contiguous_len)?;
+            let mut contiguous = vec![0u8; contiguous_len];
+            buf2d
+                .ContiguousCopyTo(&mut contiguous)
+                .map_err(win_err("复制连续帧"))?;
+            contiguous.truncate(required_len);
+            set_bgra_alpha(&mut contiguous);
+            return Ok(BgraFrame {
+                width,
+                height,
+                pixels: contiguous,
+            });
+        }
+
+        let stride = i32::try_from((width as u64).saturating_mul(4))
+            .map_err(|_| "帧行跨度过大".to_string())?;
         let mut data = std::ptr::null_mut();
         let mut max_len = 0u32;
         let mut cur_len = 0u32;
         buffer
             .Lock(&mut data, Some(&mut max_len), Some(&mut cur_len))
             .map_err(win_err("Lock 缓冲"))?;
-        let stride = (width as i32).saturating_mul(4);
-        let result = copy_scanlines(data, stride, width, height);
-        let _ = buffer.Unlock();
-        result
+        let result = copy_scanlines_bounded(data, stride, width, height, data, cur_len as usize);
+        let unlock = buffer.Unlock().map_err(win_err("Unlock 缓冲"));
+        match result {
+            Ok(frame) => {
+                unlock?;
+                Ok(frame)
+            }
+            Err(error) => {
+                let _ = unlock;
+                Err(error)
+            }
+        }
     }
 }
 
 #[cfg(windows)]
-fn copy_scanlines(
+fn copy_scanlines_bounded(
     scan0: *mut u8,
     pitch: i32,
     width: u32,
     height: u32,
+    buffer_start: *mut u8,
+    buffer_len: usize,
 ) -> Result<BgraFrame, String> {
-    if scan0.is_null() {
+    if scan0.is_null() || buffer_start.is_null() {
         return Err("空帧缓冲".into());
     }
-    let row_bytes = (width as usize).saturating_mul(4);
-    let mut pixels = vec![0u8; row_bytes.saturating_mul(height as usize)];
+    let (row_bytes, frame_bytes) = validate_frame_layout(width, height, buffer_len)?;
+    if pitch == 0 || (pitch.unsigned_abs() as usize) < row_bytes {
+        return Err("帧行跨度小于像素宽度".into());
+    }
+
+    let buffer_begin = buffer_start as usize;
+    let buffer_end = buffer_begin
+        .checked_add(buffer_len)
+        .ok_or_else(|| "帧缓冲地址溢出".to_string())?;
+    let scanline_zero = scan0 as usize;
+    let mut pixels = vec![0u8; frame_bytes];
     unsafe {
-        for y in 0..height as i32 {
-            let src = scan0.offset((y as isize) * (pitch as isize));
+        for y in 0..height as usize {
+            let source_address = checked_scanline_address(scanline_zero, pitch, y)
+                .ok_or_else(|| "帧行地址溢出".to_string())?;
+            let source_end = source_address
+                .checked_add(row_bytes)
+                .ok_or_else(|| "帧行范围溢出".to_string())?;
+            if source_address < buffer_begin || source_end > buffer_end {
+                return Err("帧数据超出解码缓冲范围".into());
+            }
+            let src = source_address as *const u8;
             let dst = pixels.as_mut_ptr().add((y as usize) * row_bytes);
             std::ptr::copy_nonoverlapping(src, dst, row_bytes);
-            for x in 0..width as usize {
-                *dst.add(x * 4 + 3) = 0xFF;
-            }
         }
     }
+    set_bgra_alpha(&mut pixels);
     Ok(BgraFrame {
         width,
         height,
         pixels,
     })
+}
+
+#[cfg(any(windows, test))]
+fn validate_frame_layout(
+    width: u32,
+    height: u32,
+    available_bytes: usize,
+) -> Result<(usize, usize), String> {
+    if width == 0 || height == 0 {
+        return Err("无效分辨率".into());
+    }
+    let row_bytes = (width as usize)
+        .checked_mul(4)
+        .ok_or_else(|| "帧行大小溢出".to_string())?;
+    let frame_bytes = row_bytes
+        .checked_mul(height as usize)
+        .ok_or_else(|| "帧大小溢出".to_string())?;
+    if frame_bytes > MAX_FRAME_BYTES {
+        return Err("视频帧尺寸超过安全限制".into());
+    }
+    if available_bytes < frame_bytes {
+        return Err("解码缓冲短于声明的视频帧".into());
+    }
+    Ok((row_bytes, frame_bytes))
+}
+
+#[cfg(any(windows, test))]
+fn checked_scanline_address(scanline_zero: usize, pitch: i32, row: usize) -> Option<usize> {
+    let offset = (pitch as i128).checked_mul(row as i128)?;
+    let address = (scanline_zero as i128).checked_add(offset)?;
+    usize::try_from(address).ok()
+}
+
+#[cfg(windows)]
+fn set_bgra_alpha(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel[3] = 0xFF;
+    }
 }
 
 #[cfg(windows)]
@@ -395,6 +516,34 @@ fn win_err(ctx: &'static str) -> impl Fn(windows::core::Error) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{checked_scanline_address, time_ms_to_hns, validate_frame_layout};
+
+    #[test]
+    fn capture_timestamp_conversion_rejects_u64_wraparound() {
+        let max_ms = (i64::MAX as u64) / 10_000;
+        assert_eq!(time_ms_to_hns(max_ms), Ok((max_ms * 10_000) as i64));
+        assert!(time_ms_to_hns(max_ms + 1).is_err());
+        assert!(time_ms_to_hns(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn frame_layout_rejects_short_and_excessive_buffers() {
+        assert_eq!(
+            validate_frame_layout(1920, 1080, 1920 * 1080 * 4),
+            Ok((7680, 8_294_400))
+        );
+        assert!(validate_frame_layout(1920, 1080, 8_294_399).is_err());
+        assert!(validate_frame_layout(0, 1080, usize::MAX).is_err());
+        assert!(validate_frame_layout(u32::MAX, u32::MAX, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn scanline_address_handles_positive_and_negative_pitch() {
+        assert_eq!(checked_scanline_address(1_000, 16, 2), Some(1_032));
+        assert_eq!(checked_scanline_address(1_000, -16, 2), Some(968));
+        assert_eq!(checked_scanline_address(8, -16, 1), None);
+    }
+
     #[test]
     fn missing_file_errors() {
         #[cfg(windows)]

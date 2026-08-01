@@ -58,6 +58,8 @@ const used = [
   'qr-code',
   'wifi-high',
   'device-mobile',
+  'github-logo',
+  'scales',
 ];
 
 const icons = {};

@@ -12,9 +12,19 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
-import { canBeginShareStart, shouldCommitShareStart } from '../utils/share-start.ts';
+import {
+  canBeginShareStart,
+  createShareSessionId,
+  shouldCommitShareStart,
+  shouldHandleShareEvent,
+} from '../utils/share-start.ts';
+import { clientLog } from '../utils/client-log.ts';
+
+export const FRIENDLY_SHARE_START_ERROR = '快传服务启动失败，请重试';
+export const FRIENDLY_SHARE_STOP_ERROR = '快传服务异常停止，请重试';
 
 export interface ShareServerInfo {
+  sessionId: string;
   port: number;
   token: string;
   url: string;
@@ -27,6 +37,7 @@ export interface ShareServerInfo {
 }
 
 export interface ShareDownloadedEvent {
+  sessionId: string;
   count: number;
   filename: string;
   sizeBytes: number;
@@ -34,65 +45,128 @@ export interface ShareDownloadedEvent {
 
 export type ShareStatus = 'idle' | 'starting' | 'running' | 'error';
 
+export interface ShareStoppedEvent {
+  sessionId: string;
+  reason: 'stopped' | 'error' | 'idle_timeout';
+  message?: string;
+}
+
 export const useShareStore = defineStore('share', () => {
   const status = ref<ShareStatus>('idle');
   const info = ref<ShareServerInfo | null>(null);
   const downloadCount = ref(0);
   const lastBytes = ref(0);
   const lastError = ref('');
+  const activeSessionId = ref<string | null>(null);
 
-  async function start(videoPath: string) {
-    // Ignore double-clicks while the first invoke is in flight. A second
-    // start while already running is allowed (Rust replaces the server).
-    if (!canBeginShareStart(status.value)) return;
-    status.value = 'starting';
-    lastError.value = '';
+  async function stopBackendSession(sessionId: string): Promise<void> {
     try {
-      const result = await invoke<ShareServerInfo>('start_share_server', {
-        path: videoPath,
-      });
-      // stop() may have run during await — do not resurrect a closed server UI.
-      if (!shouldCommitShareStart(status.value)) return;
-      info.value = result;
-      downloadCount.value = 0;
-      status.value = 'running';
-    } catch (e) {
-      if (!shouldCommitShareStart(status.value)) return;
-      lastError.value = e instanceof Error ? e.message : String(e);
-      info.value = null;
-      status.value = 'error';
+      await invoke('stop_share_server', { sessionId });
+    } catch {
+      // The UI must still close. If start is in flight, its stale-result path
+      // retries this session-scoped stop after the backend returns its token.
     }
   }
 
-  async function stop() {
-    try {
-      await invoke('stop_share_server');
-    } catch {
-      // 关闭失败不影响 UI 状态重置
-    }
+  function resetVisibleState(): void {
     info.value = null;
     status.value = 'idle';
     downloadCount.value = 0;
     lastBytes.value = 0;
   }
 
+  async function start(videoPath: string) {
+    // Ignore double-clicks while the first invoke is in flight. Starting from
+    // a running session first stops that exact old session, then begins a new
+    // identity so late events cannot overwrite the replacement.
+    if (!canBeginShareStart(status.value)) return;
+    const previousSessionId = activeSessionId.value;
+    const requestSessionId = createShareSessionId();
+    activeSessionId.value = requestSessionId;
+    status.value = 'starting';
+    info.value = null;
+    downloadCount.value = 0;
+    lastBytes.value = 0;
+    lastError.value = '';
+    if (previousSessionId !== null) {
+      await stopBackendSession(previousSessionId);
+      if (!shouldCommitShareStart(
+        status.value,
+        activeSessionId.value,
+        requestSessionId,
+      )) return;
+    }
+    try {
+      const result = await invoke<ShareServerInfo>('start_share_server', {
+        path: videoPath,
+        sessionId: requestSessionId,
+      });
+      // stop() or a replacement start may have run during await. Do not
+      // resurrect its UI, and stop only the stale backend session that this
+      // result created (never whatever server is current now).
+      if (!shouldCommitShareStart(
+        status.value,
+        activeSessionId.value,
+        requestSessionId,
+      )) {
+        await stopBackendSession(result.sessionId);
+        return;
+      }
+      info.value = result;
+      downloadCount.value = 0;
+      status.value = 'running';
+    } catch (e) {
+      if (!shouldCommitShareStart(
+        status.value,
+        activeSessionId.value,
+        requestSessionId,
+      )) return;
+      const message = e instanceof Error ? e.message : String(e);
+      clientLog('error', 'share-store', `start failed: ${message}`);
+      lastError.value = FRIENDLY_SHARE_START_ERROR;
+      info.value = null;
+      status.value = 'error';
+    }
+  }
+
+  async function stop() {
+    const sessionId = activeSessionId.value;
+    // Invalidate synchronously before awaiting IPC. An in-flight start sees
+    // the mismatch and cleans up its own backend session after it returns.
+    activeSessionId.value = null;
+    resetVisibleState();
+    if (sessionId !== null) await stopBackendSession(sessionId);
+  }
+
   /** 收到 `wui://share_downloaded` 事件时调用。 */
-  function onDownloaded(payload: ShareDownloadedEvent) {
+  function onDownloaded(payload: ShareDownloadedEvent): boolean {
+    if (!shouldHandleShareEvent(activeSessionId.value, payload.sessionId)) return false;
     downloadCount.value = payload.count;
     lastBytes.value = payload.sizeBytes;
+    return true;
   }
 
   /** 收到 `wui://share_server_stopped` 事件时调用。 */
-  function onStopped(reason: 'stopped' | 'error' | 'idle_timeout', message?: string) {
-    if (reason === 'error' && message) {
-      lastError.value = message;
+  function onStopped(payload: ShareStoppedEvent): boolean {
+    if (!shouldHandleShareEvent(activeSessionId.value, payload.sessionId)) return false;
+    activeSessionId.value = null;
+    if (payload.reason === 'error') {
+      if (payload.message) {
+        clientLog('error', 'share-store', `server stopped: ${payload.message}`);
+      }
+      lastError.value = FRIENDLY_SHARE_STOP_ERROR;
       status.value = 'error';
     } else {
       status.value = 'idle';
     }
     info.value = null;
     downloadCount.value = 0;
+    lastBytes.value = 0;
+    return true;
   }
 
-  return { status, info, downloadCount, lastBytes, lastError, start, stop, onDownloaded, onStopped };
+  return {
+    status, info, downloadCount, lastBytes, lastError, activeSessionId,
+    start, stop, onDownloaded, onStopped,
+  };
 });

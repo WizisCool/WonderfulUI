@@ -95,6 +95,10 @@ bun run test
 cargo test --release --manifest-path src-tauri/Cargo.toml --lib
 ```
 
+`bun run typecheck` runs `vue-tsc --noEmit`, not plain `tsc`. It checks both
+standalone TypeScript and Vue SFC scripts/templates; do not replace it with a
+TS-only command that silently skips `.vue` bindings and ARIA prop types.
+
 Use `bun run build` only when the feature affects Tauri config, bundling,
 release behavior, or runtime integration.
 
@@ -267,6 +271,12 @@ print the commands above for the user.
 | `build` | signed `bun run build` (release profile + NSIS); uploads `target/release/bundle/` |
 | `publish` | needs both; writes `latest.json` and creates the GitHub Release |
 
+`check-versions` binds a tag-triggered run to the canonical Tauri version
+(`GITHUB_REF_NAME` must equal `v<version>`). Both parallel jobs run the gate,
+and the publish job repeats it before composing download URLs, so an
+accidentally misnamed tag cannot build a signed installer or publish a
+`latest.json` that points at a different release.
+
 `validate` and `build` run **in parallel** so wall clock is dominated by the
 Tauri release build (~8 min warm), not build + cargo test in series
 (~2.5 min extra). Observed v0.1.8 sequential total was ~13 min; expected wall
@@ -277,6 +287,11 @@ Caches (must stay aligned with `cache-warm.yml` on `main`):
 - Bun: `${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}`
 - Rust release: Swatinem `shared-key: wui-release` (build job)
 - Rust debug tests: `shared-key: wui-debug-lib` (validate job)
+- Rust target mapping: `src-tauri -> ../target`; the right-hand path is
+  relative to `src-tauri`, while Tauri writes build artifacts to the
+  repository-root `target/` directory.
+- Rust cache prefix: `v1-rust`; bump it whenever cache layout semantics change,
+  because an existing GitHub cache key cannot be overwritten in place.
 
 A PR can still be used for a release if the user wants a review checkpoint, but
 it is not the default maintainer path.
@@ -327,7 +342,7 @@ tagging a release or pushing a risky maintainer change.
 | Docs only | `git diff --check`, review links in diff |
 | GUI TypeScript/CSS | `bun run typecheck`, `bun run test` |
 | Parser TypeScript | `bun test packages/parser`, `bun run typecheck` |
-| Rust parser/library/Tauri commands | `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
+| Rust parser/library/Tauri commands | `cargo check --workspace --all-features --locked`, then `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
 | IPC shape shared by Rust and GUI | `bun run typecheck`, `bun run test`, Rust lib tests |
 | Tauri config, packaging, release workflow | full CI command set plus `bun run build` |
 
@@ -339,6 +354,12 @@ target/release/bundle/
 
 Local bundles are useful for validation. Official release assets come from
 GitHub Actions.
+
+`rust-toolchain.toml` pins Rust 1.88.0, which is also the package MSRV. Keep the
+pin, `src-tauri/Cargo.toml` `rust-version`, and README prerequisite aligned.
+The locked dependency graph currently requires 1.88; do not lower the claim or
+raise the pin without running the all-feature locked check on that exact
+toolchain.
 
 > **NSIS template note.** The Windows installer is built from
 > `src-tauri/installer.nsi` (a fork of the upstream

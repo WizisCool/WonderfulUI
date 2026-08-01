@@ -41,7 +41,7 @@ WonderfulUI 是一个 **离线** 的 Valorant 无畏时刻高光集锦浏览器�
 - **⏱️ 事件时间轴** — 击杀/死亡事件自动识别，进度条可视化标记，2 秒预卷播放
 - **🏅 成就徽章** — MVP/SVP 自动识别与筛选（基于 snapshot 数据）
 - **🎬 视频播放** — 内置播放器，直接播放本地高光视频
-- **📦 纯离线** — 无需网络连接，不收集任何数据
+- **📦 纯离线** — 特工、地图、模式图标随安装包提供，运行时无需访问境外 CDN，也不收集任何数据
 - **🌐 中文界面** — 完整中文语言支持，MiSans 字体
 
 ---
@@ -61,7 +61,7 @@ WonderfulUI 是一个 **离线** 的 Valorant 无畏时刻高光集锦浏览器�
 - **保留本地用户配置**（默认勾选）：保留高光索引库与界面偏好。
 - 取消勾选：卸载时一并删除 `library.db`（含 WAL / SHM）和 WebView2 用户数据（`%LOCALAPPDATA%\app.local.wonderfului\EBWebView`）。
 
-资源缓存（`assets\`）和日志（`logs\`）始终保留——它们是应用自动下载/生成的，重新下载会浪费流量，不属于"用户配置"。
+旧版本遗留的资源缓存（`assets\`）和日志（`logs\`）始终保留，不属于“用户配置”。当前版本的 Valorant 展示资源已随安装包提供，不会在运行时重新下载。
 
 卸载器**不会**读取、修改或删除任何 ACLOS / Valorant / Riot / Vanguard 目录。
 
@@ -78,7 +78,7 @@ WonderfulUI 是一个 **离线** 的 Valorant 无畏时刻高光集锦浏览器�
 ### 前置依赖
 
 - [Bun](https://bun.sh) 1.1+
-- [Rust](https://rustup.rs) 1.77+
+- [Rust](https://rustup.rs) 1.88+（工作区固定使用 1.88.0，保证本地与 CI 构建可复现）
 - [Tauri 2.0+](https://v2.tauri.app) 构建工具链
 - Windows SDK（使用 Tauri 构建工具链安装）
 
@@ -92,6 +92,10 @@ cd WonderfulUI
 # 安装前端依赖
 bun install
 
+# 从仓库内置原图生成离线资源并校验
+bun run assets:build
+bun run assets:check
+
 # 开发模式（热重载）
 bun run dev
 
@@ -100,6 +104,11 @@ bun run build
 ```
 
 构建产物位于 `target/release/bundle/`。
+
+地图、特工或模式更新时，由维护者运行 `bun run update:valorant-metadata`
+统一刷新元数据与经内容哈希去重的原始 PNG。普通开发和发布构建会在本地把
+地图 `splash`、特工头像和模式图标压缩为固定规格 WebP，整个过程不依赖境外接口；
+只有显式的更新命令需要联网。
 
 ---
 

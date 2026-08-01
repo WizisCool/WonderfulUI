@@ -15,6 +15,9 @@ This document holds ACLOS/WonderfulDb facts that are useful for parser and GUI w
 - Parser target: `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb\`.
 - Highlight file: `WonderfulDb\<account_id>`.
 - Snapshot file: `WonderfulDb\snapshot<account_id>`.
+- Account enumeration accepts only regular files whose entire basename is a
+  non-empty ASCII-decimal openid. The first-run probe and scraper share this
+  predicate; directories and unrelated sibling files are ignored.
 - Locked ACLOS version: `2.15.3.449`.
 - Schema file: `packages/parser/src/schema/_acl-source/eventDefine.js` (also `packages/parser/src/model.ts` for the parsed subset).
 - Out of scope for this iteration: `WeGameWonderfulDb`, IndexedDB, `blob_storage`, and video export.
@@ -106,24 +109,28 @@ Rules:
 
 ## Display Field Semantics
 
-Prefer the ACLOS `career.*` strings for user-facing labels when present:
+Known Valorant entities use one generated, offline registry so old ACLOS
+records cannot make the same map/agent change label or image URL:
 
-- Hero name: `career.hero_name`, else local EN→CN table (`packages/gui/src/utils/valorant-assets.ts`), else `m.agent.agent_name`.
-- Map name: `career.map_name`, else local `map_id` table (Skirmish / Range / HURM included), else last path segment of `map_id`.
+- Hero name: canonical `agent.agent_id` UUID / `agent.agent_name` lookup, then unknown-only `career.hero_name`, then `agent.agent_name`.
+- Map name: canonical `map.map_id` lookup, then unknown-only `career.map_name` / `map.map_name`, then the last path segment.
 - Game mode: `career.game_mode`, fallback empty string.
 - Hero avatar / map cover / mode icon: **only** via `packages/gui/src/utils/valorant-assets.ts`.
-  - URL: `resolveMatchAssetUrl(match, kind)` (career → portable CDN table).
+  - URL: `resolveMatchAssetUrl(match, kind)` (canonical identity → bundled `/valorant/...` path).
   - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
-  - Cache batch: `collectMatchAssetEntries(matches)` → Tauri `cache_assets` (first visit remote, later disk).
-- Do not hard-code map/hero CDN URLs in components; extend the tables in `valorant-assets.ts`.
+  - Unknown network-capable image values are ignored, including HTTP(S), protocol-relative (`//host` / `/\\host`), and SVG data URLs; missing imagery degrades to the existing glyph/text fallback instead of going online. Only browser-verified same-origin root paths and self-contained raster data URLs are accepted for deterministic fixtures.
+- Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and the content-addressed PNGs in `packages/gui/assets/valorant-source/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater. Map covers use the 16:9 `splash` source, not `listViewIcon` banners.
+- `bun run assets:build` offline-compiles those sources to fixed-size WebP files in `packages/gui/public/valorant/`. Records with an identical source hash intentionally share one file.
+- `bun run assets:check` must verify source hashes/aspect ratios, registry parity, fixed runtime dimensions, byte limits, physical deduplication, and the copied `dist` tree.
+- Do not hard-code CDN URLs in components, hand-edit generated files, or add branches for one observed match/account.
 - Team rounds: `stats.rounds_won` / `stats.rounds_lost`.
 - Personal combat score: `stats.score`.
 - Match duration: `gameStartTime` / `gameEndTime`.
 
-Skirmish / Range / TDM matches often omit `career.*` entirely — without the local
-asset table the UI would show raw `Skirmish_A` and English `Jett`. Keep
-`valorant-assets.ts` portable (no machine openids); extend it when new map
-path segments appear in ACLOS.
+Skirmish / Range / TDM matches often omit `career.*` entirely. The generated
+registry covers them by stable map URL. If ACLOS introduces an unknown entity,
+the raw field remains visible until the registry is refreshed; do not patch the
+single sample in production code.
 
 Do not use `agent.agent_id`, raw unmapped `map_id`, `stats.mode_name`, or `career.battle_id` as user-facing display labels.
 

@@ -1,5 +1,4 @@
 @import '../fonts.css';
-@import url('https://cdn.jsdelivr.net/npm/misans@4.0.0/lib/Normal/MiSans-Normal.min.css');
 
 :root {
   /* base palette */
@@ -204,6 +203,21 @@ img { display: block; max-width: 100%; }
 .pane.list { grid-column: 3; }
 .pane.detail { grid-column: 4; }
 .pane.full { grid-column: 1 / -1; }
+
+/* At the supported 960 px minimum, four simultaneous panes leave the match
+   list only 120 px wide. While filtering, prioritize the working pair
+   (filters + results) and restore the detail pane as soon as filters close. */
+@media (max-width: 1160px) {
+  .app.is-filter-open {
+    --pane-r: 0px;
+  }
+  .app.is-filter-open .pane.list {
+    grid-column: 3 / -1;
+  }
+  .app.is-filter-open .pane.detail {
+    display: none;
+  }
+}
 
 .pane-head {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -548,6 +562,11 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
  */
 
 /* ─── date range picker (popover on body) ──────────────────── */
+.dr-trigger-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
 .dr-trigger {
   display: inline-flex; align-items: center; gap: 6px;
   width: 100%;
@@ -569,6 +588,7 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
     color 120ms ease-out;
   min-width: 0;
 }
+.dr-trigger-wrap.has-clear .dr-trigger { padding-right: 28px; }
 .dr-trigger:hover {
   background: var(--surface-2);
   border-color: var(--ink-4);
@@ -607,6 +627,11 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-trigger.is-active .dr-trigger-text { color: var(--ink); }
 .dr-trigger-clear {
   display: inline-flex; align-items: center; justify-content: center;
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
   width: 16px; height: 16px;
   flex-shrink: 0;
   padding: 0;
@@ -620,6 +645,10 @@ code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2);
 .dr-trigger-clear:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+.dr-trigger-clear:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .dr-popover {

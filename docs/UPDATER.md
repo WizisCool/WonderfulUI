@@ -91,11 +91,17 @@ retry()                 // check 失败 → checkForUpdate；download 失败 →
 dismiss()               // 仅 available/error 可关；下载中 no-op
 ```
 
+重试检查或安装前的二次检查若已无更新，store 必须切到 `uptodate` 并同步
+关闭 modal；不能留下没有对应内容、也不可关闭的空白遮罩。
+
 ### UpdateModal.vue
 
 - z-index 1400；关闭契约同 v0.1.5（下载/安装中不可关）。
 - 主按钮使用全局 `btn btn-primary`。
 - `total === 0` 时下载态用 shimmer +「已下载 X.X MB」。
+- 下载、安装与检查轨道使用 `role="progressbar"`。已知总量时暴露
+  `aria-valuenow` 0–100；未知总量时省略该属性并用 `aria-valuetext`
+  描述当前字节数，不能把 indeterminate 误报为 0%。
 - error 重试走 `store.retry()`，不一律 `startUpdate()`。
 
 ### 启动静默检查
@@ -117,6 +123,10 @@ __WUI_DEBUG_UPDATE__.error('check')  // 或 'download'
 __WUI_DEBUG_UPDATE__.downloading({ total: 0 })
 __WUI_DEBUG_UPDATE__.reset()
 ```
+
+调试进度和真实 updater 事件共用同一套边界规范化：非有限值与负数按
+`0` 处理；总量已知时已下载字节不会超过总量，百分比始终保持在
+`0..100`。这可避免异常调试输入或上游事件污染进度条及其 ARIA 状态。
 
 实现：`App.vue` boot 分支 + `utils/update-debug.ts` + `stores/update.ts`。
 

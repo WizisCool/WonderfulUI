@@ -4,17 +4,13 @@ import { ref } from 'vue';
 export const useUiStore = defineStore('ui', () => {
   const toastMessage = ref('');
   const toastKind = ref<'ok' | 'error'>('ok');
-  const toastVisible = ref(false);
-  let toastTimer: number | null = null;
+  /** Monotonic event identity: repeated/equal messages must still render. */
+  const toastSeq = ref(0);
 
   function showToast(message: string, kind: 'ok' | 'error' = 'ok') {
-    if (toastTimer !== null) clearTimeout(toastTimer);
     toastMessage.value = message;
     toastKind.value = kind;
-    toastVisible.value = true;
-    toastTimer = window.setTimeout(() => {
-      toastVisible.value = false;
-    }, kind === 'error' ? 6000 : 2500);
+    toastSeq.value += 1;
   }
 
   const scanOverlayVisible = ref(false);
@@ -36,7 +32,7 @@ export const useUiStore = defineStore('ui', () => {
     scanOverlayVisible.value = false;
   }
 
-  return { toastMessage, toastKind, toastVisible, showToast,
+  return { toastMessage, toastKind, toastSeq, showToast,
     scanOverlayVisible, scanOverlayLabel, scanOverlayPct,
     showScanOverlay, updateScanOverlay, hideScanOverlay };
 });

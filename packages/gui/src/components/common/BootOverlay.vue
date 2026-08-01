@@ -25,6 +25,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { listen, type UnlistenFn } from '../../tauri-adapter.ts';
 import { pulseRendererForMotion } from '../../utils/render-pulse.ts';
 import { useUiStore } from '../../stores/ui.ts';
+import { clientLog } from '../../utils/client-log.ts';
 
 const brandLogoUrl = new URL('../../assets/logo.svg', import.meta.url).href;
 const ui = useUiStore();
@@ -35,6 +36,8 @@ const label = ref('正在打开 WonderfulUI…');
 const pct = ref(5);
 
 let unlisteners: UnlistenFn[] = [];
+let wireInflight: Promise<void> | null = null;
+let wireGeneration = 0;
 
 const FADE_OUT_MS = 280;
 const HOLD_MS = 220;
@@ -86,15 +89,29 @@ function complete(): Promise<void> {
 
 function dispose() {
   paused = true;
+  wireGeneration += 1;
   for (const u of unlisteners) u();
   unlisteners = [];
 }
 
-async function wireEvents(skipAssetPreWarm: boolean) {
-  for (const u of unlisteners) u();
-  unlisteners = [];
+function wireEvents(skipAssetPreWarm: boolean): Promise<void> {
+  if (unlisteners.length > 0) return Promise.resolve();
+  if (wireInflight) return wireInflight;
 
-  unlisteners.push(await listen<Record<string, unknown>>('wui://phase', (event) => {
+  const generation = wireGeneration;
+  const pending: UnlistenFn[] = [];
+  const register = async <T,>(eventName: string, handler: (event: { payload: T }) => void) => {
+    const unlisten = await listen<T>(eventName, handler);
+    if (generation !== wireGeneration) {
+      unlisten();
+      return false;
+    }
+    pending.push(unlisten);
+    return true;
+  };
+
+  const operation = (async () => {
+    if (!await register<Record<string, unknown>>('wui://phase', (event) => {
     const d = event.payload;
     const phase = (d.phase as string) || '';
     if (phase === 'opening') update('正在打开资料库…', Math.max(pct.value, 8));
@@ -103,59 +120,73 @@ async function wireEvents(skipAssetPreWarm: boolean) {
     else if (phase === 'caching_assets') update('正在准备素材…', 88);
     else if (phase === 'error') update(`错误: ${d.sub ?? '启动失败'}`, pct.value);
     else if (phase === 'done') update('准备就绪', 100);
-  }));
+    })) return;
 
-  unlisteners.push(await listen<Record<string, unknown>>('wui://scrape_summary', () => {
-    if (pct.value < 80) update('正在加载对局…', 80);
-  }));
+    if (!await register<Record<string, unknown>>('wui://scrape_summary', () => {
+      if (pct.value < 80) update('正在加载对局…', 80);
+    })) return;
 
-  unlisteners.push(await listen<Record<string, unknown>>('wui://account_started', (event) => {
-    const d = event.payload;
-    const cur = (d.current as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
-      update(`正在扫描账户…  ${cur} / ${tot}`, nextPct);
-    }
-  }));
-
-  unlisteners.push(await listen<Record<string, unknown>>('wui://account_loaded', (event) => {
-    const d = event.payload;
-    const cur = (d.current as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
-      update(`正在扫描账户…  ${cur} / ${tot}`, nextPct);
-    }
-  }));
-
-  // Skipped accounts (incremental) only emit finished — still advance the bar.
-  unlisteners.push(await listen<Record<string, unknown>>('wui://account_finished', (event) => {
-    const d = event.payload;
-    const cur = (d.current as number) ?? 0;
-    const tot = (d.total as number) ?? 0;
-    if (tot > 0) {
-      const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
-      const status = (d.status as string) || '';
-      const labelText =
-        status === 'skipped'
-          ? `跳过未变更…  ${cur} / ${tot}`
-          : `正在扫描账户…  ${cur} / ${tot}`;
-      update(labelText, nextPct);
-    }
-  }));
-
-  if (!skipAssetPreWarm) {
-    unlisteners.push(await listen<Record<string, unknown>>('wui://cache_asset_progress', (event) => {
+    if (!await register<Record<string, unknown>>('wui://account_started', (event) => {
       const d = event.payload;
-      const idx = (d.index as number) ?? 0;
+      const cur = (d.current as number) ?? 0;
       const tot = (d.total as number) ?? 0;
       if (tot > 0) {
-        const nextPct = Math.max(pct.value, 88 + Math.round(idx / tot * 11));
-        update(`正在准备素材…  ${idx} / ${tot}`, nextPct);
+        const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
+        update(`正在扫描账户…  ${cur} / ${tot}`, nextPct);
       }
-    }));
-  }
+    })) return;
+
+    if (!await register<Record<string, unknown>>('wui://account_loaded', (event) => {
+      const d = event.payload;
+      const cur = (d.current as number) ?? 0;
+      const tot = (d.total as number) ?? 0;
+      if (tot > 0) {
+        const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
+        update(`正在扫描账户…  ${cur} / ${tot}`, nextPct);
+      }
+    })) return;
+
+    // Skipped accounts (incremental) only emit finished — still advance the bar.
+    if (!await register<Record<string, unknown>>('wui://account_finished', (event) => {
+      const d = event.payload;
+      const cur = (d.current as number) ?? 0;
+      const tot = (d.total as number) ?? 0;
+      if (tot > 0) {
+        const nextPct = Math.max(pct.value, Math.min(78, 12 + Math.round(cur / tot * 65)));
+        const status = (d.status as string) || '';
+        const labelText =
+          status === 'skipped'
+            ? `跳过未变更…  ${cur} / ${tot}`
+            : `正在扫描账户…  ${cur} / ${tot}`;
+        update(labelText, nextPct);
+      }
+    })) return;
+
+    if (!skipAssetPreWarm) {
+      if (!await register<Record<string, unknown>>('wui://cache_asset_progress', (event) => {
+        const d = event.payload;
+        const idx = (d.index as number) ?? 0;
+        const tot = (d.total as number) ?? 0;
+        if (tot > 0) {
+          const nextPct = Math.max(pct.value, 88 + Math.round(idx / tot * 11));
+          update(`正在准备素材…  ${idx} / ${tot}`, nextPct);
+        }
+      })) return;
+    }
+
+    if (generation !== wireGeneration) return;
+    unlisteners = pending.splice(0);
+  })().catch((error: unknown) => {
+    clientLog('warn', 'boot', `progress event wiring failed: ${(error as Error)?.message ?? String(error)}`);
+  });
+
+  const request = operation.finally(() => {
+    // A failed or cancelled partial registration must never leak callbacks.
+    for (const unlisten of pending) unlisten();
+    if (wireInflight === request) wireInflight = null;
+  });
+  wireInflight = request;
+  return request;
 }
 
 onMounted(() => {

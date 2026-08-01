@@ -89,4 +89,22 @@ describe('EventListModal', () => {
     const wrapper = mountModal([]);
     expect(wrapper.find('.event-list-modal').exists()).toBe(true);
   });
+
+  test('Escape is ignored while the higher player layer is open', async () => {
+    const wrapper = mount(EventListModal, {
+      attachTo: document.body,
+      props: { events: [mkEvent()], matchLabel: '测试对局' },
+    });
+    const playerLayer = document.createElement('div');
+    playerLayer.className = 'player-backdrop';
+    document.body.append(playerLayer);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    playerLayer.remove();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(wrapper.emitted('close')).toHaveLength(1);
+    wrapper.unmount();
+  });
 });

@@ -1,18 +1,23 @@
 # Frontend Conventions
 
-Last organized: 2026-06-22.
+Last organized: 2026-07-30.
 
 This document holds GUI implementation conventions that are too detailed for `AGENTS.md`. Follow `DESIGN.md` and `PRODUCT.md` first for product and visual intent.
 
 ## Rendering Model
 
 - The app uses a stable DOM skeleton.
-- `App.vue` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load. State management is driven by 6 Pinia stores (`account`, `filter`, `detail`, `player`, `settings`, `ui`) and vue-router (`createMemoryHistory`).
+- `App.vue` builds `.app`, `.topbar`, `.panes`, and the pane containers once after load. State management is driven by 8 Pinia stores (`account`, `filter`, `detail`, `player`, `settings`, `share`, `ui`, `update`) and vue-router (`createMemoryHistory`).
 - State changes are driven by reactive Pinia stores, not manual DOM helpers.
 - Do not reintroduce `root.innerHTML = ''` or whole-`#app` rebuilds for ordinary interactions.
 - If a scrollable subtree must be rebuilt, preserve that subtree's `scrollTop`.
-- **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and a rAF-batched scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`).
+- **Match list uses DOM virtual scrolling** (`useVirtualScroll` composable in `packages/gui/src/composables/useVirtualScroll.ts`): rows are `position: absolute` with `transform: translateY()`, a `.vlist-spacer` sets scrollable height, and the scroll handler rebuilds only the visible slice. `ROW_HEIGHT = 104` (96 px card + 8 px gap). Do not nest rows inside a separate wrapper — append them as direct siblings of the spacer inside `.match-list` (`position: relative`). When filtering or switching accounts shortens the list, clamp both the reactive and DOM `scrollTop` before slicing so a stale old-list offset cannot render a blank viewport.
 - Match rows lose their `display: flex` column layout in virtual scroll mode — spacing is controlled by `ROW_HEIGHT`. Changing `.match-row` `min-height` or `padding` requires adjusting `ROW_HEIGHT`.
+- The supported minimum window remains 960×600. At widths up to 1160 px,
+  opening the 260 px filter rail temporarily hides the fixed detail pane and
+  lets the match list span its grid column. Closing filters restores the
+  detail pane. Do not reintroduce four simultaneous fixed panes that squeeze
+  the list to 120 px at the configured minimum.
 
 ### Desktop shortcuts (Windows habits)
 
@@ -31,7 +36,26 @@ Global shell shortcuts live in `utils/app-shortcuts.ts` + `composables/useAppSho
 
 While update is downloading/installing, `Ctrl+W` is a no-op (do not dismiss install). Layer Esc handlers stay component-owned.
 
-**Close animation:** `Ctrl+W` / `Ctrl+Q` must not hard-clear layer state. Prefer `clickLayerCloseButton` on the real × control (player `doClose`, settings `setOpen(false)`, update `dismiss`, share close). Player fallback is `player.requestClose()` → `doClose()`, never `player.close()` from shortcuts.
+**Close animation:** `Ctrl+W` / `Ctrl+Q` must not hard-clear layer state. Prefer `clickLayerCloseButton` on the real × control (event list, player `doClose`, settings `setOpen(false)`, update `dismiss`, share close). Player fallback is `player.requestClose()` → `doClose()`, never `player.close()` from shortcuts.
+
+### Modal keyboard ownership
+
+- Visual z-order is the source of truth: share (1500) → update (1400) →
+  settings (1300) → player (1200) → event list (1100).
+- Every document-level modal key handler must call
+  `ownsTopModalLayer()` from `utils/modal-layer.ts` before acting. Component
+  mount/listener registration order is not layer order; without this gate a
+  settings Escape or arrow key can also close/seek the player underneath.
+- Keep `MODAL_LAYER_ORDER`, component z-index values, and
+  `nextCloseableLayer` aligned. `Ctrl+W` includes the event-list modal and
+  closes only the visually topmost closeable layer.
+- Modal roots use `tabindex="-1"` and `useDialogFocus()` from
+  `utils/dialog-focus.ts`: opening moves focus into the dialog, Tab/Shift+Tab
+  wrap only at the first/last focusable control, and close restores the
+  opener when it still exists. Do not put `.prevent` on every Tab event; that
+  freezes focus on interior controls because native Tab movement never runs.
+- PlayerHost retains its existing open/close focus restoration, but its Tab
+  boundary logic must go through the same `trapDialogTab()` helper.
 
 ### Match list selection + context menu
 
@@ -58,7 +82,38 @@ Hard rules:
 7. Navigation math (arrows, Home/End, PageUp/Down, scroll reveal) must go through `nextListboxIndex` / `scrollTopToRevealIndex` — extend those helpers + their unit tests rather than inlining more switch cases in HomeView.
 
 Regression suite: `packages/gui/test/match-listbox.test.ts` (pure) + `HomeView.component.test.ts` “listbox a11y” block.
-- **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but is empty (e.g. user logged in but has no matches yet) — they point at ACLOS as the data source rather than dumping raw paths.
+- **Account ordering.** The sidebar may submit a partial visible order, so the
+  account store must use the shared `applyAccountOrder`: ranked accounts move
+  first and every unmentioned/new account remains in its prior relative order.
+  Persist the resulting complete ID list transactionally; never rebuild state
+  from only the submitted IDs.
+- Preference writes are revision-aware. If a scan/load replaces the account
+  collection while an order or rename IPC is pending, a failed request must
+  not roll the newer collection back. A successful request merges its order or
+  name into the current collection so newly discovered accounts stay visible.
+- **First-run gate.** `App.vue` probes the ACLOS WonderfulDb directory via the `aclos_status` Tauri command at boot. `hasAccounts` uses the scraper's exact rule: at least one regular file with a fully numeric openid basename. Snapshot/index/README/hidden files and numeric directories do not count. When `dirExists` or `hasAccounts` is false, `App.vue` renders `OnboardingView` instead of the 3-pane shell (top bar, panes, settings modal all suppressed). The onboarding view exposes a "重新检测" button that re-runs the probe via the same `aclosStatus` store ref. The normal empty states inside `AccountSidebar` / `HomeView` / `DetailView` only render in the edge case where ACLOS exists but has no usable matches — they point at ACLOS as the data source rather than dumping raw paths.
+- **Boot terminal event.** Subscribe to `wui://startup_refresh_finished` before invoking `scan_shell`. It settles as `finished`, `degraded`, or `error`; the last two carry the backend failure. Do not wait only on `wui://scrape_summary`, because scraper setup/read failures cannot emit a success summary and would strand the boot overlay until timeout. The 30-second deadline releases only the overlay: the real listener/session remains active, reloads SQLite when the native job actually terminates, and uses `account.libraryRevision` to avoid overwriting a newer manual scan. A retry while that session is pending reuses it instead of launching an indistinguishable second startup job. App unmount settles only the frontend session as internal `cancelled`, clears its deadline/listener, and stops all later store/UI work; it does not cancel the native scan.
+- **Boot progress listeners.** `BootOverlay` registration is single-flight because
+  its mounted hook and the parent `start()` call can overlap while Tauri
+  `listen()` is pending. In-flight registrations carry a generation token;
+  listeners that resolve after component disposal must unsubscribe immediately.
+- **Toast delivery.** `ui.showToast()` increments `toastSeq`; ToastHost watches
+  that event identity rather than a boolean visibility flag, so repeated or
+  overlapping messages are never dropped. The watcher flushes synchronously and
+  immediately consumes a pending boot-time event when the host first mounts.
+  Each rendered toast owns its removal timer, and ToastHost clears all pending
+  timers when it unmounts.
+- **Recoverable library errors.** Clean zero-match shells stay hidden, but an
+  account with `accounts[].error` remains visible as a generic error row even
+  when `matchCount` is zero. Raw parser/database messages can contain local
+  paths and belong only in `wonderful-ui.log`; the UI says to retry a full
+  scan. `LoadResult.totalErrors` also covers malformed SQLite match rows, so
+  HomeView keeps a compact recovery banner visible while healthy matches stay
+  browseable.
+- **Filter persistence failure.** WebView `localStorage` is optional state, not
+  a boot dependency. Refresh scan mode falls back to `incremental` if storage
+  is missing, corrupt, or throws; a failed write keeps the current in-memory
+  choice. Filter values and open state follow the same best-effort rule.
 
 Whole-app rebuilds break input focus, date-picker anchors, scroll position, and replay/player state.
 
@@ -67,6 +122,18 @@ Whole-app rebuilds break input focus, date-picker anchors, scroll position, and 
 - Frontend code must import `invoke`, `convertFileSrc`, and `listen` from
   `packages/gui/src/tauri-adapter.ts`, not directly from `@tauri-apps/api/*`.
 - In the Tauri shell, the adapter delegates to real Tauri APIs.
+- Treat every path-taking Tauri command as a privileged boundary. The backend
+  authorizes video paths against SQLite independently; do not add a new
+  open/reveal/share/decode command that trusts an arbitrary WebView path or
+  assumes `convertFileSrc` scope is authorization.
+- `convertFileSrc` works only for current library video/poster files that the
+  backend dynamically added to the asset scope, plus the narrow app-owned
+  legacy cache scope. Missing/replaced files should fall back in the UI; never
+  restore asset protocol `"**"` or a global filesystem capability to hide an
+  image/player error.
+- Screenshot Save As may write only the path returned by the native save
+  dialog. Keep the dialog + `fs:allow-write-file` pair; global read permission
+  and broad `fs:scope` are intentionally absent.
 - In a normal browser, or when the URL includes `?debug=1`, the adapter serves
   a fixed browser-debug fixture for accounts, matches, library stats, logs,
   asset cache calls, and safe fake video paths.
@@ -91,11 +158,25 @@ Whole-app rebuilds break input focus, date-picker anchors, scroll position, and 
 
 Component-owned `document` or `window` listeners must be disposed when their owner leaves the DOM.
 
-Use the pattern from `date-picker.ts`:
+Use Vue ownership hooks (and cancellation/generation checks for async wiring):
 
 - Register the listener while mounted.
-- Use a `MutationObserver` or equivalent ownership check.
-- Remove resize, scroll, key, or document listeners when the trigger/root is removed.
+- Remove resize, scroll, key, or document listeners in `onUnmounted`.
+- If listener registration itself is asynchronous, immediately release a late
+  unlisten handle after disposal and coalesce overlapping registration calls.
+
+Store actions that intentionally convert rejected IPC calls into visible,
+retryable state must accept any JavaScript rejection value, including strings,
+`null`, and `undefined`. Their `catch` blocks must not assume `Error.message`
+exists or throw a second error while formatting the original failure.
+
+Persisted filter state is an untrusted compatibility boundary. On load, keep
+only non-empty string categories and finite numeric bounds, dedupe categories,
+and order two-sided ranges. Malformed values must fall back to inactive bounds
+instead of producing an active-looking `NaN` filter. One-sided date ranges are
+valid and their trigger text must explicitly render `从 …` or `至 …`. The date
+dialog opens at whichever bound exists and closing an untouched draft must not
+collapse that open-ended range into a single day.
 
 ## Account Sentinel
 
@@ -107,8 +188,25 @@ Use the pattern from `date-picker.ts`:
 - It is fixed at the top of the account pane. Drag sorting and manual rename apply only to real accounts.
 - Manual account display names come from SQLite `account_preferences.custom_name` (`customName` over IPC) and override snapshot nick/tag only in WonderfulUI.
 - Account drag sorting uses SortableJS on `.account-sortable-list` with `.account-grip` as the handle, not custom pointer math. Keep `__all__` outside that sortable container and fixed at the top, persist only real account ids, and use Sortable's forced fallback path in WebView2 so the dragged clone follows the pointer reliably. Style `chosen` / `ghost` / `drag` / `fallback` classes so users see both the grabbed row and its drop position while neighboring rows animate out of the way.
+- The account list uses roving `tabindex`: only the selected row (or the first
+  visible row when nothing is selected) participates in Tab order. Arrow Up /
+  Down and Home / End move focus; Enter / Space select. Key handling must
+  ignore events originating from the nested rename input/button.
+- Filtered account counts are aggregated in one pass. Zero-hit real accounts
+  are intentionally absent from the returned count map, so the sidebar must
+  render a missing key as `0` while any filter is active; it may use the
+  account's unfiltered `matchCount` only when no filter is active.
 
 ## Match and Detail Semantics
+
+- Detail image-error fallbacks are scoped to the selected match. Reset hero,
+  game-mode, and per-video poster failures whenever the selected match object
+  changes; video ids are not a cross-match failure cache. Moment filter chips
+  expose their toggle state with `aria-pressed`.
+- Match cards are keyed by stable match id, so a library refresh can reuse the
+  component with a replacement match object. Reset map/hero/mode image failure
+  flags on that object change; an obsolete failed URL must not suppress the
+  refreshed bundled/local asset.
 
 - Middle column title is `对局列表`, not `高光时刻`.
 - `高光时刻` is still correct inside the detail pane for moment-card groups.
@@ -171,36 +269,65 @@ Moment grouping:
 
 ## Visual Source Fields
 
-Use `career.*` for most UI text and images:
+Known Valorant maps, agents, and game modes use the generated canonical registry:
+
+- Stable identity: `map.map_id` for maps; `agent.agent_id` UUID, then
+  `agent.agent_name`, for agents.
+- Chinese labels and images:
+  `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`.
+- Runtime images: `/valorant/{agents,maps,gamemodes}/v<schema>-<source-sha>.webp`,
+  generated into `packages/gui/public/valorant/` and bundled by Vite. Multiple
+  entities may deliberately share one path when their official source bytes match.
+- Refresh command: `bun run update:valorant-metadata` (never hand-edit the
+  generated registry or add sample-specific lookup branches).
+
+For an entity that is not yet in the registry, retain ACLOS text fields as a
+forward-compatible label fallback:
 
 - `career.hero_name`
 - `career.map_name`
+- `map.map_name`
+
+Game modes are matched by `stats.mode_name` asset path, then `mode` /
+`career.game_mode`. Continue to use `career.game_mode` as the visible label;
+the registry supplies the icon when a stable match exists.
+
 - `career.game_mode`
-- `career.hero_image`
-- `career.map_image`
-- `career.game_mode_icon`
+
+Unknown HTTP(S) image fields (`career.hero_image`, `career.map_image`,
+`career.game_mode_icon`, `map.map_image`) are intentionally ignored. A
+browser-verified same-origin root path or self-contained raster `data:` value
+remains acceptable for deterministic fixtures. Protocol-relative, backslash
+host, SVG-data, and other network-capable fallbacks are rejected, so the
+shipped application never contacts an image CDN at runtime.
 
 Fallbacks are documented in `docs/ACLOS_FORMAT.md`.
 
-## Asset Cache
+## Bundled Valorant Assets
 
-Remote career assets (hero heads, map splash art, game-mode icons) are lazily
-cached in a unified system, not bundled.
-
-- Frontend collects unique `career.hero_image`, `career.map_image`, and
-  `career.game_mode_icon` URLs after `scan_all`, then calls `cache_assets`
-  in a single bulk invocation.
-- Rust stores files in `%LOCALAPPDATA%\wonderful-ui\assets\{kind}\`,
-  keyed by SHA256 of each URL. SQLite `assets` table tracks every entry.
-- Frontend maps remote URLs to local paths with a shared `assetPathCache`
-  `Map<string, string>`, serving them through `convertFileSrc`.
-- After the async cache batch completes, visible panes refresh so
-  placeholders turn into images.
-- `cache_hero_image` is retained as a thin wrapper around `cache_asset`
-  for backward compatibility.
-
-Known CDN quirk: Miks `29.png` can be 4 MB because the CDN returns a
-2048×2048 image.
+- `bun run update:valorant-metadata` is the only networked maintenance step.
+  It fetches metadata and canonical source PNGs from the documented origin,
+  uses the 16:9 map `splash` field rather than `listViewIcon`, stores files by
+  SHA-256, and removes unreferenced sources. Exact duplicates are stored once.
+- `bun run assets:build` is offline and compiles every unique source to one
+  fixed-spec WebP: agents 256x256, maps 640x360, modes 128x128. The committed
+  source tree is outside `public/`, so original multi-megabyte PNGs do not enter
+  `dist` or the installer.
+- `bun run assets:check` verifies source checksums/aspect ratios, registry/file
+  parity, output format/dimensions/byte ceilings, and rejects duplicate output
+  content without network access.
+- `packages/gui` runs build + check before `vite` and verifies again after
+  `vite build`. This ensures `bun run dev`, browser debug, local Tauri builds,
+  and CI/Release builds use the same compiler and files.
+- Vite serves `public/` at `/` in dev and copies it unchanged into `dist/`.
+  Tauri packages that `dist`; do not import source PNGs into JavaScript or
+  reintroduce runtime CDN fallback.
+- The same build check rejects external CSS imports and auto-loaded remote
+  script/link/img/media resources. User-initiated external links in the About
+  view and the updater endpoint are separate, explicit network actions.
+- `collectMatchAssetEntries` and the Rust `cache_asset(s)` commands remain as
+  backward-compatible no-op/legacy boundaries. Canonical resolution returns
+  local paths, so current GUI scans do not start remote asset downloads.
 
 ## Tooltips
 
@@ -226,23 +353,39 @@ Account list uses a custom tooltip, not native `title=`.
 - The sidebar-bottom settings button opens a centered settings modal, not a side drawer.
 - The settings modal exposes `扫描模式` as a two-option segmented control: `增量扫描` / `全量扫描`.
 - The direct full scan action lives in the settings modal under `扫描设置` and calls `scrape_library` with `mode: "full"`.
+- Header refresh, `F5` / `Ctrl+R`, the error-banner retry, and Settings full
+  scan all use `scanCompletionFeedback`: zero errors produce the mode-specific
+  success message; nonzero `totalErrors` is a partial failure; a rejected IPC
+  call produces one generic recoverable message and logs the technical cause.
 - The `资料库` tab starts with `资料库概览`: three summary cells (`视频` / `对局` / `账户`) plus a donut chart of per-account share. It is a library composition view, not a storage/disk-usage view.
 - **Settings charts stack:** Apache ECharts + `vue-echarts` (not hand-rolled SVG, not imperative `echarts.init` singletons).
-  - Register modules once in `packages/gui/src/charts/register.ts` (pie/bar/line + grid/tooltip/legend/dataset/dataZoom already registered for future settings widgets).
+  - Register only modules used by shipping UI in
+    `packages/gui/src/charts/register.ts`. The current donut needs Pie,
+    Tooltip, Legend, and CanvasRenderer. Do not pre-register bar/line/grid/
+    dataset/dataZoom/title “for later”; that bypasses ECharts tree-shaking.
   - Pure option builders live next to data helpers (`buildAccountShareChartOption` in `library-stats.ts`). Keep them free of DOM instances so `bun test` can cover them.
   - UI shell: `AccountShareChart.vue` — `<VChart autoresize :option="…" />` with a **sibling** center overlay for totals (never pie `series.label`, which joins hover state).
   - Tab switches / modal close unmount the component; `vue-echarts` disposes the instance. Do not reintroduce module-level chart handles.
   - Prefer extending ECharts options (bar for scan history, line for trends) over adding a second chart library.
+    Register the new chart/component modules in the same commit that adds the
+    visible feature.
   - **Pie motion:** quiet enter (`animationType: 'expansion'`, ~480ms) + short hover state (~180ms). Subtle `emphasis.scale` is OK with **`scaleSize ≤ 4`** if tooltip stays `pointer-events:none`, `enterable: false`, short `transitionDuration`, and tip parked off the wedge. Sibling dim: `focus: 'self'` + `blur.opacity ≈ 0.55`. Keep center totals as Vue overlay (keyed on metric for a soft re-fade).
   - **Canvas color space:** ECharts draws with Canvas2D. Do **not** pass `oklch(...)`, `color-mix(...)`, or unresolved CSS variables into `option.color` / `itemStyle`. WebView2 may paint those as transparent (huge “missing” slice that still tooltips). Use hex/rgb palette (`CHART_PALETTE`) and canvas-safe token resolution.
 - Do not show recent scan history, "open library directory", or a manual refresh button in `资料库概览`. Scan history belongs in logs, and the match-list header refresh button / settings full-scan action are the scan controls.
 - Keep the settings modal as a scalable settings center: left section navigation, right content area, grouped setting rows.
 - Do not keep placeholder-only settings pages. Only visible tabs should expose working functionality. Current tabs are `资料库`, `日志`, and `关于`.
 - The `日志` tab reads from Tauri `get_log_status` and opens the WonderfulUI log directory through `reveal_logs_dir`; frontend code must not read arbitrary local files directly.
+- Library-stat and log reads are single-flight. After a full scan, call
+  `refreshLibraryStats()` rather than merely joining an older read: it waits
+  for any pre-scan snapshot and then performs one fresh post-scan request.
 - The `日志` tab shows one app-owned log file only. Do not expose automatic maintenance as a user setting; it is backend behavior.
 - Do not show the full absolute log path as primary UI. Show the log filename/status and rely on `打开目录` for filesystem location.
 - The log preview should present timestamps in a human-readable local format and stay pinned to the latest lines after refresh.
 - Settings tab changes replace only the internal nav/content regions. Do not remount the backdrop or modal on tab switch; open/close animation belongs only to the modal lifecycle.
+- `SettingsView` is a low-frequency async component in both `App.vue` and the
+  router, and App does not instantiate it until `settings.isOpen`. This keeps
+  ECharts and settings CSS out of the startup chunk while preserving the
+  store-owned 150 ms close animation.
 - Keep the modal at a fixed desktop size so page changes do not resize the window. Small viewports may clamp via max-width/max-height.
 - Escape and backdrop click close the modal; Tab focus must stay inside it while open.
 - Settings modal z-index is 1300, above event modals (1100) and the player (1200). Toasts sit above it so scan feedback remains visible.
@@ -250,16 +393,32 @@ Account list uses a custom tooltip, not native `title=`.
 
 ## Share ("快传") Modal
 
-- **Abstract platform layer** at `packages/gui/src/utils/share/`: `SharePlatform` interface, registry map, `openShareMenu` / `listAvailablePlatforms`. Each platform is one self-contained module under `platforms/`. Currently only `win32-share-sheet` (placeholder; production platform is the in-app `lan-qr` flow which doesn't go through the share abstract — see below).
-- **Production share path = LAN QR ("快传")**: instead of the `SharePlatform` interface, the player toolbar's `share` event opens `ShareModal` directly. Rust side runs an embedded `tiny_http` server (see ARCHITECTURE.md). The modal owns the server lifecycle — server starts on `onMounted`, stops on `onUnmounted` (so closing × / Esc / backdrop all guarantee the port is released).
+- **Single production share path = LAN QR ("快传")**: the player toolbar's
+  `share` event opens `ShareModal` directly. Rust runs an embedded `tiny_http`
+  server (see ARCHITECTURE.md). There is no dormant platform registry or
+  unrendered popover abstraction; add a second real target only when product
+  behavior requires it. The modal owns the server lifecycle — server starts on
+  `onMounted`, stops on `onUnmounted` (so × / Esc / backdrop release the port).
 - **Modal layout (极简)**: title `快传` + 240×240 QR (Rust-rendered circles, `EcLevel::H`, click-to-copy) + a single status row `<size> · <dot><status text>` + 6 px progress bar matching `.boot-progress` (indeterminate shimmer while waiting, `scaleX(0→1)` on completion). No "复制链接" button — the QR is the button.
+- **Accessible state:** the QR button has an explicit copy action label and its
+  injected SVG is decorative. The status row is one polite atomic live region;
+  the bar is an indeterminate `progressbar` while waiting and exposes 100 only
+  after a completed download. Native paths, bind addresses, and server details
+  stay in local logs; visible errors use generic recovery text.
 - **Status states** (Rust-side event `wui://share_downloaded` is the only source of truth):
   - `downloadCount === 0` → gray dot, "等待扫码", progress bar indeterminate shimmer
   - `downloadCount >= 1` → red dot (with same pulse animation but wider halo), "下载完成", progress bar `scaleX(1)`
   - The dot is red **only after** `req.respond()` returns `Ok(())` — i.e. after the file actually streamed to the client. WeChat scanning a URL that only previews without downloading does NOT trigger the "下载完成" state (BrokenPipe mid-stream → `respond()` errors → count stays 0). This is by design.
 - **Server lifecycle**:
-  - Modal `onMounted` → `share.start(videoPath)` → Rust starts HTTP server
-  - Modal `onUnmounted` → `share.stop()` → Rust stops server
+  - Modal `onMounted` registers both Tauri event listeners, checking its
+    `disposed` flag after each async registration, then calls
+    `share.start(videoPath)`. A listener that resolves after unmount is
+    unsubscribed immediately; a closed modal must never start a hidden server.
+  - Modal `onUnmounted` invalidates the current share session synchronously,
+    then `share.stop()` asks Rust to stop that exact `sessionId`.
+  - Start results, downloads, and stop events all carry `sessionId`. Late
+    results clean up only their own backend server, and stale events from a
+    replaced server are ignored.
   - 3-minute idle timeout is the **only** auto-shutdown path (safety net for "user opened modal then forgot"). NOT "close after first download" — the user controls when to close.
 - **Close paths** (all route to `share.stop()` via `onUnmounted`):
   - Click the `×` in the top-right corner
@@ -273,12 +432,27 @@ Account list uses a custom tooltip, not native `title=`.
   - Progress bar shimmer: `1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite`, `translateX(-100% → 250%)` — never animates `width`
   - Motion is app-owned (not gated on OS `prefers-reduced-motion`)
 
-## Date Range Picker
+## Filter and Date Range Accessibility
 
-- Date-range picker UI lives in `packages/gui/src/utils/date-picker.ts` (pure logic) with a Vue wrapper in `packages/gui/src/components/match/DateRangePicker.vue`, styled by the `.dr-*` block in `packages/gui/src/assets/style.css`.
+- Filter chips and date presets expose selection with `aria-pressed`. The
+  collapsed performance-filter body is both `aria-hidden` and `inert`; CSS
+  height/opacity alone must never leave invisible numeric inputs in Tab order.
+- Date-range picker UI lives in
+  `packages/gui/src/components/match/DateRangePicker.vue`, styled by the
+  `.dr-*` block in `packages/gui/src/assets/style.css`. Date boundary helpers
+  that are shared with filter logic live in `packages/gui/src/utils/date-picker.ts`.
 - It is a filter-rail control, not a modal or standalone calendar card. Keep it visually aligned with filter chips and numeric inputs: low elevation, token colors, no decorative shadow, no red top border.
+- The main trigger and the conditional clear action are sibling `<button>`
+  elements inside `.dr-trigger-wrap`. Never nest the clear button inside the
+  trigger: nested interactive controls are invalid HTML and produce ambiguous
+  keyboard/screen-reader behavior. Both siblings need visible focus rings.
 - Date clicks update an internal draft only. The applied filter must change only when the user clicks `完成`.
 - The trigger clear button may clear the already-applied date filter immediately. The popover `清除` button clears only the draft until `完成` is clicked.
+- Opening the popover moves focus to the applied start date or today. Exactly
+  one day has `tabindex="0"`; arrows move by day/week, Home/End move within the
+  week, Page Up/Down move by a clamped month, and Shift+Page Up/Down move by a
+  year. Re-rendering after a date/month action must restore a live focus
+  target. Tab loops inside the dialog; Escape and `完成` restore the trigger.
 - Selecting a single date and then clicking `完成` applies that one day as both start and end; the end timestamp remains inclusive through `23:59:59.999` local time.
 - Calendar day numbers must be real child elements above range backgrounds. Do not place raw text directly under `.dr-day` if the day uses pseudo-element range fills.
 
@@ -325,7 +499,7 @@ Icons come from @iconify/vue (Phosphor set), via the shared `WIcon` wrapper at `
 - Import `WIcon` from `../common/WIcon.vue` (or appropriate relative path).
 - Usage: `<WIcon icon="ph:play" :size="16" />` where `icon` is the full @iconify icon name and `size` maps to `width`/`height`.
 - Do NOT import raw lucide icons or use `createElement()` for SVG icons.
-- **Offline bundle (required for Tauri):** `main.ts` calls `registerAppIcons()` which loads a Phosphor subset from `packages/gui/src/icons/ph-local.ts` via `addCollection`. Without this, late-mounted UI (player controls, 快传 modal) fetches `api.iconify.design` and shows empty boxes when offline. When adding a new `ph:*` icon, append its name to `scripts/extract-ph-icons.mjs` and run `bun run --cwd packages/gui icons:extract`.
+- **Offline bundle (required for Tauri):** `main.ts` calls `registerAppIcons()` which loads a Phosphor subset from `packages/gui/src/icons/ph-local.ts` via `addCollection`. Without this, late-mounted UI (player controls, 快传 modal) fetches `api.iconify.design` and shows empty boxes when offline. When adding a new `ph:*` icon, append its name to `scripts/extract-ph-icons.mjs` and run `bun run --cwd packages/gui icons:extract`. `test/offline-icons.test.ts` scans every Vue/TS `ph:*` string literal and must fail if the generated subset is incomplete; do not silence the test with runtime CDN fallback.
 - 快传 brand icon is always `SHARE_ICON` (`ph:share-network`) from `packages/gui/src/share/icons.ts`.
 - Do NOT use Unicode symbol glyphs for controls.
 
@@ -340,8 +514,8 @@ Brand lockup:
 The match-row cover is map image + hero head icon:
 
 - 88 x 72 cover.
-- `career.map_image` is the full-bleed background.
-- `career.hero_image` is a 36 px circular badge at bottom-right.
+- `resolveMatchAssetSrc(match, 'map_image', …)` supplies the bundled full-bleed background.
+- `resolveMatchAssetSrc(match, 'hero_image', …)` supplies the bundled 36 px circular badge at bottom-right.
 - Use a radial gradient under the badge so the icon feels anchored.
 - Badge shadows should be warm-tinted, not pure black.
 
@@ -370,6 +544,10 @@ Player controls:
 - Auto-hide after 3 seconds.
 - Cancel auto-hide on pause, hover, or ended.
 - Toggle visibility with `.is-hidden`.
+- Volume is always a finite value clamped to 0–100. Persisted `0` is valid and
+  must not fall back to 100; malformed values use 100. The track ignores
+  zero-width geometry and exposes slider semantics with arrow keys (±5),
+  Home (0), and End (100).
 - Keyboard handler uses capture phase: `document.addEventListener('keydown', handler, true)`.
 - Escape first exits fullscreen, second closes the modal.
 - Fullscreen is requested on `.player-modal`, not on the `<video>` element.
@@ -388,6 +566,10 @@ Player state machine:
 Progress bar:
 
 - Thumb positioning uses `left: X%` (relative to parent track), not `translate(calc(X% - 50%), -50%)` — CSS `translate()` percentages are relative to the element's own 8 px width, which collapses the offset to near zero.
+- Current time and duration must be finite and clamped to the media interval
+  before driving fill/thumb styles or ARIA values. Pointer seeking ignores a
+  zero-width/non-finite track instead of emitting a `NaN` percentage while a
+  responsive layout is settling.
 - `lastBufferedPct` must be a `ref`; a plain `let` is invisible to Vue's reactivity and the buffered bar will never update.
 - Event marker container uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop`. Adding `@mousedown.stop` on the container breaks track-seeking in canvas mode because `.is-canvas` has `pointer-events: auto`.
 - `CANVAS_MARKER_THRESHOLD = Infinity` (permanently disables canvas mode; see AGENTS.md for rationale).
@@ -418,6 +600,14 @@ Context menu (`PlayerHost.vue` + pure helpers in `utils/context-menu.ts`):
 - **截图** flyout: 复制到剪贴板 / 保存为 PNG… — nested absolute panel, edge-overlap with root (not a floating card). Flip left when overflowing. Close on leave parent+flyout, hover other root items, Esc (flyout first).
 - Screenshot (Windows only): `capture_video_frame(path, timeMs)` → MF SourceReader → PNG. Clipboard: `ClipboardItem`. Save: dialog + `plugin-fs`.
 - Screenshot UX (copy/save): real `paused` + stage freeze canvas (HW video collapsed) → progress overlay → native capture → resume if was playing. Hold blocks autoplay/hotkeys; pins scrubber.
+- Every `player.open()` increments `sessionSeq`, even when reopening the same
+  video object at a different event time. `PlayerHost` resets seek/buffer/FPS/
+  frame/context/share state per sequence. FPS callbacks and screenshot jobs
+  carry that identity; late work from a closed or replaced video must not
+  change the new session, resume it, write its UI state, or show stale toasts.
+- Player letter shortcuts are case-normalized before dispatch. In particular,
+  Shift+J / Shift+L must reach the documented five-frame step rather than fall
+  through because `KeyboardEvent.key` is uppercase.
 - Player video: `convertFileSrc` (asset protocol).
 - Failures toast like the toolbar (`play_video` / `reveal_in_explorer` / clipboard / screenshot).
 - Position via `placeMenuNearCursor` (flip + clamp to viewport). Re-measure after open (`offsetWidth/Height`). Submenu geometry helper: `placeSubmenu`.
@@ -449,7 +639,22 @@ it opens the per-match event list. The flow is **3 steps**, layered:
 
 - **Stat card** (DetailView.vue): always shown in the detail pane.
   Shows total event count once rounds are loaded; spinner while loading.
-  Becomes a `disabled` button if the match has no events.
+  A failed `get_match_rounds` request becomes an enabled, keyboard-accessible
+  retry action with a non-technical message; the backend detail stays in the
+  local client log. It becomes a `disabled` button only while loading or when
+  the loaded match has no events.
+- **Round request ownership** (`stores/detail.ts`): every selection change goes
+  through `selectMatch`, increments a private selection version, and resets the
+  loading/error state. A response may update video rounds or terminal state only
+  when both its stable match id and selection version are still current. This
+  rejects `m1 -> m2 -> m1` late responses and responses for an object replaced
+  by a library refresh. Duplicate in-flight requests are suppressed; matches
+  without videos are complete without IPC.
+- **Refresh reconciliation** (DetailView.vue): watch both the route id and the
+  account match array. A refreshed match object with the same `matches_id` must
+  be reselected by object identity so the detail pane cannot retain a stale
+  rounds-stripped snapshot. If the selected match disappears, clear the detail
+  state and replace the now-invalid route with the home route.
 - **List modal** (`EventListModal.vue`): shows all kill/death events for the
   match, sorted by `timeMs`. Header shows the **real** K/D from `m.stats.*`
   (not the event count — ACLOS highlights can include team kills, so the

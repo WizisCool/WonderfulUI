@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { releaseTagMismatch } from './version-invariants.ts';
 
 const ROOT = resolve(import.meta.dir, '..');
 let errors = 0;
@@ -21,6 +22,18 @@ function check(label: string, actual: string, expected: string) {
 const tauriConf = readJson(join(ROOT, 'src-tauri', 'tauri.conf.json'));
 const expected = tauriConf.version;
 console.log(`\nCanonical version (tauri.conf.json): ${expected}\n`);
+
+const tagMismatch = releaseTagMismatch(
+  expected,
+  process.env.GITHUB_REF_TYPE,
+  process.env.GITHUB_REF_NAME,
+);
+if (tagMismatch) {
+  console.error(`  FAIL GitHub release ref: ${tagMismatch}`);
+  errors++;
+} else if (process.env.GITHUB_REF_TYPE === 'tag') {
+  console.log(`  OK   GitHub release tag v${expected}`);
+}
 
 // tauri.conf.json
 check('tauri.conf.json', expected, expected);

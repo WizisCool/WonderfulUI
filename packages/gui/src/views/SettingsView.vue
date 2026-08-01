@@ -2,11 +2,14 @@
   <Teleport to="body">
     <div v-if="settings.isOpen" class="settings-modal-backdrop" :class="{ 'is-closing': settings.isClosing }" @click.self="settings.setOpen(false)">
       <section
+        ref="settingsDialogRef"
         class="settings-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
+        tabindex="-1"
         :data-settings-tab="settings.activeTab"
+        @keydown.tab="onDialogTab"
       >
         <SettingsModal />
       </section>
@@ -15,14 +18,22 @@
 </template>
 
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted } from 'vue';
+import { watch, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSettingsStore } from '../stores/settings.ts';
 import SettingsModal from '../components/settings/SettingsModal.vue';
+import { ownsTopModalLayer } from '../utils/modal-layer.ts';
+import { useDialogFocus } from '../utils/dialog-focus.ts';
 
 const route = useRoute();
 const router = useRouter();
 const settings = useSettingsStore();
+const settingsDialogRef = ref<HTMLElement | null>(null);
+const { onDialogTab } = useDialogFocus(
+  settingsDialogRef,
+  () => settings.isOpen,
+  'settings',
+);
 
 watch(() => route.name, (name) => {
   if (name === 'settings') {
@@ -39,7 +50,8 @@ watch(() => settings.isOpen, (open) => {
 });
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && settings.isOpen) {
+  if (e.key === 'Escape' && settings.isOpen && ownsTopModalLayer('settings')) {
+    e.preventDefault();
     e.stopPropagation();
     settings.setOpen(false);
   }
@@ -74,6 +86,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true));
   overflow: hidden;
   animation: settings-modal-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: 50% 48%;
+  outline: none;
 }
 .settings-modal-backdrop.is-closing .settings-modal {
   animation: settings-modal-out 120ms ease-in both;

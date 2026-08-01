@@ -178,8 +178,7 @@ fn resolve_video_time(
     let is_kill_montage = video.video_type == "击杀集锦";
     let is_death_montage = video.video_type == "死亡集锦";
     if is_kill_montage || is_death_montage {
-        if (is_kill_montage && event_type != "kill")
-            || (is_death_montage && event_type != "death")
+        if (is_kill_montage && event_type != "kill") || (is_death_montage && event_type != "death")
         {
             return None;
         }
@@ -485,7 +484,12 @@ mod tests {
                 round_s_time: 70_000,
                 round_clips: vec![RoundClip {
                     clip_s_time: 70_000,
-                    clip_events: vec![event("montage", 130_000, "kill", shot_ext(serde_json::json!({})))],
+                    clip_events: vec![event(
+                        "montage",
+                        130_000,
+                        "kill",
+                        shot_ext(serde_json::json!({})),
+                    )],
                     ..Default::default()
                 }],
                 ..Default::default()
@@ -508,7 +512,12 @@ mod tests {
                 round_s_time: 0,
                 round_clips: vec![RoundClip {
                     clip_s_time: 11_000,
-                    clip_events: vec![event("moment", 6_000, "kill", shot_ext(serde_json::json!({})))],
+                    clip_events: vec![event(
+                        "moment",
+                        6_000,
+                        "kill",
+                        shot_ext(serde_json::json!({})),
+                    )],
                     ..Default::default()
                 }],
                 ..Default::default()
@@ -612,7 +621,12 @@ mod tests {
                 round_s_time: 0,
                 round_clips: vec![RoundClip {
                     clip_s_time: -1,
-                    clip_events: vec![event("neg-clip", 6_000, "kill", shot_ext(serde_json::json!({})))],
+                    clip_events: vec![event(
+                        "neg-clip",
+                        6_000,
+                        "kill",
+                        shot_ext(serde_json::json!({})),
+                    )],
                     ..Default::default()
                 }],
                 ..Default::default()

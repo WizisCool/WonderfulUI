@@ -43,18 +43,25 @@ jobs:
       # manual full-build can hit warm deps when available.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          # The target path is relative to src-tauri; Tauri writes to root target/.
+          workspaces: src-tauri -> ../target
+          prefix-key: v1-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true
 
       - run: bun install --frozen-lockfile
       - run: bun run scripts/check-versions.ts
+      - run: bun run assets:build
+      - run: bun run assets:check
       - run: bun run typecheck
-      - run: bun run test
+      - run: bun run test:all
       - name: Cargo lib tests (debug)
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - if: ${{ inputs['full-build'] }}
         name: Full Tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run build

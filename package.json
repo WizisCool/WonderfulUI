@@ -1,6 +1,6 @@
 {
   "name": "wonderful-ui",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -10,17 +10,24 @@
     "dev": "bunx tauri dev",
     "dev:browser": "bun run --cwd packages/gui dev -- --host 127.0.0.1",
     "build": "bunx tauri build",
-    "test": "bun test --path-ignore-patterns \"**/*.component*\"",
-    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test --path-ignore-patterns \"packages/gui/test/*.component.test.ts\"",
+    "test:components": "bun run --cwd packages/gui test:components",
+    "test:all": "bun run test && bun run test:components",
+    "typecheck": "vue-tsc --noEmit",
+    "assets:check": "bun run tools/check-valorant-assets.ts",
+    "assets:build": "bun run tools/build-valorant-assets.ts",
     "version:patch": "bun run scripts/version-bump.ts patch",
     "version:minor": "bun run scripts/version-bump.ts minor",
     "version:major": "bun run scripts/version-bump.ts major",
-    "update:skins": "bun run tools/update-valorant-skins.ts"
+    "update:skins": "bun run tools/update-valorant-skins.ts",
+    "update:valorant-metadata": "bun run tools/update-valorant-metadata.ts"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "sharp": "0.35.3",
     "typescript": "^5.5.0",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "vue-tsc": "3.3.8"
   },
   "dependencies": {}
 }

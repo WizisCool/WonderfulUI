@@ -12,7 +12,7 @@ function mkMatch(openid = 'test-1', hero = 'Cypher', mapId = 'Ascent', kills = 1
     map: { map_id: `/Game/Maps/${mapId}/${mapId}` },
     mode: 'competitive',
     agent: { agent_name: hero, agent_id: `${hero}-id` },
-    career: { hero_name: '黑梦', map_name: '亚海悬城' },
+    career: {},
     stats: { kills, deaths: 5, assists: 3, score: 2000, has_won: true, rounds_won: 13, rounds_lost: 5, mode_name: '', game_level: '' },
     minRoundId: 0,
     gameStartTime: '2026-06-08 18:00:00',
@@ -69,10 +69,12 @@ describe('FilterBar', () => {
   test('active filter chip has is-active class', () => {
     const m = mkMatch('a', 'Cypher', 'Ascent');
     const wrapper = mountFilter({
-      filters: { heroes: ['黑梦'] },
+      filters: { heroes: ['零'] },
       matches: [m],
     });
-    expect(wrapper.find('.filter-chip.is-active').exists()).toBe(true);
+    const chip = wrapper.find('.filter-chip.is-active');
+    expect(chip.exists()).toBe(true);
+    expect(chip.attributes('aria-pressed')).toBe('true');
   });
 
   test('renders date section', () => {
@@ -91,7 +93,11 @@ describe('FilterBar', () => {
     const wrapper = mountFilter({ matches });
     const body = wrapper.find('.filter-num-group-body');
     expect(body.classes()).toContain('is-collapsed');
+    expect(body.attributes('aria-hidden')).toBe('true');
+    expect(body.attributes()).toHaveProperty('inert');
     await wrapper.find('.filter-num-group-header').trigger('click');
     expect(body.classes()).not.toContain('is-collapsed');
+    expect(body.attributes('aria-hidden')).toBe('false');
+    expect(body.attributes()).not.toHaveProperty('inert');
   });
 });

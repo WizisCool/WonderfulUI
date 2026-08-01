@@ -4,7 +4,8 @@
 //! 1. **Chromium Local Storage LevelDB** under `%APPDATA%\ACLOS\Local Storage\leveldb`
 //!    - Key `ACLOS_USER_ROLES_INFO` → JSON array of current roles
 //!    - Keys `acloshighlight_user_<openid>` → per-account role JSON
-//!    Opened via pure-Rust `rusty-leveldb` (copy-on-lock if ACLOS holds LOCK).
+//!    Copied to an app-owned temporary directory before pure-Rust
+//!    `rusty-leveldb` opens it; the ACLOS source is never opened as a database.
 //! 2. **`snapshot<openid>`** (`ss_nick` / `ss_nick_id`) — still used for MVP/SVP
 //!    and as nick fallback when LevelDB has no row for that openid.
 //! 3. Best-effort text scan of ACLOS logs / IndexedDB files (masked openids).
@@ -12,7 +13,6 @@
 //! Production code never hard-codes maintainer openids or nicks.
 //! Read-only; never writes ACLOS / Riot / game paths.
 
-use crate::library::now_ms;
 use rusty_leveldb::{LdbIterator, Options, DB};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -143,10 +143,9 @@ impl AclosIdentityIndex {
 // ─── LevelDB Local Storage ───────────────────────────────────────────────────
 
 fn load_from_local_storage_leveldb(dir: &Path, idx: &mut AclosIdentityIndex) {
-    // Prefer opening in place; if LOCK is held (ACLOS running), copy to temp.
-    if try_open_local_storage(dir, idx) {
-        return;
-    }
+    // rusty-leveldb has no read-only open and may create/update LOCK or log
+    // files even with create_if_missing=false. Always operate on a copy so
+    // WonderfulUI never mutates ACLOS-owned storage.
     let Ok(tmp) = copy_leveldb_to_temp(dir) else {
         return;
     };
@@ -157,7 +156,8 @@ fn load_from_local_storage_leveldb(dir: &Path, idx: &mut AclosIdentityIndex) {
 fn try_open_local_storage(dir: &Path, idx: &mut AclosIdentityIndex) -> bool {
     let mut opts = Options::default();
     opts.create_if_missing = false;
-    // rusty-leveldb may still try to create lock; ignore open errors.
+    // This path is always app-owned temporary storage; ignore open errors and
+    // let the secondary read-only text harvest provide a best-effort fallback.
     let mut db = match DB::open(dir, opts) {
         Ok(db) => db,
         Err(_) => return false,
@@ -194,28 +194,30 @@ fn try_open_local_storage(dir: &Path, idx: &mut AclosIdentityIndex) -> bool {
 }
 
 fn copy_leveldb_to_temp(src: &Path) -> Result<PathBuf, std::io::Error> {
-    let tmp = std::env::temp_dir().join(format!(
-        "wui-aclos-ls-{}-{}",
-        std::process::id(),
-        now_ms()
-    ));
-    if tmp.exists() {
+    let tmp = std::env::temp_dir().join(format!("wui-aclos-ls-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&tmp)?;
+
+    let copy_result = (|| {
+        for ent in std::fs::read_dir(src)? {
+            let ent = ent?;
+            let name = ent.file_name();
+            let name_s = name.to_string_lossy();
+            // Skip live LOCK so we can open the copy.
+            if name_s == "LOCK" {
+                continue;
+            }
+            // Do not follow links out of the ACLOS-owned database directory.
+            if !ent.file_type()?.is_file() {
+                continue;
+            }
+            std::fs::copy(ent.path(), tmp.join(&name))?;
+        }
+        Ok::<(), std::io::Error>(())
+    })();
+
+    if let Err(error) = copy_result {
         let _ = std::fs::remove_dir_all(&tmp);
-    }
-    std::fs::create_dir_all(&tmp)?;
-    for ent in std::fs::read_dir(src)? {
-        let ent = ent?;
-        let name = ent.file_name();
-        let name_s = name.to_string_lossy();
-        // Skip live LOCK so we can open the copy.
-        if name_s == "LOCK" {
-            continue;
-        }
-        let from = ent.path();
-        let to = tmp.join(&name);
-        if from.is_file() {
-            let _ = std::fs::copy(&from, &to);
-        }
+        return Err(error);
     }
     Ok(tmp)
 }
@@ -470,7 +472,10 @@ fn str_window(text: &str, start: usize, max_len: usize) -> &str {
     if start >= text.len() {
         return "";
     }
-    let end = text.floor_char_boundary((start + max_len).min(text.len()));
+    let mut end = start.saturating_add(max_len).min(text.len());
+    while end > start && !text.is_char_boundary(end) {
+        end -= 1;
+    }
     &text[start..end]
 }
 
@@ -617,11 +622,14 @@ fn record_exact(
     tag: Option<String>,
     score: u32,
 ) {
-    let entry = idx.exact.entry(openid.to_string()).or_insert(ScoredIdentity {
-        nick: None,
-        tag: None,
-        score: 0,
-    });
+    let entry = idx
+        .exact
+        .entry(openid.to_string())
+        .or_insert(ScoredIdentity {
+            nick: None,
+            tag: None,
+            score: 0,
+        });
     let better = score > entry.score
         || (score == entry.score && tag.is_some() && entry.tag.is_none() && nick.is_some());
     if better {
@@ -707,6 +715,15 @@ mod tests {
     const OID_UNRELATED: &str = "9999999999999999999";
 
     #[test]
+    fn str_window_stops_before_a_split_utf8_character() {
+        let text = "ab捷风cd";
+        assert_eq!(str_window(text, 0, 4), "ab");
+        assert_eq!(str_window(text, 2, 3), "捷");
+        assert_eq!(str_window(text, 2, usize::MAX), "捷风cd");
+        assert_eq!(str_window(text, text.len(), 3), "");
+    }
+
+    #[test]
     fn decode_chromium_ls_value_utf8_json() {
         // type=1 + UTF-8 JSON (app://aclos.val.qq.com style)
         let mut raw = vec![1u8];
@@ -769,13 +786,57 @@ mod tests {
             Some("11111".into()),
             SCORE_LEVELDB_HIGHLIGHT_USER,
         );
-        let (nick, tag) = idx.merge_with_snapshot(
-            OID_A,
-            Some("FromSnapshot".into()),
-            Some("22222".into()),
-        );
+        let (nick, tag) =
+            idx.merge_with_snapshot(OID_A, Some("FromSnapshot".into()), Some("22222".into()));
         assert_eq!(nick.as_deref(), Some("FromLevelDb"));
         assert_eq!(tag.as_deref(), Some("11111"));
+    }
+
+    #[test]
+    fn leveldb_identity_load_never_mutates_source_directory() {
+        let root =
+            std::env::temp_dir().join(format!("wui-aclos-readonly-test-{}", uuid::Uuid::new_v4()));
+        let leveldb = root.join("Local Storage").join("leveldb");
+        std::fs::create_dir_all(&leveldb).expect("fixture directory");
+
+        let mut options = Options::default();
+        options.create_if_missing = true;
+        {
+            let mut db = DB::open(&leveldb, options).expect("fixture leveldb opens");
+            let mut key = b"_app://aclos.val.qq.com".to_vec();
+            key.push(0);
+            key.push(1);
+            key.extend_from_slice(b"acloshighlight_user_1000000000000000001");
+            let mut value = vec![1u8];
+            value.extend_from_slice(
+                br#"{"openid":"1000000000000000001","nick":"ReadOnly","nick_id":"54321"}"#,
+            );
+            db.put(&key, &value).expect("fixture row inserted");
+            db.flush().expect("fixture leveldb flushed");
+        }
+        let before = directory_snapshot(&leveldb);
+
+        let index = AclosIdentityIndex::load_from_aclos_root(&root);
+
+        assert_eq!(index.lookup(OID_A).nick.as_deref(), Some("ReadOnly"));
+        assert_eq!(directory_snapshot(&leveldb), before);
+        std::fs::remove_dir_all(&root).expect("fixture removed");
+    }
+
+    fn directory_snapshot(path: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut files = std::fs::read_dir(path)
+            .expect("snapshot directory")
+            .map(|entry| entry.expect("snapshot entry"))
+            .filter(|entry| entry.path().is_file())
+            .map(|entry| {
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(entry.path()).expect("snapshot file"),
+                )
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|left, right| left.0.cmp(&right.0));
+        files
     }
 
     #[test]

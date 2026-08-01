@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { invoke } from '../tauri-adapter.ts';
-import { accountDisplayLabel } from '../utils/account-preferences.ts';
+import { accountDisplayLabel, applyAccountOrder } from '../utils/account-preferences.ts';
 import { collectMatchAssetEntries } from '../utils/valorant-assets.ts';
 import type { MatchRecord } from '@wonderful-ui/parser';
 
@@ -31,6 +31,10 @@ export interface AclosStatus {
 
 export const ALL_ACCOUNTS = '__all__';
 
+export function isVisibleAccount(account: Account): boolean {
+  return (account.matchCount ?? 0) > 0 || !!account.error?.trim();
+}
+
 export const useAccountStore = defineStore('account', () => {
   const accounts = ref<Account[]>([]);
   const selectedAccountId = ref<string | null>(null);
@@ -38,19 +42,21 @@ export const useAccountStore = defineStore('account', () => {
   const dir = ref('');
   const totalErrors = ref(0);
   const scraping = ref(false);
+  const libraryRevision = ref(0);
   const assetPathCache = ref(new Map<string, string>());
   const loadedMatchIds = ref(new Set<string>());
   const accountLabels = ref(new Map<string, string>());
+  let scrapeInflight: Promise<LoadResult> | null = null;
   // Result of `aclos_status` (read-only probe of the ACLOS WonderfulDb
   // directory). `null` until the GUI has finished its first-run probe.
   // The GUI uses this to decide between the normal 3-pane shell and the
   // first-run / onboarding screen.
   const aclosStatus = ref<AclosStatus | null>(null);
 
-  // Highlight browser: never list WonderfulDb shells with zero matches
-  // (backend also filters; this is a display safety net for older library.db).
+  // Hide only clean, empty WonderfulDb shells. Parse failures remain visible
+  // so the user has a recovery path instead of a misleading empty library.
   const realAccounts = computed(() =>
-    accounts.value.filter((a) => (a.matchCount ?? 0) > 0),
+    accounts.value.filter(isVisibleAccount),
   );
 
   function assignAccountLabels() {
@@ -63,10 +69,11 @@ export const useAccountStore = defineStore('account', () => {
 
   const accountsForRender = computed(() => {
     if (realAccounts.value.length === 0) return [];
-    return [
-      { openid: ALL_ACCOUNTS, path: '', matchCount: matches.value.length },
-      ...realAccounts.value,
-    ] as Account[];
+    const visible = [...realAccounts.value];
+    if (matches.value.length > 0) {
+      visible.unshift({ openid: ALL_ACCOUNTS, path: '', matchCount: matches.value.length });
+    }
+    return visible as Account[];
   });
 
   const accountOrder = computed(() => realAccounts.value.map(a => a.openid));
@@ -91,50 +98,72 @@ export const useAccountStore = defineStore('account', () => {
     dir.value = shell.dir;
     totalErrors.value = shell.totalErrors;
     assignAccountLabels();
+    libraryRevision.value += 1;
   }
 
-  async function probeAclos(dirOverride?: string): Promise<AclosStatus> {
-    const status = await invoke<AclosStatus>('aclos_status', dirOverride ? { dir: dirOverride } : undefined);
+  async function probeAclos(): Promise<AclosStatus> {
+    const status = await invoke<AclosStatus>('aclos_status');
     aclosStatus.value = status;
     return status;
   }
 
-  async function loadLibrary(): Promise<void> {
-    const data = await invoke<LoadResult>('load_library');
+  function applyLibrary(data: LoadResult): void {
     accounts.value = data.accounts;
     matches.value = data.matches;
     // If the selected account disappeared (e.g. purged empty shell), fall back.
     if (
       selectedAccountId.value &&
       selectedAccountId.value !== ALL_ACCOUNTS &&
-      !data.accounts.some((a) => a.openid === selectedAccountId.value && (a.matchCount ?? 0) > 0)
+      !data.accounts.some((a) => a.openid === selectedAccountId.value && isVisibleAccount(a))
     ) {
-      selectedAccountId.value = data.accounts.some((a) => (a.matchCount ?? 0) > 0)
+      const visible = data.accounts.filter(isVisibleAccount);
+      selectedAccountId.value = data.matches.length > 0
         ? ALL_ACCOUNTS
-        : null;
+        : (visible[0]?.openid ?? null);
     }
     dir.value = data.dir;
     totalErrors.value = data.totalErrors;
     assignAccountLabels();
+    libraryRevision.value += 1;
   }
 
-  async function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
+  async function loadLibrary(): Promise<void> {
+    applyLibrary(await invoke<LoadResult>('load_library'));
+  }
+
+  /**
+   * Reload only if no newer store result was applied while the native read was
+   * in flight. Used by the startup timeout follow-up so a late background
+   * completion cannot overwrite a manual scan that the user already saw.
+   */
+  async function loadLibraryIfCurrent(expectedRevision: number): Promise<boolean> {
+    if (libraryRevision.value !== expectedRevision) return false;
+    const data = await invoke<LoadResult>('load_library');
+    if (libraryRevision.value !== expectedRevision) return false;
+    applyLibrary(data);
+    return true;
+  }
+
+  function scrapeLibrary(mode: 'incremental' | 'full' = 'incremental'): Promise<LoadResult> {
+    if (scrapeInflight) return scrapeInflight;
+
     scraping.value = true;
-    try {
+    const operation = (async () => {
       const fresh = await invoke<LoadResult>('scrape_library', {
-        trigger: mode === 'full' ? 'full_manual' : 'manual',
         mode,
       });
-      accounts.value = fresh.accounts;
-      matches.value = fresh.matches;
-      dir.value = fresh.dir;
-      totalErrors.value = fresh.totalErrors;
+      applyLibrary(fresh);
       loadedMatchIds.value.clear();
-      assignAccountLabels();
       return fresh;
-    } finally {
-      scraping.value = false;
-    }
+    })();
+    const request = operation.finally(() => {
+      if (scrapeInflight === request) {
+        scrapeInflight = null;
+        scraping.value = false;
+      }
+    });
+    scrapeInflight = request;
+    return request;
   }
 
   async function cacheAssets(): Promise<void> {
@@ -155,12 +184,22 @@ export const useAccountStore = defineStore('account', () => {
 
   async function saveAccountOrder(order: string[]): Promise<void> {
     const prev = [...accounts.value];
+    const requestRevision = libraryRevision.value;
+    const ordered = applyAccountOrder(accounts.value, order);
+    const persistedOrder = ordered.map(account => account.openid);
+    accounts.value = ordered;
     try {
-      const ordered = applyAccountOrder(accounts.value, order);
-      accounts.value = ordered;
-      await invoke('save_account_order', { openids: order });
+      await invoke('save_account_order', { openids: persistedOrder });
+      if (libraryRevision.value !== requestRevision) {
+        // A scan/load replaced the collection while SQLite was saving. Merge
+        // the confirmed preference into that newer collection and append any
+        // newly discovered accounts instead of restoring an old snapshot.
+        accounts.value = applyAccountOrder(accounts.value, persistedOrder);
+      }
     } catch (e) {
-      accounts.value = prev;
+      // Roll back only the optimistic array this request actually changed.
+      // A newer library result owns the store once the revision advances.
+      if (libraryRevision.value === requestRevision) accounts.value = prev;
       throw e;
     }
   }
@@ -168,27 +207,31 @@ export const useAccountStore = defineStore('account', () => {
   async function renameAccount(openid: string, customName: string | null): Promise<void> {
     const account = accounts.value.find(a => a.openid === openid);
     if (!account) return;
+    const requestRevision = libraryRevision.value;
+    const normalizedName = customName?.trim() || null;
     const prev = account.customName;
-    account.customName = customName || undefined;
+    account.customName = normalizedName ?? undefined;
     try {
-      await invoke('rename_account', { openid, customName: customName || null });
+      await invoke('rename_account', { openid, customName: normalizedName });
+      if (libraryRevision.value !== requestRevision) {
+        const current = accounts.value.find(item => item.openid === openid);
+        if (current) current.customName = normalizedName ?? undefined;
+      }
       assignAccountLabels();
     } catch (e) {
-      account.customName = prev;
+      if (libraryRevision.value === requestRevision) {
+        account.customName = prev;
+        assignAccountLabels();
+      }
       throw e;
     }
   }
 
-  function applyAccountOrder(list: Account[], order: string[]): Account[] {
-    const byId = new Map(list.map(a => [a.openid, a]));
-    return order.map(id => byId.get(id)).filter((a): a is Account => !!a);
-  }
-
   return {
-    accounts, selectedAccountId, matches, dir, totalErrors, scraping,
+    accounts, selectedAccountId, matches, dir, totalErrors, scraping, libraryRevision,
     assetPathCache, loadedMatchIds, aclosStatus,
     realAccounts, accountsForRender, accountLabels, accountOrder, matchAchievements,
-    scanShell, loadLibrary, scrapeLibrary, cacheAssets, probeAclos,
+    scanShell, loadLibrary, loadLibraryIfCurrent, scrapeLibrary, cacheAssets, probeAclos,
     selectAccount, saveAccountOrder, renameAccount,
   };
 });

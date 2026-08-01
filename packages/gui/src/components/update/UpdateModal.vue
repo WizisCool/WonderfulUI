@@ -11,17 +11,21 @@
 // - 不在打开时 programmatically focus 主按钮：WebView2 会把 .focus() 画成
 //   *:focus-visible 红框（「键盘选择器」假象）。Tab 进入仍走 :focus-visible。
 
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import WIcon from '../common/WIcon.vue';
 import { useUpdateStore } from '../../stores/update.ts';
 import { APP_VERSION } from '../../utils/version.ts';
 import { clientLog } from '../../utils/client-log.ts';
+import { ownsTopModalLayer } from '../../utils/modal-layer.ts';
+import { useDialogFocus } from '../../utils/dialog-focus.ts';
 
 const SCOPE = 'update-modal';
 
 const update = useUpdateStore();
+const updateDialogRef = ref<HTMLElement | null>(null);
 
 const isOpen = computed(() => update.modalOpen);
+const { onDialogTab } = useDialogFocus(updateDialogRef, () => isOpen.value, 'update');
 
 const isCloseable = computed(
   () => update.status === 'available' || update.status === 'error',
@@ -38,6 +42,9 @@ function fmtMB(bytes: number): string {
 
 const downloadedMB = computed(() => fmtMB(update.progress.downloaded));
 const totalMB = computed(() => fmtMB(update.progress.total));
+const downloadProgressText = computed(() => hasKnownTotal.value
+  ? `${pctInt.value}%，已下载 ${downloadedMB.value} / ${totalMB.value} MB`
+  : `已下载 ${downloadedMB.value} MB`);
 
 const showNetworkHint = computed(
   () =>
@@ -48,6 +55,7 @@ const showNetworkHint = computed(
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return;
   if (!update.modalOpen) return;
+  if (!ownsTopModalLayer('update')) return;
   if (!isCloseable.value) {
     e.preventDefault();
     e.stopPropagation();
@@ -82,10 +90,13 @@ onUnmounted(() => {
     <Transition name="update-modal">
       <div v-if="isOpen" class="update-modal-backdrop" @click.self="onBackdrop">
         <section
+          ref="updateDialogRef"
           class="update-modal-card"
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-modal-title"
+          tabindex="-1"
+          @keydown.tab="onDialogTab"
         >
           <button
             v-if="isCloseable"
@@ -148,7 +159,15 @@ onUnmounted(() => {
               <h2 id="update-modal-title" class="update-modal-title">正在下载</h2>
               <span v-if="hasKnownTotal" class="update-modal-pct">{{ pctInt }}%</span>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="下载更新"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="hasKnownTotal ? pctInt : undefined"
+              :aria-valuetext="downloadProgressText"
+            >
               <div
                 v-if="hasKnownTotal"
                 class="update-modal-progress-fill"
@@ -187,7 +206,12 @@ onUnmounted(() => {
             <header class="update-modal-head">
               <h2 id="update-modal-title" class="update-modal-title">正在安装</h2>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="正在安装更新"
+              aria-valuetext="正在安装"
+            >
               <div class="update-modal-progress-shimmer" aria-hidden="true" />
             </div>
             <div class="update-modal-hint">安装完成后将自动重启</div>
@@ -236,7 +260,12 @@ onUnmounted(() => {
             <header class="update-modal-head">
               <h2 id="update-modal-title" class="update-modal-title">正在检查更新</h2>
             </header>
-            <div class="update-modal-progress">
+            <div
+              class="update-modal-progress"
+              role="progressbar"
+              aria-label="正在检查更新"
+              aria-valuetext="正在检查"
+            >
               <div class="update-modal-progress-shimmer" aria-hidden="true" />
             </div>
             <footer class="update-modal-foot update-modal-foot--center">
@@ -282,6 +311,7 @@ onUnmounted(() => {
   gap: 14px;
   box-sizing: border-box;
   overflow: hidden;
+  outline: none;
   animation: update-modal-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: 50% 48%;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
