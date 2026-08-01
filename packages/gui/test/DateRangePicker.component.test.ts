@@ -50,6 +50,27 @@ describe('DateRangePicker trigger', () => {
     wrapper.unmount();
   });
 
+  test('rerenders a completed range after choosing the start of an upper-only range', async () => {
+    const upper = new Date(2025, 1, 15).getTime();
+    const selectedStart = new Date(2025, 1, 10).getTime();
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [null, upper] },
+    });
+
+    await wrapper.get('.dr-trigger').trigger('click');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    (document.querySelector(`.dr-day[data-time="${selectedStart}"]`) as HTMLButtonElement).click();
+
+    const rangeStart = document.querySelector(`.dr-day[data-time="${selectedStart}"]`) as HTMLButtonElement;
+    const rangeEnd = document.querySelector(`.dr-day[data-time="${upper}"]`) as HTMLButtonElement;
+    expect(rangeStart.classList.contains('is-range-start')).toBe(true);
+    expect(rangeEnd.classList.contains('is-range-end')).toBe(true);
+    expect(rangeStart.tabIndex).toBe(0);
+    expect(document.activeElement).toBe(rangeStart);
+    wrapper.unmount();
+  });
+
   test('clears without opening the date dialog', async () => {
     const wrapper = mount(DateRangePicker, {
       props: { modelValue: [1_719_000_000_000, 1_719_086_399_999] },
@@ -126,6 +147,27 @@ describe('DateRangePicker trigger', () => {
     const afterArrow = new Date(Number((document.activeElement as HTMLElement).dataset.time));
     beforeArrow.setDate(beforeArrow.getDate() + 1);
     expect(afterArrow.getTime()).toBe(beforeArrow.getTime());
+    wrapper.unmount();
+  });
+
+  test('clamps toolbar month navigation and keeps one live calendar day', async () => {
+    const january31 = new Date(2025, 0, 31).getTime();
+    const wrapper = mount(DateRangePicker, {
+      attachTo: document.body,
+      props: { modelValue: [january31, january31] },
+    });
+
+    await wrapper.find('.dr-trigger').trigger('click');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    (document.querySelector('[aria-label="下一月"]') as HTMLButtonElement).click();
+
+    expect(document.querySelector('.dr-nav-label')?.textContent).toContain('2025年');
+    expect(document.querySelector('.dr-nav-label')?.textContent).toContain('2月');
+    const liveDays = document.querySelectorAll<HTMLButtonElement>('.dr-day[tabindex="0"]');
+    expect(liveDays).toHaveLength(1);
+    expect(new Date(Number(liveDays[0]?.dataset.time)).getMonth()).toBe(1);
+    expect(new Date(Number(liveDays[0]?.dataset.time)).getDate()).toBe(28);
+    expect(document.activeElement).toBe(liveDays[0]);
     wrapper.unmount();
   });
 

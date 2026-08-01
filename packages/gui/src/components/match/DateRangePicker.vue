@@ -342,18 +342,16 @@ function render() {
   popover.appendChild(header);
 
   prevBtn.addEventListener('click', () => {
-    const d = new Date(viewDate.value);
-    d.setMonth(d.getMonth() - 1);
-    viewDate.value = d;
+    focusedDay = shiftMonthClamped(focusedDay, -1);
+    viewDate.value = new Date(focusedDay);
     render();
-    focusAfterRender('[aria-label="上一月"]');
+    focusCalendarDay(focusedDay);
   });
   nextBtn.addEventListener('click', () => {
-    const d = new Date(viewDate.value);
-    d.setMonth(d.getMonth() + 1);
-    viewDate.value = d;
+    focusedDay = shiftMonthClamped(focusedDay, 1);
+    viewDate.value = new Date(focusedDay);
     render();
-    focusAfterRender('[aria-label="下一月"]');
+    focusCalendarDay(focusedDay);
   });
   prevBtn.appendChild(createNavIcon('left', 14));
   nextBtn.appendChild(createNavIcon('right', 14));
@@ -408,6 +406,7 @@ function render() {
           draftRange = d <= existingEnd
             ? { start: d, end: existingEnd }
             : { start: existingEnd, end: d };
+          render();
         } else if (!draftRange.start || (draftRange.start && draftRange.end)) {
           draftRange = { start: d, end: null };
           render();
