@@ -145,7 +145,7 @@ mod windows {
             }
             NET_FW_MODIFY_STATE_OK => {}
             other => {
-                log_detail(format!("unexpected firewall modify state: {other}"));
+                log_detail(format!("unexpected firewall modify state: {other:?}"));
                 return Err(ipc_error(ShareErrorCode::FirewallAuthorizationFailed));
             }
         }
