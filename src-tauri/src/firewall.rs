@@ -49,24 +49,26 @@ mod windows {
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
 
-    use windows::core::{BSTR, PCWSTR};
-    use windows::Win32::Foundation::{
+    use ::windows::core::{BSTR, PCWSTR};
+    use ::windows::Win32::Foundation::{
         CloseHandle, GetLastError, ERROR_CANCELLED, VARIANT_BOOL, VARIANT_FALSE, VARIANT_TRUE,
         WAIT_FAILED, WAIT_OBJECT_0,
     };
-    use windows::Win32::NetworkManagement::WindowsFirewall::{
+    use ::windows::Win32::NetworkManagement::WindowsFirewall::{
         INetFwPolicy2, INetFwRule, NetFwPolicy2, NetFwRule, NET_FW_ACTION_ALLOW,
         NET_FW_IP_PROTOCOL_TCP, NET_FW_MODIFY_STATE_GP_OVERRIDE,
         NET_FW_MODIFY_STATE_INBOUND_BLOCKED, NET_FW_MODIFY_STATE_OK, NET_FW_PROFILE2_DOMAIN,
         NET_FW_PROFILE2_PRIVATE, NET_FW_PROFILE2_PUBLIC, NET_FW_RULE_DIR_IN,
     };
-    use windows::Win32::System::Com::{
+    use ::windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
         COINIT_APARTMENTTHREADED,
     };
-    use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
-    use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+    use ::windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
+    use ::windows::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
     use crate::share_policy::{
         firewall_rule_matches, ipc_error, FirewallRuleSnapshot, ShareErrorCode,
@@ -219,7 +221,7 @@ mod windows {
         Ok(PathBuf::from(value))
     }
 
-    fn firewall_policy() -> windows::core::Result<INetFwPolicy2> {
+    fn firewall_policy() -> ::windows::core::Result<INetFwPolicy2> {
         unsafe { CoCreateInstance(&NetFwPolicy2, None, CLSCTX_INPROC_SERVER) }
     }
 
