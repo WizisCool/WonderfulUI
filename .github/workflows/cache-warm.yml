@@ -23,6 +23,7 @@ on:
       - ".bun-version"
       - ".github/workflows/cache-warm.yml"
       - ".github/workflows/release.yml"
+      - ".github/actions/setup-rust-cache-toolchain/**"
   workflow_dispatch:
 
 concurrency:
@@ -39,9 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
+      - uses: ./.github/actions/setup-rust-cache-toolchain
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -57,9 +56,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # The target path is relative to src-tauri; Tauri writes to root target/.
-          workspaces: src-tauri -> ../target
-          prefix-key: v1-rust
+          # Cargo workspace, Cargo.lock, and target/ all live at the repo root.
+          workspaces: . -> target
+          prefix-key: v2-rust
           shared-key: wui-release
           cache-all-crates: true
           cache-on-failure: true
@@ -82,17 +81,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
+      - uses: ./.github/actions/setup-rust-cache-toolchain
 
       # Keep this in a separate job from the release cache. rust-cache saves and
       # cleans targets in post steps, so two cache actions sharing one target in
       # one job would let the first post step consume artifacts needed by the next.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> ../target
-          prefix-key: v1-rust
+          workspaces: . -> target
+          prefix-key: v2-rust
           shared-key: wui-debug-lib
           cache-all-crates: true
           cache-on-failure: true
