@@ -23,7 +23,7 @@ export function friendlyShareError(
   phase: 'start' | 'stop' = 'start',
 ): string {
   const raw = error instanceof Error ? error.message : String(error ?? '');
-  const code = raw.split('|', 1)[0];
+  const code = raw.split('|', 1)[0] ?? '';
   if (phase === 'start' && START_MESSAGES[code]) return START_MESSAGES[code];
   return phase === 'stop' ? FRIENDLY_SHARE_STOP_ERROR : FRIENDLY_SHARE_START_ERROR;
 }

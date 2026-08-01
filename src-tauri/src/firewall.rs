@@ -5,6 +5,8 @@
 //! helper mode, launched with `runas`; no renderer-controlled command, path,
 //! port, or shell text crosses the elevation boundary.
 
+#![allow(dead_code)]
+
 use crate::share_policy::FIREWALL_HELPER_ARGUMENT;
 
 pub fn helper_args_are_exact(args: &[String]) -> bool {

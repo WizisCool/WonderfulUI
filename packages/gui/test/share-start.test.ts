@@ -53,7 +53,7 @@ describe('share start guards', () => {
       ['WUI_SHARE_FIREWALL_POLICY_MANAGED', 'Windows 防火墙规则受组织策略管理，请联系管理员。'],
       ['WUI_SHARE_FIREWALL_INBOUND_BLOCKED', '当前 Windows 入站策略禁止连接，请允许局域网入站后重试。'],
       ['WUI_SHARE_FIREWALL_AUTHORIZATION_CANCELLED', '需要允许 Windows 管理员授权才能开启快传。'],
-      ['WUI_SHARE_FIREWALL_AUTHORIZATION_FAILED', 'Windows 防火墙授权失败，请稍后重试。'],
+      ['WUI_SHARE_FIREWALL_AUTHORIZATION_FAILED', 'Windows 防火墙授权失败，请稍后重试或联系管理员。'],
       ['WUI_SHARE_START_CANCELLED', '快传启动已取消。'],
       ['WUI_SHARE_SERVER_START_FAILED', '快传服务启动失败，请重试'],
     ] as const) {

@@ -1,5 +1,7 @@
 //! Shared policy constants and stable IPC error codes for Quick Share.
 
+#![allow(dead_code)]
+
 /// Quick Share deliberately uses one documented TCP port so the Windows
 /// firewall rule can be narrow enough to be useful without opening every port
 /// owned by the application.
