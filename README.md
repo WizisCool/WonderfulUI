@@ -5,16 +5,16 @@
   <p>把散落在本机的高光整理起来，随时查找和回看。</p>
   <p>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=%E7%89%88%E6%9C%AC" alt="Release">
+      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=Version" alt="Latest release">
     </a>
-    <a href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/WizisCool/WonderfulUI?style=flat&label=%E8%AE%B8%E5%8F%AF" alt="License">
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat" alt="License: GPL-3.0-or-later">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/badge/Windows-x64-blue?style=flat&label=%E5%B9%B3%E5%8F%B0" alt="Platform">
+      <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D4?style=flat" alt="Platform: Windows x64">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/stargazers">
-      <img src="https://img.shields.io/github/stars/WizisCool/WonderfulUI?style=flat&label=Stars" alt="Stars">
+      <img src="https://img.shields.io/github/stars/WizisCool/WonderfulUI?style=flat&label=Stars" alt="GitHub stars">
     </a>
   </p>
 </div>
@@ -115,7 +115,7 @@ bun run build
 
 ## 许可与声明
 
-WonderfulUI 使用 [GNU GPL-3.0](LICENSE) 发布。
+WonderfulUI 使用 [GNU General Public License v3.0 or later](LICENSE)（`GPL-3.0-or-later`）发布。
 
 本项目与 Riot Games、腾讯、ACLOS、WeGame 或无畏契约官方没有隶属关系。游戏名称、
 标识和相关内容归各自权利人所有。
