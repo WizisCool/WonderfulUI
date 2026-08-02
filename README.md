@@ -5,13 +5,13 @@
   <p>把散落在本机的高光整理起来，随时查找和回看。</p>
   <p>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=版本" alt="Release">
+      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=%E7%89%88%E6%9C%AC" alt="Release">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/WizisCool/WonderfulUI?style=flat&label=许可" alt="License">
+      <img src="https://img.shields.io/github/license/WizisCool/WonderfulUI?style=flat&label=%E8%AE%B8%E5%8F%AF" alt="License">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/badge/Windows-x64-blue?style=flat&label=平台" alt="Platform">
+      <img src="https://img.shields.io/badge/Windows-x64-blue?style=flat&label=%E5%B9%B3%E5%8F%B0" alt="Platform">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/stargazers">
       <img src="https://img.shields.io/github/stars/WizisCool/WonderfulUI?style=flat&label=Stars" alt="Stars">
