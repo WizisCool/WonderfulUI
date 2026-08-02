@@ -1,396 +1,123 @@
-# Agent Workflow
+# Agent 工作流
 
-Last organized: 2026-06-22.
+本文档是 `AGENTS.md` 的展开说明。它描述 Agent 如何安全地检查、修改、验证和交付
+WonderfulUI；产品定义、架构和 ACLOS 字段应分别回到其唯一事实源。
 
-This document is the operating manual for agents maintaining WonderfulUI.
-`AGENTS.md` is still the short high-priority entry point; use this file when
-you need the full workflow for feature work, bug fixes, refactors, and
-releases. WonderfulUI is maintained primarily as a personal open-source
-project, so the default workflow optimizes for local iteration instead of
-mandatory branches, PRs, and CI waits.
+## 1. 开始前
 
-## Ground Rules
-
-Every change must preserve the project safety boundary:
-
-- Do not modify game, Riot, Vanguard, or anti-cheat files.
-- Do not start, inject into, or attach to Valorant, Riot Client, ACE, or
-  Vanguard processes.
-- Treat ACLOS `WonderfulDb` and `snapshot<openid>` files as read-only source
-  data.
-- Keep production paths portable; do not commit user-specific absolute paths.
-- **Do not hard-code machine-local identity or paths as “fixes”.** Real openids,
-  nicks, tags, match ids, or `D:\`/`Z:\` paths that only exist on the current
-  developer PC must not appear in production code as special cases. Ship
-  generic parsers and fallbacks only. Optional fixture openids in tests that
-  skip when missing are fine; `if (thisAccount) showThisName` is not.
-  See `CLAUDE.md` § No Machine-Local Hardcoding.
-
-Work from the current worktree, not memory. Start each task with:
+每项任务先执行：
 
 ```bash
 git status --short --branch
+git fetch origin
 ```
 
-If the worktree is dirty, identify which changes are already present and do
-not revert them unless the user explicitly asks.
+如果工作区有未提交内容，先识别归属。不要 reset、stash、覆盖或删除不属于本任务的
+改动；无法安全避开时停在工作区冲突处。
 
-## Choose The Right Context
+如果任务需要独立审阅流，从最新 `origin/main` 创建 `dev/<description>` 分支；如果
+目标分支已存在，使用安全后缀，绝不覆盖或强推。除非用户明确要求，不要向远程 push、
+不要创建 PR、不要触发发布。
 
-Read the smallest context set that matches the task.
+## 2. 读取正确上下文
 
-| Task type | Required context |
+| 任务 | 事实源 |
 |---|---|
-| Parser behavior, ACLOS fields, event semantics | `AGENTS.md`, `docs/ACLOS_FORMAT.md` |
-| Tauri commands, SQLite library, build workflow | `AGENTS.md`, `docs/ARCHITECTURE.md` |
-| GUI layout, DOM refresh, icons, CSS, player, tooltips | `AGENTS.md`, `docs/FRONTEND_CONVENTIONS.md`, `DESIGN.md` |
-| Product wording or user-facing behavior | `AGENTS.md`, `PRODUCT.md`, `DESIGN.md` |
-| Version bump or release | `AGENTS.md`, `VERSIONING.md`, this file |
-| External contribution, PR, or GitHub release hygiene | `AGENTS.md`, `CONTRIBUTING.md`, this file |
+| 产品定位、用户文案 | `README.md`, `PRODUCT.md`, `DESIGN.md` |
+| ACLOS 解密、snapshot、事件 | `docs/ACLOS_FORMAT.md` |
+| Rust/Tauri/SQLite/IPC/构建 | `docs/ARCHITECTURE.md` |
+| Vue、DOM、播放器、筛选和可访问性 | `docs/FRONTEND_CONVENTIONS.md` |
+| 更新器、签名、NSIS、latest.json | `docs/UPDATER.md`, `VERSIONING.md` |
+| 用户恢复路径 | `docs/TROUBLESHOOTING.md` |
+| 提交、PR、发布边界 | `CONTRIBUTING.md`, 本文档 |
 
-If a fact is durable and likely to matter to future edits, update the matching
-doc in the same change.
+改动前用代码、配置和 workflow 验证文档中的版本、路径、脚本和行为。历史计划、日期审查
+报告、个人机器数据都不是当前实现的事实源。
 
-## Standard Change Loop
+## 3. 共同安全边界
 
-Use this loop for new features, bug fixes, UI polish, and refactors:
+- ACLOS `WonderfulDb`、`snapshot<openid>` 和身份缓存只读；不读取、写入或删除 Riot、
+  Valorant、WeGame 或 Vanguard 安装文件。
+- 不启动、注入或附加到游戏、Riot Client、ACLOS、ACE 或 Vanguard 进程。
+- 不提交真实 openid、昵称、标签、绝对路径、日志、视频、令牌或用户截图。
+- 不通过硬编码一台机器的样本来修复解析器或 UI；应使用通用格式规则和安全 fallback。
+- 文档整理不应扩展到业务逻辑、IPC、数据库、依赖、CSS、构建配置或工作流。现有源码
+  只允许无行为影响的用户文案、文档链接和注释修正。
 
-```text
-1. Inspect -> verify: read status, relevant docs, nearby code, existing tests
-2. Reproduce or specify -> verify: failing test, visible symptom, or concrete acceptance criteria
-3. Implement surgically -> verify: changed lines map to the request
-4. Run checks -> verify: smallest relevant set first, broader checks before release-impacting work
-5. Review diff -> verify: no generated files, unrelated cleanup, secrets,
-   user-specific absolute paths, or hard-coded openid/nick/tag “fixes” for
-   one machine
-6. Commit or hand off -> verify: local checks are recorded, optional remote checks only when useful
-```
+## 4. 标准修改循环
 
-Prefer fixing the root cause over patching symptoms. If the bug involves
-parser or event timing behavior, add or update tests before changing the
-implementation.
+1. **检查**：读取 status、目标文件、引用、附近代码和现有测试。
+2. **定义**：写出可验证的用户结果和非目标；对文档任务先确认当前实现。
+3. **小步修改**：一次只处理一个问题域，保持路径和结构克制。
+4. **验证**：先运行最小检查，再运行会被改动表面实际影响的完整检查。
+5. **自审**：以新用户和贡献者视角各读一遍；检查死链、旧路径、平台夸大、敏感数据和
+   未实现承诺。
+6. **交付**：显式暂存路径，按问题域创建独立提交；只有用户要求时才 push/PR。
 
-## Feature Work
+移动或删除文档后，必须全仓库搜索旧路径、旧标题和源码注释引用。若耐久事实只存在
+于历史计划中，先迁入当前唯一事实源再删除历史过程资料。
 
-For a new feature:
+## 5. 验证矩阵
 
-1. Confirm the user-facing behavior and non-goals.
-2. Identify the owning layer:
-   - parser model / reader
-   - SQLite library / scraper
-   - Tauri command
-   - GUI state/rendering
-   - release/documentation
-3. Add the smallest test that proves the new behavior.
-4. Implement through existing boundaries. Do not bypass SQLite library loading
-   by parsing WonderfulDb directly in command handlers or GUI code.
-5. Update docs if the feature changes architecture, GUI conventions, release
-   behavior, or ACLOS facts.
-
-Useful checks:
+### Markdown-only
 
 ```bash
-bun run typecheck
-bun run test
-cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+git diff --check
 ```
 
-`bun run typecheck` runs `vue-tsc --noEmit`, not plain `tsc`. It checks both
-standalone TypeScript and Vue SFC scripts/templates; do not replace it with a
-TS-only command that silently skips `.vue` bindings and ARIA prop types.
+另行检查所有 Markdown 相对链接，以及新增/删除路径在仓库内的引用。
 
-Use `bun run build` only when the feature affects Tauri config, bundling,
-release behavior, or runtime integration.
-
-## Bug Fixes
-
-For a bug:
-
-1. Read the exact error or reproduce the UI/runtime symptom.
-2. Trace where the bad value or behavior enters the system.
-3. Compare with a nearby working path.
-4. Add a regression test when the behavior is testable.
-5. Fix one root cause at a time.
-6. Re-run the failing command first, then the relevant wider checks.
-
-Do not infer K/D, event visibility, or playback timing from filtered event
-counts. The state machine and `m.stats.*` rules in `AGENTS.md` are the source
-of truth.
-
-## Refactors And File Splits
-
-Refactor only when it reduces real complexity or is needed for the requested
-change.
-
-Good low-risk splits:
-
-- Pulling a self-contained GUI Vue component out of an existing one.
-- Moving shared DOM or formatting helpers into a focused module.
-- Isolating tests around an existing behavior before changing it.
-
-Avoid:
-
-- Moving parser schema files without an ACLOS-version reason.
-- Rebuilding the stable DOM skeleton in `App.vue`.
-- Broad CSS rewrites while fixing a narrow UI issue.
-- Removing dead code you did not make unless it is part of a verified warning
-  or requested cleanup.
-
-After a refactor, run at least:
-
-```bash
-bun run typecheck
-bun run test
-```
-
-Run Rust tests too when Rust or IPC-facing shapes changed.
-
-## Git Workflow
-
-`main` is the normal working branch for trusted maintainer work. For this
-mostly solo project, do not create a topic branch, PR, or CI dependency unless
-the user asks for one, an external contributor is involved, or the change is
-large enough that review isolation is genuinely useful.
-
-### Agents: commit vs push (hard default)
-
-| Action | Default |
-|---|---|
-| Edit / verify locally | Allowed when implementing the request |
-| `git commit` | Only when the user asks to commit, or a release step clearly requires a local commit |
-| `git push` to `main` or any remote | **Forbidden unless the user explicitly asks to push / publish / 推送** |
-| `git push origin v*` (tags) | Same: only with explicit publish intent |
-| Force-push / amend published commits | Never unless the user explicitly requests that risk |
-
-- Phrases like "提交", "做好", "按规范 commit" mean **local commit only**.
-- Do **not** treat release preparation, version bumps, or CI optimization as
-  implied permission to push. After local commits, report `git status` and the
-  exact push commands; let the user run them or say "push".
-- `scripts/version-bump.ts` auto-pushes `main` + the new tag. Agents must **not**
-  run it unless the user explicitly wants a full remote release bump. Prefer
-  manual version file edits + local commit/tag when only local release prep is
-  requested.
-
-Default maintainer loop (human or agent with explicit push permission):
-
-1. Work from the current branch after checking `git status --short --branch`.
-2. Keep each change small and locally verified.
-3. Commit when the user asks for a commit or when a release step requires it.
-4. **Push only when the user explicitly asks**, after local checks pass.
-
-Use branches and PRs only for external contributions, risky experiments, or
-when the user explicitly wants a GitHub review flow. In those cases, prefer a
-short-lived branch such as `codex/<description>` for agent work and use the PR
-template as a reminder, not as a mandatory gate for solo changes.
-
-`.github/workflows/ci.yml` is now a manual safety net named `Manual Check`.
-It does not run on PRs or pushes. Trigger it from GitHub Actions only when you
-want a remote Windows confirmation or a full build without blocking normal
-development.
+### Vue 或用户可见文案
 
 ```bash
 bun install --frozen-lockfile
 bun run typecheck
-bun run test
+bun run test:all
+bun run assets:check
+bun run --cwd packages/gui build
+```
+
+如果只改了文案/注释，仍然不要把这些命令的结果描述成 Windows 真机验证。浏览器 mock、
+Vite 构建和单测只证明对应的本地/浏览器表面。
+
+### Rust/IPC 或发布相关
+
+```bash
 cargo test --manifest-path src-tauri/Cargo.toml --lib
-```
-
-The manual workflow has a `full-build` option for running `bun run build`.
-Release tags still run the full release workflow independently.
-
-If a manual check fails, inspect the failing step logs before changing code.
-Fix the root cause locally, then rerun only if remote confirmation is still
-useful.
-
-### Release build speed (caching)
-
-GitHub Actions caches are **branch-scoped**. Only caches created on the
-default branch (`main`) can be restored by tag Release runs. A
-`Swatinem/rust-cache` step that only runs on `v*` tags therefore never warms
-the next release (the repo can show **0 caches** forever).
-
-| Workflow | Role |
-|---|---|
-| `cache-warm.yml` | On `main` pushes that touch Rust/GUI/lockfiles (or manual dispatch), runs separate release/debug jobs: Vite + `cargo build --release` warms `wui-release`, while `cargo test --lib` warms `wui-debug-lib`. |
-| `release.yml` | Tag builds restore those caches through the shared cache-stable Rust setup action. Bun install cache, debug `cargo test --lib`, then one release `tauri build` (no second release-profile test compile). |
-| `ci.yml` | Manual Check; same cache keys when useful. |
-
-Do **not** reintroduce `cargo test --release` before `tauri build` on the
-Release job — it nearly doubles compile time on Windows. Pin Bun via
-root `.bun-version` (used by all three workflows).
-
-## Release Workflow
-
-Releases are produced by GitHub Actions from tags. Do not upload local builds
-as the official release artifacts.
-
-### Normal Release
-
-1. Start from a clean `main` worktree unless the user wants a release branch.
-2. Pick the semver bump from `VERSIONING.md`.
-3. Run the version script:
-
-```bash
-bun run version:patch
-# or
-bun run version:minor
-# or
-bun run version:major
-```
-
-The script reads `src-tauri/tauri.conf.json`, updates version files, commits
-`chore(release): vX.Y.Z`, and creates tag `vX.Y.Z`. It stages the whole
-worktree, so use it only when the worktree contains exactly the intended
-release changes.
-
-4. Run the relevant local checks. For release-impacting changes, prefer:
-
-```bash
-bun run typecheck
-bun run test
-cargo test --release --manifest-path src-tauri/Cargo.toml --lib
+bun run scripts/check-versions.ts
 bun run build
 ```
 
-5. **Only if the user asked to publish:** push `main` if the release commit is
-   not already remote, then push the tag:
+`cargo`/Tauri/NSIS/Firewall/UAC/Media Foundation 的完整证据需要 Windows。macOS 不能
+编译或运行 Windows NSIS smoke test。
+
+## 6. 提交与 PR
+
+显式暂存本次路径，暂存前后都审阅：
 
 ```bash
-git push origin main
-git push origin vX.Y.Z
+git diff --stat
+git diff
+git add <explicit paths>
+git diff --cached --stat
+git diff --cached
+git commit -m "docs: describe the change"
 ```
 
-Without an explicit push/publish request, stop after the local commit/tag and
-print the commands above for the user.
+对于文档整理，2–4 个按问题域拆分的提交通常足够，例如产品叙事、贡献者上下文、历史
+资料清理和纯 GUI 文案。不要每个文件一个提交，也不要把无关改动混进来。
 
-`.github/workflows/release.yml` runs **three jobs**:
+若用户要求 Draft PR，先确认工作区干净、分支已 push，再以 `main` 为 base 创建 Draft PR。
+PR 描述应包括：产品定位、文档分层、保留/重写/删除决策、网络与隐私边界、验证命令、
+Windows 未验证范围、3–6 个需要维护者重点审阅的决策，以及仓库外 About/Topics/social
+preview 建议（只建议，不擅自修改仓库设置）。
 
-| Job | Role |
-|-----|------|
-| `validate` | `check-versions` + typecheck + bun test + `cargo test --lib` (debug) |
-| `build` | signed `bun run build` (release profile + NSIS); uploads `target/release/bundle/` |
-| `publish` | needs both; writes `latest.json` and creates the GitHub Release |
+## 7. 发布与版本
 
-`check-versions` binds a tag-triggered run to the canonical Tauri version
-(`GITHUB_REF_NAME` must equal `v<version>`). Both parallel jobs run the gate,
-and the publish job repeats it before composing download URLs, so an
-accidentally misnamed tag cannot build a signed installer or publish a
-`latest.json` that points at a different release.
+不要在普通任务中运行 `bun run version:*`。这些脚本会更新版本文件、提交、创建 tag 并
+push `main`/tag。正式发布由 `v*` tag 触发 `release.yml`，当前产物只有签名 Windows x64
+NSIS 安装程序和 `latest.json`。
 
-`validate` and `build` run **in parallel** so wall clock is dominated by the
-Tauri release build (~8 min warm), not build + cargo test in series
-(~2.5 min extra). Observed v0.1.8 sequential total was ~13 min; expected wall
-after the split is ~10–11 min on a warm runner (setup/caches still shared per job).
-
-Caches (must stay aligned with `cache-warm.yml` on `main`):
-
-- Bun: `${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}`
-- Rust release: Swatinem `shared-key: wui-release` (build job)
-- Rust debug tests: `shared-key: wui-debug-lib` (validate job)
-- Rust workspace mapping: `. -> target`; both the Cargo workspace/lockfile and
-  Tauri build artifacts live at the repository root.
-- Rust cache prefix: `v2-rust`; bump it whenever cache layout semantics change,
-  because an existing GitHub cache key cannot be overwritten in place.
-- Rust setup: use `.github/actions/setup-rust-cache-toolchain`. `rust-cache`
-  hashes every installed rustup toolchain, so the action removes the hosted
-  runner's moving preinstalled toolchain and leaves only `rust-toolchain.toml`'s
-  pinned version before calculating the cache key.
-- Keep release and debug warming in separate jobs. `rust-cache` saves and
-  cleans target artifacts in post steps; stacking both keys around one target
-  in a single job makes the first post step consume artifacts for the second.
-
-A PR can still be used for a release if the user wants a review checkpoint, but
-it is not the default maintainer path.
-
-### Manual 0.1.0-Style Release
-
-Use this when the version files are already correct and only the tag is
-missing:
-
-```bash
-git checkout main
-git pull --ff-only
-git status --short --branch
-git tag -a vX.Y.Z -m "WonderfulUI X.Y.Z"
-git push origin vX.Y.Z
-```
-
-Then watch the release workflow:
-
-```bash
-gh run list --workflow Release --limit 5
-gh run watch <run-id> --interval 10 --exit-status
-gh release view vX.Y.Z --json tagName,isDraft,isPrerelease,url,assets
-```
-
-A completed release must have:
-
-- release workflow conclusion `success`
-- a non-draft, non-prerelease GitHub Release unless intentionally marked
-  otherwise
-- `WonderfulUI_*_x64-setup.exe`
-- `WonderfulUI_*_x64-setup.exe.sig` (updater signature)
-- `latest.json` downloadable from
-  `https://github.com/WizisCool/WonderfulUI/releases/latest/download/latest.json`
-
-Before tagging, fill `versions.json` → `releases.vX.Y.Z.notes` (or set
-`WUI_RELEASE_NOTES` when running `version-bump`) so the in-app updater shows
-real release notes. Empty notes fall back to git log subjects, then a generic
-title.
-
-## Local Verification Matrix
-
-Choose the smallest set while iterating, but run the full relevant set before
-tagging a release or pushing a risky maintainer change.
-
-| Change | Minimum verification |
-|---|---|
-| Docs only | `git diff --check`, review links in diff |
-| GUI TypeScript/CSS | `bun run typecheck`, `bun run test` |
-| Parser TypeScript | `bun test packages/parser`, `bun run typecheck` |
-| Rust parser/library/Tauri commands | `cargo check --workspace --all-features --locked`, then `cargo test --manifest-path src-tauri/Cargo.toml --lib` |
-| IPC shape shared by Rust and GUI | `bun run typecheck`, `bun run test`, Rust lib tests |
-| Tauri config, packaging, release workflow | full CI command set plus `bun run build` |
-
-`bun run build` produces local Windows bundles under:
-
-```text
-target/release/bundle/
-```
-
-Local bundles are useful for validation. Official release assets come from
-GitHub Actions.
-
-`rust-toolchain.toml` pins Rust 1.88.0, which is also the package MSRV. Keep the
-pin, `src-tauri/Cargo.toml` `rust-version`, and README prerequisite aligned.
-The locked dependency graph currently requires 1.88; do not lower the claim or
-raise the pin without running the all-feature locked check on that exact
-toolchain.
-
-> **NSIS template note.** The Windows installer is built from
-> `src-tauri/installer.nsi` (a fork of the upstream
-> `tauri-apps/tauri` tauri-bundler template). The sidecar files
-> `src-tauri/utils.nsh` and `src-tauri/FileAssociation.nsh` must
-> be kept alongside the template — the template `!include`s them by
-> bare name and `makensis` will fail if they are missing.
-> NSIS compile errors (macro misuse, page-order mistakes,
-> `LangString` parsing) only surface during the full Windows
-> `bun run build` step, so a local Windows smoke build is
-> mandatory before tagging. macOS / Linux cannot compile NSIS.
-
-## Documentation Maintenance
-
-Keep documentation layered:
-
-- `AGENTS.md`: short rules, safety boundaries, current architecture, and links.
-- `docs/ACLOS_FORMAT.md`: parser facts and ACLOS data semantics.
-- `docs/ARCHITECTURE.md`: runtime, IPC, SQLite, build, and scaling facts.
-- `docs/FRONTEND_CONVENTIONS.md`: GUI rendering, CSS, icons, player, tooltips.
-- `docs/AGENT_WORKFLOW.md`: how agents should execute, verify, use optional
-  PRs, and release.
-- `CONTRIBUTING.md`: contributor-facing short version of maintainer,
-  contributor, test, and release expectations.
-- `VERSIONING.md`: semver and version-file rules.
-
-If a new workflow becomes standard, update this file and link to the exact
-workflow or command that proves it.
+`.github/workflows/ci.yml` 名为 `Manual Check`，只在手动 dispatch 时运行；PR/push 不会
+自动触发它。`cache-warm.yml` 为 `main` 上的发布和测试缓存预热，不要把缓存细节复制进
+产品文档。

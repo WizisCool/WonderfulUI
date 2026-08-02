@@ -1,7 +1,5 @@
 # Frontend Conventions
 
-Last organized: 2026-07-30.
-
 This document holds GUI implementation conventions that are too detailed for `AGENTS.md`. Follow `DESIGN.md` and `PRODUCT.md` first for product and visual intent.
 
 ## Rendering Model
@@ -572,7 +570,7 @@ Progress bar:
   responsive layout is settling.
 - `lastBufferedPct` must be a `ref`; a plain `let` is invisible to Vue's reactivity and the buffered bar will never update.
 - Event marker container uses `.closest('.player-event-marker, .player-event-markers.is-canvas')` check in `onMouseDown` instead of `@mousedown.stop`. Adding `@mousedown.stop` on the container breaks track-seeking in canvas mode because `.is-canvas` has `pointer-events: auto`.
-- `CANVAS_MARKER_THRESHOLD = Infinity` (permanently disables canvas mode; see AGENTS.md for rationale).
+- `CANVAS_MARKER_THRESHOLD = Infinity` (current implementation keeps marker rendering in the DOM).
 
 Controls click propagation:
 
@@ -688,8 +686,8 @@ Progress-bar markers:
 - **DOM-only rendering**: `CANVAS_MARKER_THRESHOLD = Infinity` so markers always
   use DOM-based rendering (`.player-event-marker` divs with pseudo-elements).
   Canvas code (`renderCanvasMarkers`) is retained for future use if the threshold
-  is lowered, but is unreachable in normal operation. See AGENTS.md for the
-  historical rationale.
+  is lowered, but is unreachable in normal operation. Any threshold change must
+  update the marker tests and this document together.
 - The event list dedupes across videos for the user's per-match view, but the
   progress bar is scoped to the currently playing video. It keeps accepted
   moment-video events visible even when the list's best playable duplicate is
@@ -713,11 +711,9 @@ The list modal **stays open** behind the player (player z-index 1200 >
 list 1100). When the player closes, the list re-appears in its original
 state — the user can click another row to watch a different event.
 
-The single-event detail modal that used to live at
-`packages/gui/src/event-modal.ts` was removed (2026-06-19). All event
-metadata is now visible inline in the list modal rows: type chip, player
-name, weapon (via `weaponNameOnly`), headshot / assist badges. No nested
-detail modal — the row is the unit of detail.
+Event metadata is visible inline in the list modal rows: type chip, player
+name, weapon (via `weaponNameOnly`), headshot and assist badges. There is no
+nested detail modal; the row is the unit of detail.
 
 ## Weapons Module
 

@@ -1,5 +1,5 @@
 // DEV-only update UI simulator. Production / CI release builds: no-op.
-// See docs/UPDATER.md and docs/superpowers/specs/2026-07-17-update-ui-dev-simulator-design.md
+// See docs/UPDATER.md for the current updater contract.
 
 import type { UpdateErrorKind, useUpdateStore } from '../stores/update.ts';
 

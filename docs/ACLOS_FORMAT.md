@@ -1,354 +1,135 @@
-# ACLOS Data Format Notes
+# ACLOS 数据格式说明
 
-Last organized: 2026-06-22.
+本文档记录解析器和 GUI 需要长期维护的 ACLOS/WonderfulDb 事实。它是技术参考，不是
+普通用户的产品介绍。
 
-This document holds ACLOS/WonderfulDb facts that are useful for parser and GUI work.
+## 只读边界
 
-## Safety Boundary
+- `WonderfulDb` 和 `snapshot<openid>` 是 ACLOS 的本地缓存输入；解析器只读，不写入、
+  重命名、截断或删除它们。
+- 不要读取、修改或删除 Riot、WeGame、Valorant、Vanguard 或游戏安装文件来“修复”解析。
+- ACLOS 写入期间可能出现不完整文件；遇到解析失败应保留错误并允许用户稍后重试，不能
+  用破坏源文件的方式恢复。
 
-- `WonderfulDb` is treated as a read-only local cache. The project reads it only when ACLOS is not actively writing it.
-- Parser code must not call `fs.writeFile`, `truncate`, `rename`, or any syscall that intentionally changes `WonderfulDb` metadata.
-- Do not modify ACLOS, Riot, WeGame, VALORANT, Vanguard, or game install files while researching this format.
+## 输入位置和账户枚举
 
-## Locked Scope
+GUI 后端只从用户 profile 推导 ACLOS 默认目录：
 
-- Parser target: `%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb\`.
-- Highlight file: `WonderfulDb\<account_id>`.
-- Snapshot file: `WonderfulDb\snapshot<account_id>`.
-- Account enumeration accepts only regular files whose entire basename is a
-  non-empty ASCII-decimal openid. The first-run probe and scraper share this
-  predicate; directories and unrelated sibling files are ignored.
-- Locked ACLOS version: `2.15.3.449`.
-- Schema file: `packages/parser/src/schema/_acl-source/eventDefine.js` (also `packages/parser/src/model.ts` for the parsed subset).
-- Out of scope for this iteration: `WeGameWonderfulDb`, IndexedDB, `blob_storage`, and video export.
-- Future ACLOS schemas should add a new `schema/vX_Y_Z.ts`; do not rewrite the locked schema in place.
+```text
+%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb
+```
 
-The snapshot file is optional. Missing, empty, corrupt, or undecryptable snapshots must never block highlight loading.
+`HOME` 是非 Windows 测试环境的回退。GUI 当前没有自定义目录选择器；CLI 的 `scan`、
+`show` 和 `scan-all` 可以接收显式路径，便于开发和测试。
 
-## Portability Contract
+目录中的账户主文件是没有扩展名、basename 为非空 ASCII 十进制 openid 的普通文件。
+目录、符号链接、隐藏说明文件和其它非数字文件不能成为账户。相邻的
+`snapshot<openid>` 是可选输入，缺失、为空、损坏或无法解密都不能阻塞高光列表。
 
-Production code must not hard-code user-specific paths **or per-machine identity**.
+与具体用户机器有关的路径、openid、昵称、标签和视频位置不属于格式契约，不能写进
+产品逻辑、文档示例或测试特判。
 
-- Default `WonderfulDb` directory is derived from `process.env.USERPROFILE ?? process.env.HOME`.
-- CLI `scan` and `show` accept an explicit `<path-to-db>` argument.
-- GUI lets the user choose a directory and remembers the last choice per user, not globally.
-- ACLOS is Windows-only, so this app targets Windows.
-- Non-default ACLOS layouts require the user to choose the directory manually.
-- Video paths are stored by ACLOS inside the JSON. The app displays and opens them as-is; it does not rewrite `Z:\...` or local paths.
-- Do **not** commit openid → nick maps, special cases for one PC’s accounts, or
-  absolute media roots as product logic. Nickname resolution must stay format-
-  driven (snapshot fields, generic ACLOS cache/log heuristics, user rename).
+## 编码和解密
 
-## Known Local Paths
+已观察到的 ACLOS 数据（包括 2.15.3.449 时代的格式）具有以下形态；版本号是兼容性
+观察，不是用户必须安装的 WonderfulUI 版本要求：
 
-These are based on the default ACLOS installation.
+1. 文件正文是 `0-9`/`a-f` 的 ASCII 十六进制文本；
+2. 十六进制解码后得到 AES-256-CBC 密文，使用 PKCS#7 padding；
+3. key/IV 由 account openid 的 SHA-256 十六进制结果派生，具体实现见
+   `src-tauri/src/parser/crypto.rs` 和 `packages/parser/src/crypto.ts`；
+4. 主文件明文包含 `key_wonderful_list_<openid>`，值是对局数组；
+5. snapshot 明文包含 `key_snapshot_list<openid>`，字段子集见 parser model。
 
-| Purpose | Path pattern |
-|---|---|
-| Video / cover media | `Z:\无畏时刻\wonderfulVideos<account_id>\<highlight_id>\*.mp4` / `*.jpeg` |
-| Main metadata DB | `%AppData%\Roaming\ACLOS\WonderfulDb\<account_id>` |
-| WeGame mirror DB | `%AppData%\Roaming\ACLOS\WeGameWonderfulDb\<account_id>` |
-| ACLOS install | `<ACLOS install dir>\ACLOS\` |
-| asar package | `<ACLOS install dir>\ACLOS\Launcher\resources\app.asar` |
-| ACLOS debug log | `%AppData%\Roaming\ACLOS\logs\highlight.log` |
+Rust parser 是 GUI 的运行时实现；TypeScript parser 仍用于 CLI 和 Bun 测试。两者应
+保持相同的字段语义和错误处理，不要让 Tauri command handler 直接绕过 parser 读取源文件。
 
-Known account IDs below are **optional local fixtures** for developer machines
-that happen to have those WonderfulDb files (tests skip if absent). They are
-**not** product constants and must not be special-cased in release code:
+## 昵称、标签和成就
 
-- `4807045517549591240`
-- `14121192131852595386`
-- `13794749312275947089`
-- `1228584785010313960` - legacy, video folder removed
+账户显示名优先来自 ACLOS 身份缓存和 `snapshot<openid>` 的 `ss_nick`/`ss_nick_id`，
+再回退到日志/原始 ID 的通用解析，最后才显示 openid 或匿名占位。优先选择带最新
+`matches_time`（没有时用 `ss_time`）的记录，避免旧昵称覆盖新昵称。
 
-## Format Findings
+MVP/SVP 来自 snapshot 的 `ss_type === "match"` 记录：
 
-- `WonderfulDb` files are ASCII hex text using only `0-9` and `a-f`.
-- The parser hex-decodes the file before decrypting and parsing the inner payload.
-- A 10,002,688 character file becomes 5,001,344 bytes after hex decode.
-- Highlight and snapshot files use the same AES-256-CBC scheme with the account openid as part of key derivation.
-- ACLOS is Electron + Node. `highlight.log` mostly contains `ignore 645 EventID` noise; useful messages often appear under `wonderful-log` / `send cross msg` JSON.
-- `C:\ProgramData\Riot Games\Metadata\valorant.live\valorant.live.db` is unrelated to highlights.
+- `ss_achieve_type` 为 `mvp` 或 `svp`；
+- `ss_type_str` 是显示标签；
+- `matches_id` 用于连接对局。
 
-## Snapshot Nicknames
+snapshot 是可选且有历史缺口的数据源。不能把缺失成就解释成没有成就，也不能把它用于
+账户统计、胜率、排序、导出或跨对局聚合；UI 只允许在资料存在时显示并筛选。
 
-Player display names come **primarily** from `snapshot<openid>`, not from the wonderful-list file.
+## 展示字段和离线资源
 
-- Top-level snapshot key shape: `key_snapshot_list<openid>`.
-- Useful fields:
-  - `snapshot.ss_nick` - display name.
-  - `snapshot.ss_nick_id` - tag / number.
-- Nick/tag selection: prefer the record with the latest `matches_time` (fallback `ss_time`) that carries those fields — not first-wins — so renames surface correctly.
-- Display format: `Nick#Tag` when both exist, otherwise `Nick`.
-- If no nickname metadata is available after snapshot + fallback, GUI uses `未知账户#N`, where `N` is the 1-based rank among nameless accounts in the current scan.
-- The raw openid remains available in account-row tooltip text.
+已知地图、英雄和模式通过生成的本地 registry 解析名称和图片，避免相同实体受单条
+ACLOS 记录影响而出现不同标签。未知实体可以显示 ACLOS 的通用 fallback，但不能为单个
+账户或样本添加分支。
 
-Both TS and Rust snapshot parsers should return empty nickname metadata on corrupt hex, decrypt, or JSON errors.
+- 资源 registry：`packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts`；
+- 统一解析：`packages/gui/src/utils/valorant-assets.ts`；
+- 维护来源：`packages/gui/assets/valorant-source/`；
+- 构建输出：忽略版本控制的 `packages/gui/public/valorant/` WebP。
 
-### Account nick / #tag resolution (Rust GUI scraper)
+`bun run update:valorant-metadata` 是维护者显式运行的联网更新命令；
+`bun run assets:build` 和 `bun run assets:check` 使用已提交来源在本地构建和校验。应用
+运行时不应依赖图片 CDN；未知 HTTP(S)、协议相对和外部 SVG 资源应退化为文字/占位。
 
-`library/aclos_identity.rs` resolves display names **before** falling back to
-`未知账户#N`. Paths are under `%APPDATA%\ACLOS\` only (read-only; never
-Riot/Vanguard/game installs).
+用户可见字段优先级：
 
-| Priority | Source | How |
+- 英雄：canonical agent id/name → `career.hero_name` → raw agent name；
+- 地图：canonical map id → `career.map_name`/raw map name → path segment；
+- 模式：`career.game_mode` 和本地 registry；
+- 统计：击杀、助攻、死亡、比分来自 `stats.*`；
+- 对局时间：`gameStartTime`/`gameEndTime`。
+
+不要把 raw `map_id`、`agent_id`、`stats.mode_name` 或 `career.battle_id` 直接当成用户标签。
+
+## 视频语义
+
+- `video_type` 为 `击杀集锦` 或 `死亡集锦` 时是 montage；其它类型是 moment，例如
+  三杀、四杀、五杀或其它时刻。
+- 不要按数组位置或时长猜视频类型；ACLOS 可以调整顺序和时长。
+- 清晰度 chip 使用 `video_level`；`video_resolution` 可能含换行或回车，应在显示前规范化。
+- Rust `VideoItem.video_is_processing` 必须序列化为 WebView 需要的 `video_isProcessing`。
+
+## 对局、片段和事件
+
+视频事件位于 `videos[].rounds[].round_clips[].clip_events[]`：
+
+- `round_sTime`、`clip_sTime`、`event_sTime` 和 duration 都是毫秒；
+- `event_type` 是 `kill` 或 `death`；
+- `event_ext` 可能包含 `EventName`、玩家名、`AgentName`、`EventTime`、武器和本地玩家标记。
+
+事件时间必须按视频类型使用共享状态机：
+
+| 视频 | 可见类型 | 视频时间 |
 |---|---|---|
-| 1 (primary) | Chromium **Local Storage LevelDB** | Opened with pure-Rust `rusty-leveldb` (if LOCK held, copy dir to temp and open). Keys: `ACLOS_USER_ROLES_INFO` (JSON array of current roles on `app://aclos.val.qq.com`), `acloshighlight_user_<openid>` (often under `https://val.qq.com`). Values: `0x01`+UTF-8 JSON and/or `0x00`+UTF-16LE JSON. |
-| 2 | `snapshot<openid>` | `ss_nick` / `ss_nick_id` (latest `matches_time`); **required second source** — LevelDB does **not** cover every WonderfulDb openid. Also **only** source for MVP/SVP. |
-| 3 | Logs / raw IDB files | Text harvest; logs often use **masked** openids matched by prefix+suffix |
+| `击杀集锦` | `kill` | `event_sTime` |
+| `死亡集锦` | `death` | `event_sTime` |
+| 其它 moment | `kill` | `clip_sTime + event_sTime` |
 
-**Why snapshot cannot be removed as nick source:** LevelDB only stores roles ACLOS has written into Local Storage (current login + highlight user cache). WonderfulDb may list additional openid shells (empty or snapshot-only) with no `acloshighlight_user_*` row. Deleting snapshot nick merge would regress those accounts to openid / `未知账户#N`. MVP/SVP have no LevelDB equivalent.
+可见事件还必须具备 `EventName=Shot`、可解析且落在对局时间窗口内的 `EventTime`、玩家
+名、AgentName、本地玩家标记、受击部位和落在视频时长内的 seek 时间。缺少证据、互相矛盾
+或跨对局 Agent 不匹配的行应隔离，不创建列表行、统计数或进度条标记。
 
-Rules:
+ACLOS 的 `KillerIsMe` 在高光视频中可能把队友事件也标成 1，因此事件数量不是本场 K/D。
+K/D 必须使用 `m.stats.*`；事件列表只展示通过状态机的可播放事件。共享状态机由
+`packages/gui/src/utils/event-state-machine.ts` 与 `src-tauri/src/library/events.rs`
+共同维护，UI 负责跨视频去重，parser 仍应忠实返回源数据。
 
-1. LevelDB wins over snapshot for nick/tag when both exist.
-2. Placeholder nick `我` is ignored.
-3. MVP/SVP still come **only** from snapshot (and snapshot file parse must remain).
-4. No hard-coded openid→nick maps. No live `api.val.qq.com`.
-5. If LevelDB + snapshot + logs all miss, UI shows openid / `未知账户#N`.
+## 本地索引和 IPC
 
-## Display Field Semantics
+WonderfulUI 将完整 `matches.raw_json` 保留为可回放的权威源，同时把规范化事件写入
+SQLite `events` 以便快速读取和未来扩展。批量 `scan_all`/`load_library` 会去掉 rounds，
+打开单场详情时通过 `get_match_rounds` 按需读取完整数据。
 
-Known Valorant entities use one generated, offline registry so old ACLOS
-records cannot make the same map/agent change label or image URL:
+本地视频相关 command 只能接受 SQLite `videos.path` 中登记、扩展名受支持、当前仍是普通
+文件且不是符号链接的路径。播放、资源管理器定位、截图和快传共用这条后端校验；不要用
+前端字符串检查替代它。
 
-- Hero name: canonical `agent.agent_id` UUID / `agent.agent_name` lookup, then unknown-only `career.hero_name`, then `agent.agent_name`.
-- Map name: canonical `map.map_id` lookup, then unknown-only `career.map_name` / `map.map_name`, then the last path segment.
-- Game mode: `career.game_mode`, fallback empty string.
-- Hero avatar / map cover / mode icon: **only** via `packages/gui/src/utils/valorant-assets.ts`.
-  - URL: `resolveMatchAssetUrl(match, kind)` (canonical identity → bundled `/valorant/...` path).
-  - UI `<img src>`: `resolveMatchAssetSrc(match, kind, assetPathCache, convertFileSrc)`.
-  - Unknown network-capable image values are ignored, including HTTP(S), protocol-relative (`//host` / `/\\host`), and SVG data URLs; missing imagery degrades to the existing glyph/text fallback instead of going online. Only browser-verified same-origin root paths and self-contained raster data URLs are accepted for deterministic fixtures.
-- Canonical source: `packages/gui/src/utils/generated/valorant-metadata.zh-CN.ts` and the content-addressed PNGs in `packages/gui/assets/valorant-source/`, generated together by `bun run update:valorant-metadata` from the URLs recorded in the updater. Map covers use the 16:9 `splash` source, not `listViewIcon` banners.
-- `bun run assets:build` offline-compiles those sources to fixed-size WebP files in `packages/gui/public/valorant/`. Records with an identical source hash intentionally share one file.
-- `bun run assets:check` must verify source hashes/aspect ratios, registry parity, fixed runtime dimensions, byte limits, physical deduplication, and the copied `dist` tree.
-- Do not hard-code CDN URLs in components, hand-edit generated files, or add branches for one observed match/account.
-- Team rounds: `stats.rounds_won` / `stats.rounds_lost`.
-- Personal combat score: `stats.score`.
-- Match duration: `gameStartTime` / `gameEndTime`.
+## 维护规则
 
-Skirmish / Range / TDM matches often omit `career.*` entirely. The generated
-registry covers them by stable map URL. If ACLOS introduces an unknown entity,
-the raw field remains visible until the registry is refreshed; do not patch the
-single sample in production code.
-
-Do not use `agent.agent_id`, raw unmapped `map_id`, `stats.mode_name`, or `career.battle_id` as user-facing display labels.
-
-## Video Semantics
-
-- Montage videos are identified by `video_type` in `{ 击杀集锦, 死亡集锦 }`.
-- Every other `video_type` is treated as a moment, such as 三杀时刻, 四杀时刻, 五杀时刻, or 进阶剪辑.
-- Do not group videos by array position or duration; ACLOS can rotate order and duration thresholds drift.
-- Video card quality chip uses `video_level`, not `video_resolution`.
-- `video_resolution` can contain stray carriage returns, for example `"1440\rx1080\r"`.
-- Known `video_level` values: `1 = 720p`, `3 = 1080p`.
-- Rust `VideoItem.video_is_processing` must serialize to `video_isProcessing` for WebView IPC compatibility.
-
-## Research Notes
-
-- `app.asar` can contain minified or bytecode-like assets. Prefer targeted keyword search first; fall back to binary fingerprints only when needed.
-- ACLOS can hold `WonderfulDb` open while running. If a parser read looks torn or inconsistent, check whether ACLOS is still writing.
-
-## Rounds, Clips, and Events (observed 2026-06-19)
-
-Each video in ACLOS carries kill/death event data under `videos[i].rounds[]` (see
-`packages/parser/src/schema/_acl-source/eventDefine.js` for `VideoDetail` /
-`RoundItem` / `RoundClip` / `EventItem`).
-
-- **`RoundItem`**: `round_id` (number or string), `round_duration` (ms), `round_sTime` (ms offset in video), `round_clips[]`, `round_honors[]`.
-- **`RoundClip`**: `clip_id`, `clip_duration` (ms), `clip_sTime` (ms offset within round), `clip_events[]`.
-- **`EventItem`**: `event_id`, `event_sTime` (ms), `event_type` (`"kill"` | `"death"`), `event_ext` (JSON object).
-- **Honors** (`round_honors`): `honor_name`, `honor_time` — occasional MVP/SVP markers.
-
-### Event state and video timestamp model
-
-Observed ACLOS 2.15.3.449 data does **not** have one safe timestamp formula
-for every video type. The UI and SQLite event index use a shared state machine
-instead of ad-hoc timestamp math.
-
-| Visible state | Source video | Accepted event type | Video timestamp |
-|---------------|--------------|---------------------|-----------------|
-| `montage` | `击杀集锦` | `kill` | `event_sTime` |
-| `montage` | `死亡集锦` | `death` | `event_sTime` |
-| `moment` | other highlight types, e.g. 三杀时刻 | `kill` | `clip_sTime + event_sTime` |
-
-The old `max(round_sTime, clip_sTime) + event_sTime` rule double-counts
-observed montage rows. In local samples, `event_sTime` in montage videos is
-already video-absolute. In short moment videos, multi-clip rows use
-`clip_sTime + event_sTime`.
-
-Only accepted visible states can produce event-list rows or progress-bar
-markers. Shot-like rows with incomplete evidence are quarantined; unsupported
-or contradictory rows are rejected.
-
-### `event_ext` fields (observed)
-
-`event_ext` carries rich Valorant shot metadata. Key fields:
-
-- `EventName`: always `"Shot"` in observed data.
-- `EventTime`: ISO-like local wall-clock, e.g. `"2026-06-08 20:01:14.523"`.
-- `KillerPlayerName`, `KilledPlayerName`: display names.
-- `AgentName`: the local player's agent at the time.
-- `WeaponSkinName`: full weapon + skin class path, e.g. `LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C`.
-- `GetShotRolePart`: `0` = body, `1` = head, `2` = leg.
-- `KillerIsMe`, `KilledIsMe`: `1` / `0`.
-- `AssistNum`, `AssistInfos[]`: assist count and details.
-- `ShooterRoleID`, `KilledRoleID`, `AgentPosition`, `GetShotRolePosition`: spatial data.
-
-All `*_sTime` and `*_duration` fields use **milliseconds**.
-
-### ACLOS data quirks (observed)
-
-These are bugs/quirks in ACLOS's own data, not in the parser. The UI has to work around them.
-
-1. **Same real kill recorded under multiple highlight videos.** A single kill
-   (uniquely identified by `EventTime` + victim) can appear in both `击杀集锦`
-   and `三杀时刻` videos of the same match — the data is byte-for-byte
-   identical (same `KillerPlayerName`, `WeaponSkinName`, `BloodAfter`,
-   `GetShotRolePart`, etc.). The GUI's event list dedupes on
-   `(EventTime, victim)` for kills and `(EventTime, killer)` for deaths in
-   `normalizeMatchEvents`. When duplicates exist, the GUI keeps the most
-   playable occurrence. Kill rows prefer `击杀集锦` and death rows prefer
-   `死亡集锦`, because those sources match user expectations for the per-match
-   event list. If the matching montage candidate cannot be seeked within its
-   own video duration, the GUI falls back to another playable duplicate. The
-   parser itself does **not** dedupe — it faithfully returns what ACLOS wrote.
-   When the dedup identity name is missing, normalization must not collapse
-   all same-second rows together. It falls back to a composite key of type,
-   normalized names, primary video-time bucket, and weapon so distinct events
-   survive while cross-video duplicates still collapse.
-2. **All highlight-video events are flagged `KillerIsMe=1`** regardless of
-   whether the local player actually got the kill. A 击杀集锦 for a
-   14-kill match can carry 70+ "kills" with `KillerIsMe=1`, but only 14
-   truly belong to the local player. **Never** derive per-match K/D from
-   the event count — use `m.stats.*` (which ACLOS populates correctly).
-3. **Kill montages can stitch kills from multiple matches.** A single
-   `击杀集锦` may carry `event_ext.AgentName` switching between Jett /
-   Cypher / Breach within the same video — i.e. the highlight is
-   cross-match. The local player's actual `agent` for the match is on
-   `m.agent.agent_name`.
-4. **`AssistNum > 0` on a `KillerIsMe=1` kill** is normal: it means "I got
-   the killing blow with N other assists on the target". Not a duplicate
-   and not a "fake kill" — count it as a real kill.
-5. **Cross-match event filtering:** The visible-event state machine filters
-   cross-match events by comparing `event_ext.AgentName` (the local player's
-   agent at the event time) against `m.agent.agent_name` (the current match's
-   agent). Missing or mismatching agent evidence prevents UI exposure in both
-   the event list and progress-bar markers. This is a heuristic — if the same
-   agent was played across multiple matches, cross-match events with the same
-   agent name may not be caught.
-6. **Normalization is strict at the UI boundary:** `event_type` and
-   `AgentName` are trimmed / case-normalized before filtering. Visible rows
-   require `EventName=Shot`, parseable `EventTime` inside the match window,
-   player names, local-player flags, shot part, and a seekable timestamp.
-   Invalid or missing fields quarantine the row instead of surfacing a
-   confusing marker.
-
-### Visible event state machine
-
-The shared state machine lives in `packages/gui/src/utils/event-state-machine.ts`
-and is mirrored by `src-tauri/src/library/events.rs` for the SQLite event
-index.
-
-Visible rows require all of the following:
-
-- `event_type` normalizes to `kill` or `death`.
-- `event_ext` is an object and `EventName` is `Shot`.
-- `KillerPlayerName`, `KilledPlayerName`, `AgentName`, `EventTime`,
-  `KillerIsMe`, `KilledIsMe`, and `GetShotRolePart` are present.
-- `EventTime` parses as ACLOS local time and falls within the match window
-  with a 30 second tolerance.
-- `AgentName` matches `m.agent.agent_name` after trim/case normalization.
-- Kill rows have `KillerIsMe=1` and `KilledIsMe=0`; death rows have
-  `KilledIsMe=1` and `KillerIsMe=0`.
-- The timestamp model for the video type yields a value within
-  `video_duration`.
-
-Rows that look like Valorant shot events but lack required evidence are
-**quarantined**. They may be useful for future audits, but they must not
-create event-list rows, event counts, or progress-bar dots. Rows that are
-unsupported or contradictory are **rejected**.
-
-### Local SQLite event index
-
-The local library stores deduped normalized event rows in SQLite `events` during
-scrape. This index is derived data for faster lookup, migration, and future
-library features. The authoritative event source remains the full
-`matches.raw_json` payload, because it preserves the original ACLOS rounds,
-clips, video objects, and raw `event_ext`.
-
-### IPC size note
-
-`scan_all` strips `rounds` from every match before sending, so the initial
-payload stays at ~50 KB / account. The GUI invokes
-`get_match_rounds(openid, match_id)` on demand to fetch the full `rounds`
-tree for a single match when the user opens it. The frontend mutates the
-in-memory match in place (`v.rounds = fullV.rounds`) so subsequent
-re-renders of the same match use the loaded data without re-invoking.
-
-### Event playback seek behavior
-
-The event list keeps two times:
-
-- `timeMs` — the accepted state's exact video timestamp, used for
-  sorting/display and progress-bar dot placement.
-- `seekMs` — the timestamp used inside the selected video when opening the
-  player.
-
-For accepted events, `seekMs` equals `timeMs`. The player applies the
-2 second pre-roll separately through `playbackSeekMsForVideo`, clamped to
-zero. Rows whose timestamp cannot fit the video's duration are quarantined,
-so the UI does not show dots that jump to unrelated moments.
-
-### Weapon skin → Chinese name
-
-`packages/gui/src/utils/weapons.ts` exports `weaponNameOnly(path)` /
-`weaponLabel(path)` which strip the Unreal Engine class decoration
-(`…/LugerPistol_Ashen_PrimaryAsset.Default__LugerPistol_Ashen_PrimaryAsset_C`)
-and map the weapon code (`LugerPistol`, `RevolverPistol`, `AK`, `MP5`,
-`BoltActionSniper`, etc.) to its Chinese name (`鬼魅`, `正义`, `狂徒`,
-`骇灵`, `冥驹`, …). Weapon codes are resolved by longest known prefix, so
-multi-part codes like `AssaultRifle_ACR` (幻影) and `AssaultRifle_Burst`
-(獠犬) are not collapsed to the generic `AssaultRifle` fallback.
-
-Skin names come from the committed local Valorant-API dump at
-`packages/gui/src/utils/generated/valorant-skins.zh-CN.ts`, generated from
-`https://valorant-api.com/v1/weapons/skins?language=zh-CN` by
-`bun run update:skins`. The GUI must not fetch this API at runtime, so it
-stays usable in offline / poor-network environments. Unknown skin codes
-fall back to the cleaned English label. **Add new weapon codes to
-`WEAPON_CN`; refresh the dump for new or renamed skin names.**
-
-### Snapshot-derived achievement data (MVP/SVP badge)
-
-The `snapshot<openid>` file carries per-match achievement records under
-`ss_type === "match"` entries. The GUI consumes only two fields for a
-diagonal corner ribbon on the match cover:
-
-- `snapshot.ss_achieve_type` — `"mvp"` | `"svp"` | `""` (empty = skip)
-- `snapshot.ss_type_str` — Chinese display label, used as tooltip
-- `record.matches_id` — joins against `MatchRecord.matches_id`
-
-**Source stability**: Achievements are written by ACLOS automatically
-at end-of-match (not user-triggered). Early ACLOS builds (prior to the
-`2.15.3.449` deltas that introduced `match`-type snapshot records) do
-not populate this data — historical matches permanently lack it. The
-snapshot schema may also change with ACLOS upgrades; the parser fails
-silently (drops the account's achievement array) on any parse error.
-
-**Guardrails (project-wide, non-negotiable)**:
-
-1. **Silent when missing**: no fallback text, no "unknown" chip, no
-   placeholder. A missing entry is visually absent.
-2. **Never sort/aggregate/export** on snapshot-derived achievement
-   fields. Coverage is partial.
-3. **Filtering is allowed** via the "成就" category in the filter
-   rail (MVP / SVP), but the user must understand partial coverage.
-   Do not add snapshot fields to range or numeric filters.
-4. **Snapshot fields must never** be used for per-account statistics,
-   win-rate calculations, or any cross-match aggregation.
-
-**Coverage**: In observed fixtures, 2 of 3 active accounts (4807, 1412)
-have match-type achievement records. The third (1379) has an empty
-snapshot file (no achievements). The legacy 1228 account also has an
-empty snapshot file.
+- 新增 ACLOS 字段时先更新 parser model、TS/Rust 对齐测试和本文件；
+- 不把一次性本机观察、个人账户样本、性能快照或历史方案写入当前契约；
+- 对不确定的新字段使用安全 fallback，并保留原始数据供后续分析；
+- 任何涉及源文件写入、目录选择或外部网络的新能力都必须重新审查安全策略和产品边界。

@@ -41,9 +41,8 @@
   --w-semibold:   520;
   --w-bold:       630;
 
-  /* Type scale. 1px steps so the user font-size setting promised by
-     PRODUCT.md (14 → 18) can flip the whole scale by remapping --step-base
-     and its dependents. Until that UI lands, --step-N is used directly. */
+  /* Fixed type scale for the current desktop UI. Keep the tokens centralized;
+     there is no user font-size setting in the current product. */
   --step-base:    14px;
   --step-1:       10px;
   --step-2:       11px;

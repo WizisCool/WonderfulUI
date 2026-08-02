@@ -268,7 +268,7 @@
               @click="openExternal('https://choosealicense.com/licenses/gpl-3.0/')"
             >
               <WIcon icon="ph:scales" :size="14" />
-              <span>GPL-3.0</span>
+              <span>GPL-3.0-or-later</span>
             </button>
           </div>
           <div class="settings-about-update">

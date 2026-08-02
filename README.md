@@ -1,190 +1,121 @@
 <div align="center">
   <img src="packages/gui/src/assets/logo.svg" width="128" height="128" alt="WonderfulUI Logo">
   <h1>WonderfulUI</h1>
-  <p><strong>无畏时刻 · 离线高光集锦浏览器</strong></p>
+  <p>Windows 无畏契约个人高光资料库</p>
+  <p>把散落在本机的高光整理起来，随时查找和回看。</p>
   <p>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=版本" alt="Release">
+      <img src="https://img.shields.io/github/v/release/WizisCool/WonderfulUI?style=flat&label=Version" alt="Latest release">
     </a>
-    <a href="https://github.com/WizisCool/WonderfulUI/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/WizisCool/WonderfulUI?style=flat&label=许可" alt="License">
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat" alt="License: GPL-3.0-or-later">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/releases">
-      <img src="https://img.shields.io/badge/Windows-x64-blue?style=flat&label=平台" alt="Platform">
+      <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D4?style=flat" alt="Platform: Windows x64">
     </a>
     <a href="https://github.com/WizisCool/WonderfulUI/stargazers">
-      <img src="https://img.shields.io/github/stars/WizisCool/WonderfulUI?style=flat&label=Stars" alt="Stars">
+      <img src="https://img.shields.io/github/stars/WizisCool/WonderfulUI?style=flat&label=Stars" alt="GitHub stars">
     </a>
   </p>
-  <br>
 </div>
 
 ---
 
-WonderfulUI 是一个 **离线** 的 Valorant 无畏时刻高光集锦浏览器。它直接从 ACLOS 本地缓存中读取比赛与高光数据，提供快速的 SQLite 索引浏览、击杀/死亡事件时间轴标记、MVP/SVP 成就徽章，以及本地视频播放。**无需启动 Valorant、WeGame、Riot Client 或 Vanguard。**
+WonderfulUI 把已经生成在电脑里的无畏契约高光整理成一个本地资料库。你可以按账户和
+对局查找视频，直接播放、查看事件时间轴、截图，或把当前视频快传到同一局域网的设备。
+回看时不需要启动游戏或录制客户端。
 
-> ⚠️ 本项目仅以只读方式访问 ACLOS 本地缓存，不会修改任何游戏数据、不会启动游戏客户端、不会触发反作弊系统。
+## 能做什么
 
----
+- 整理多个本地账户，调整顺序并设置应用内显示名称。
+- 按搜索词、英雄、地图、模式、胜负、视频类型、MVP/SVP、日期、击杀和 KDA 筛选对局。
+- 在应用内播放视频，按击杀和死亡事件跳转，并支持预卷播放。
+- 截取当前画面，或生成临时二维码把视频传到同一局域网的设备。
+- 查看账户、对局和视频概览，按需增量刷新或全量重建本地索引。
 
-## 截图
+WonderfulUI 只整理和读取已有高光，不会修改 ACLOS 内容。目前也不提供高光删除或编辑、
+资料库导出或备份、自定义数据目录、便携版和云同步。
 
-<div align="center">
-  <i>（截图待补充）</i>
-</div>
+## 下载与首次使用
 
----
+从 [Releases](https://github.com/WizisCool/WonderfulUI/releases) 下载最新的 Windows x64
+NSIS 安装程序：
 
-## 功能亮点
+```text
+WonderfulUI_<version>_x64-setup.exe
+```
 
-- **🔍 本地索引** — 将 ACLOS 数据导入 SQLite，支持增量/全量扫描，秒级检索
-- **⏱️ 事件时间轴** — 击杀/死亡事件自动识别，进度条可视化标记，2 秒预卷播放
-- **🏅 成就徽章** — MVP/SVP 自动识别与筛选（基于 snapshot 数据）
-- **🎬 视频播放** — 内置播放器，直接播放本地高光视频
-- **📦 纯离线** — 特工、地图、模式图标随安装包提供，运行时无需访问境外 CDN，也不收集任何数据
-- **🌐 中文界面** — 完整中文语言支持，MiSans 字体
+目前没有 MSI 或解压即用版本。
 
----
+高光来自腾讯 ACLOS/“无畏时刻”。请先让它在本机生成过高光，WonderfulUI 会读取默认
+目录：
 
-## 下载与安装
+```text
+%USERPROFILE%\AppData\Roaming\ACLOS\WonderfulDb
+```
 
-从 [Releases](https://github.com/WizisCool/WonderfulUI/releases) 页面下载最新版本安装包：
+`WonderfulDb` 和可选的 `snapshot<openid>` 始终按只读数据处理。WonderfulUI 当前不能
+手动选择其他数据目录。没有发现高光、视频被移动或网络盘未挂载时，请查看
+[故障排查](docs/TROUBLESHOOTING.md)。
 
-| 文件 | 说明 |
-|---|---|
-| `WonderfulUI_*_x64-setup.exe` | Windows 安装程序 |
+## 网络和本地数据
 
-### 卸载行为
+- 高光索引、账户偏好和诊断日志保存在 `%LOCALAPPDATA%\wonderful-ui\`。
+- 当前代码没有遥测、账号同步或后台上传。
+- 正式版在主界面显示后通过 HTTPS 请求 GitHub Releases 的 `latest.json` 检查更新；
+  设置中的手动检查也会访问该地址。
+- 快传只在播放器中由用户主动开启。它会在本机临时监听 `22357/TCP`，用带令牌的
+  局域网地址提供当前视频下载。
+- 资料库浏览读取本地索引和随包资源；应用仍会在上述两种情况下使用网络。
 
-卸载向导默认会**保留**本地用户配置：
+## 从源码运行
 
-- **保留本地用户配置**（默认勾选）：保留高光索引库与界面偏好。
-- 取消勾选：卸载时一并删除 `library.db`（含 WAL / SHM）和 WebView2 用户数据（`%LOCALAPPDATA%\app.local.wonderfului\EBWebView`）。
+桌面端面向 Windows 10/11 x64。开发环境还需要：
 
-旧版本遗留的资源缓存（`assets\`）和日志（`logs\`）始终保留，不属于“用户配置”。当前版本的 Valorant 展示资源已随安装包提供，不会在运行时重新下载。
+- [Bun](https://bun.sh) 1.3.14，版本由 `.bun-version` 固定；
+- [Rust](https://rustup.rs) 1.88.0，版本由 `rust-toolchain.toml` 固定；
+- Tauri 2 所需的 Windows SDK 和 WebView2 环境。
 
-卸载器**不会**读取、修改或删除任何 ACLOS / Valorant / Riot / Vanguard 目录。
-
-### 快传与 Windows 防火墙
-
-快传固定监听 `22357/TCP`，二维码只对当前局域网地址有效。安装、覆盖安装和
-自动更新会幂等配置名为 `WonderfulUI Quick Share` 的 Windows 防火墙规则：仅放行
-已安装的 `wonderful-ui.exe`、TCP `22357` 和 `LocalSubnet`。快传结束不会删除规则，
-完整卸载才会清理它。
-
-如果旧版本升级后规则缺失、被删除或内容不正确，首次开启快传时可能出现一次
-Windows 管理员授权；允许后，后续使用不应重复弹窗。取消授权、端口被其他程序占用、
-组织策略禁止修改入站规则时，应用会显示具体原因。
-
-Windows Defender Firewall 规则不能绕过企业组策略、显式阻止规则、第三方防火墙或
-路由器 AP 隔离。手机仍无法访问时，请先确认手机与电脑在同一 Wi-Fi/VLAN，且网络
-未启用客户端隔离。
-
-### 系统要求
-
-- Windows 10 / 11（x64）
-- ACLOS 无畏时刻已安装且产生过高光数据
-- 无需 Valorant / Riot Client / Vanguard 运行
-
----
-
-## 自行构建
-
-### 前置依赖
-
-- [Bun](https://bun.sh) 1.1+
-- [Rust](https://rustup.rs) 1.88+（工作区固定使用 1.88.0，保证本地与 CI 构建可复现）
-- [Tauri 2.0+](https://v2.tauri.app) 构建工具链
-- Windows SDK（使用 Tauri 构建工具链安装）
-
-### 步骤
+安装依赖并运行检查：
 
 ```bash
-# 克隆仓库
 git clone https://github.com/WizisCool/WonderfulUI.git
 cd WonderfulUI
 
-# 安装前端依赖
-bun install
-
-# 从仓库内置原图生成离线资源并校验
-bun run assets:build
+bun install --frozen-lockfile
+bun run typecheck
+bun run test:all
 bun run assets:check
+```
 
-# 开发模式（热重载）
+只查看使用固定 mock 数据的前端界面：
+
+```bash
+bun run dev:browser
+```
+
+在 Windows 上运行桌面开发壳或构建 NSIS 安装程序：
+
+```bash
 bun run dev
-
-# 生产构建
 bun run build
 ```
 
-构建产物位于 `target/release/bundle/`。
+本地构建产物位于 `target/release/bundle/nsis/`。浏览器 mock、macOS 类型检查和 Vite
+构建不能替代 Windows WebView2、安装器或真实 ACLOS 数据验证。更多开发说明见
+[贡献指南](CONTRIBUTING.md)。
 
-地图、特工或模式更新时，由维护者运行 `bun run update:valorant-metadata`
-统一刷新元数据与经内容哈希去重的原始 PNG。普通开发和发布构建会在本地把
-地图 `splash`、特工头像和模式图标压缩为固定规格 WebP，整个过程不依赖境外接口；
-只有显式的更新命令需要联网。
+## 文档
 
----
+- [文档索引](docs/README.md)
+- [故障排查](docs/TROUBLESHOOTING.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
+- [贡献者公约](CODE_OF_CONDUCT.md)
 
-## 使用方法
+## 许可与声明
 
-1. 启动 WonderfulUI
-2. 点击 **扫描目录** 或直接使用系统默认的 ACLOS 路径
-3. 浏览账户列表，选择比赛查看详情
-4. 点击高光视频进行播放
-5. 点击进度条上的事件标记跳转到对应击杀/死亡时刻
+WonderfulUI 使用 [GNU General Public License v3.0 or later](LICENSE)（`GPL-3.0-or-later`）发布。
 
----
-
-## 技术栈
-
-| 层 | 技术 |
-|---|---|
-| 前端 | Vite + TypeScript + DOM API |
-| 后端 | Rust + Tauri 2 |
-| 存储 | SQLite（bundled via rusqlite） |
-| 解析器 | Rust（进程内）+ TypeScript（CLI/测试双实现） |
-| 包管理 | Bun |
-
----
-
-## 项目结构
-
-```
-WonderfulUI/
-├── packages/
-│   ├── gui/         前端（Vite + TS + DOM）
-│   └── parser/      ACLOS 格式解析器（TS）
-├── src-tauri/       Rust 后端（Tauri 2 shell）
-├── scripts/         工具脚本
-├── LICENSE          许可协议
-├── README.md        说明文档
-└── versions.json    版本清单
-```
-
----
-
-## 贡献
-
-欢迎参与贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-维护者和 agent 工作流（功能开发、bug 修复、重构、PR、CI、发布）见
-[docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md)。
-
-所有贡献者请遵循 [贡献者公约](CODE_OF_CONDUCT.md)。
-
----
-
-## 许可协议
-
-本项目以 **GNU General Public License v3.0** 许可发布。详见 [LICENSE](LICENSE)。
-
----
-
-## 致谢
-
-- **[ACLOS / Tencent 无畏时刻](https://www.wegame.com.cn/)** — 数据来源
-- **Riot Games** — Valorant 游戏内容
-- **[Tauri](https://v2.tauri.app)** — 桌面应用框架
-- 所有开源依赖的作者
+本项目与 Riot Games、腾讯、ACLOS、WeGame 或无畏契约官方没有隶属关系。游戏名称、
+标识和相关内容归各自权利人所有。
