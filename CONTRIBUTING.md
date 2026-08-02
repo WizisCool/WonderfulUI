@@ -1,58 +1,53 @@
 # 贡献指南
 
-感谢你愿意帮助改进 WonderfulUI。它是一个面向 Windows x64 无畏契约玩家的个人高光
-资料库，贡献应优先改善真实用户的整理、筛选、回看和问题恢复体验。
+欢迎参与 WonderfulUI。无论是修复 Bug、补测试，还是把一句难懂的提示改清楚，都可以
+提交 Pull Request。
 
-## 开发环境
+## 开始开发
 
-- Windows 10/11 x64：运行 Tauri、验证 WebView2、快传、防火墙和 NSIS 需要 Windows。
-- Bun 1.3.14：见根目录 `.bun-version`。
-- Rust 1.88.0：见 `rust-toolchain.toml`。
-- Tauri 2 所需的 Windows SDK、WebView2 和 Rust 工具链。
+完整的桌面运行和构建需要 Windows 10/11 x64、Bun 1.3.14、Rust 1.88.0，以及 Tauri 2
+所需的 Windows SDK 和 WebView2 环境。
 
-安装依赖：
+拉取代码后先安装依赖：
 
 ```bash
 bun install --frozen-lockfile
 ```
 
-`bun run dev:browser` 可以在普通浏览器中查看固定 mock 数据，适合检查 Vue 结构和
-样式；它不读取真实 ACLOS，也不能替代 Windows Tauri smoke test。
+只需要查看 Vue 界面时，可以用固定 mock 数据启动浏览器模式：
 
-## 修改边界
-
-- ACLOS `WonderfulDb`、`snapshot<openid>` 和身份缓存只读；不要修改游戏、Riot、WeGame、
-  Vanguard 或 ACLOS 文件。
-- 不要把真实 openid、昵称、完整用户路径、NAS 路径、日志、视频或二维码令牌提交到仓库。
-- 不要把应用说成完全不联网：正式版本会检查 GitHub Releases，用户主动快传时会启动
-  `22357/TCP` 的临时局域网 HTTP 服务。
-- 不要在未实现时承诺删除、编辑、导出、备份、手动选择目录、便携运行或云同步。
-- 如果只处理文档或用户文案，不要顺手修改业务逻辑、IPC、CSS、依赖、构建配置和工作流。
-
-## 分支、提交和 Pull Request
-
-外部贡献请从最新 `main` 创建短分支，例如：
-
-```text
-feat/filter-by-kda
-fix/share-firewall-message
-docs/clarify-first-run
+```bash
+bun run dev:browser
 ```
 
-提交信息使用 [Conventional Commits](https://www.conventionalcommits.org/)，例如：
+它不会读取真实 ACLOS 数据。在 Windows 上运行桌面开发壳或构建 NSIS 安装程序：
 
-```text
-feat(gui): add a performance filter
-fix(parser): handle an empty snapshot
-docs: clarify local data and network boundaries
+```bash
+bun run dev
+bun run build
 ```
 
-一个提交应围绕一个可以独立理解和回退的问题域。PR 描述请说明用户影响、验证命令、
-Windows 未验证边界，以及是否只有文案/注释变化。
+## 改动边界
 
-## 验证
+- ACLOS 的 `WonderfulDb`、`snapshot<openid>` 和身份缓存都是只读输入。不要修改 ACLOS、
+  游戏、Riot、WeGame 或 Vanguard 的文件。
+- 不要提交真实 openid、玩家昵称、用户绝对路径、NAS 目录、本地视频、完整日志或快传
+  令牌。
+- 正式版会检查 GitHub Releases；用户开启快传时会启动 `22357/TCP` 局域网服务。
+  文档和界面不能把应用写成完全不联网。
+- 不要承诺尚未实现的删除、编辑、导出、备份、自定义数据目录、便携运行或云同步。
+- 如果只改文档或界面文案，不要顺手改业务逻辑、IPC、CSS、依赖或构建配置。
+- 普通贡献不要运行 `bun run version:*`。这些命令会修改版本、提交、创建 tag 并推送。
 
-按改动范围选择命令；文档-only 改动不需要为了形式运行 Rust 构建。
+## 验证改动
+
+只改 Markdown 时，检查链接并运行：
+
+```bash
+git diff --check
+```
+
+改动 Vue 组件、样式或用户可见文案时运行：
 
 ```bash
 bun run typecheck
@@ -62,24 +57,30 @@ bun run --cwd packages/gui build
 git diff --check
 ```
 
-Rust/IPC 变化还需要：
+改动 Rust 或 IPC 时还要运行：
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-Windows 上的发布前验证还包括 `bun run build`，它生成 NSIS 安装器。GitHub Actions 的
-`.github/workflows/ci.yml` 是手动触发的 `Manual Check`，不会自动为每个 PR 或 push 运行。
+浏览器模式和 macOS 上的检查不能证明 Windows WebView2、NSIS 安装、防火墙/UAC 或
+真实 ACLOS 扫描可用。没有 Windows 环境时，在 PR 中把未验证项写清楚即可。
 
-## 发布
+仓库的 `Manual Check` GitHub Actions 工作流只支持手动触发，PR 不会自动运行它。
 
-正式 Release 由 GitHub Actions 从 `v*` tag 构建，不手动上传本地产物。版本文件、签名、
-tag 和发布边界见 [VERSIONING.md](VERSIONING.md) 与 [docs/UPDATER.md](docs/UPDATER.md)。
-不要在普通贡献中运行 `bun run version:*`；该脚本会更新版本文件、提交、创建 tag 并推送远程。
+## 提交 Pull Request
 
-## 问题与安全
+从最新 `main` 创建短分支。提交信息使用
+[Conventional Commits](https://www.conventionalcommits.org/)，例如：
 
-- 普通 Bug 请使用 GitHub Issues，附上 ACLOS 版本（如知道）和脱敏日志。
-- 功能建议请描述用户问题，不要只提交实现方案。
-- 安全问题请参阅 [SECURITY.md](SECURITY.md)，不要公开发 Issue。
-- 讨论行为与数据格式前，请先查看 [docs/README.md](docs/README.md) 中的唯一事实源。
+```text
+feat(gui): add a performance filter
+fix(parser): handle an empty snapshot
+docs: clarify first use
+```
+
+一个提交只处理一个可以独立理解和回退的问题。PR 中说明用户会看到什么变化、实际运行
+了哪些检查，以及还有哪些 Windows 行为没有验证。
+
+普通 Bug 和功能建议可以提交 GitHub Issue。安全漏洞请按 [安全策略](SECURITY.md) 使用
+GitHub 的私密报告入口，不要公开漏洞细节或敏感数据。
